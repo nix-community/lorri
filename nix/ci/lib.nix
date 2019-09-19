@@ -14,6 +14,15 @@ let
   #   "set": overwrite PATH, set it to $1
   #   "append": append the given $1 to PATH
   #   "prepend": prepend the given $1 to PATH
+  #
+  # Example:
+  #
+  # ${pathAdd "prepend"} foo
+  #  => foo:$PATH
+  # ${pathAdd "append"} foo
+  #  => $PATH:foo
+  # ${pathAdd "set"} foo
+  #  => foo
   pathAdd = mode:
     let
       exec = [ "exec" "$@" ];
