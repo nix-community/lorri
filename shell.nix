@@ -46,7 +46,6 @@ let
     pkgs.rustfmt
     pkgs.git
     pkgs.direnv
-    pkgs.shellcheck
     (pkgs.carnix.overrideAttrs (old: { patches = old.patches or [] ++ [ ./nix/carnix.patch ]; }))
     pkgs.nix-prefetch-git
     pkgs.nixpkgs-fmt
@@ -134,7 +133,7 @@ pkgs.mkShell (
 
         set -x
 
-        ./script-tests/run-all.sh
+        ${ci.tests.shellcheck.test}
         scripttests=$?
 
         ${ci.tests.cargo-test.test}
@@ -189,6 +188,12 @@ pkgs.mkShell (
         export NIX_LDFLAGS="-F${pkgs.darwin.apple_sdk.frameworks.CoreFoundation}/Library/Frameworks -framework CoreFoundation $NIX_LDFLAGS"
       ''
     );
+
+    passthru = {
+      inherit
+        ci
+        ;
+    };
 
     preferLocalBuild = true;
     allowSubstitutes = false;
