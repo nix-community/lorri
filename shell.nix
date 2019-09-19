@@ -109,20 +109,12 @@ pkgs.mkShell (
         carnixdiff=$?
         carnixupdate=$((carnixupdate + carnixdiff))
 
-        ${ci.tests.cargo-fmt.test}
-        cargofmtexit=$?
-
-        ${ci.tests.cargo-clippy.test}
-        cargoclippyexit=$?
-
         set +x
         echo "./nix/fmt.sh --check: $nix_fmt"
         echo "carnix update: $carnixupdate"
         echo "Cargo.nix changed: $carnixdiff"
-        echo "cargo fmt: $cargofmtexit"
-        echo "cargo clippy: $cargoclippyexit"
 
-        sum=$((manpage + nix_fmt + ciupdate + carnixupdate + cargofmtexit + cargoclippyexit))
+        sum=$((manpage + nix_fmt + ciupdate + carnixupdate))
         if [ "$sum" -gt 0 ]; then
           return 1
         fi
@@ -133,21 +125,13 @@ pkgs.mkShell (
 
         set -x
 
-        ${ci.tests.shellcheck.test}
-        scripttests=$?
-
-        ${ci.tests.cargo-test.test}
-        cargotestexit=$?
-
         git diff --quiet -- src/
         gendiff=$?
 
         set +x
-        echo "script tests: $scripttests"
         echo "generated files changed: $gendiff"
-        echo "cargo test: $cargotestexit"
 
-        sum=$((scripttest + cargotestexit + gendiff))
+        sum=$((gendiff))
         if [ "$sum" -gt 0 ]; then
           return 1
         fi
