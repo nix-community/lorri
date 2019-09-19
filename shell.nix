@@ -86,68 +86,9 @@ pkgs.mkShell (
       # watch the output to add lorri once it's built
       export PATH="$LORRI_ROOT/target/debug:$PATH"
 
-      function ci_lint() (
-        cd "$LORRI_ROOT";
-
-        set -x
-
-        ${import ./nix/mdoc-lint.nix { inherit pkgs; } ./lorri.1}
-        manpage=$?
-
-        ./nix/fmt.sh --check
-        nix_fmt=$?
-
-        ${import ./.github/workflows/ci.nix { inherit pkgs; }}
-        ciwrite=$?
-        git diff --quiet -- ./.github/workflows/ci.yml
-        cidiff=$?
-        ciupdate=$((ciwrite + cidiff))
-
-        ./nix/update-carnix.sh
-        carnixupdate=$?
-        git diff --quiet -- Cargo.nix
-        carnixdiff=$?
-        carnixupdate=$((carnixupdate + carnixdiff))
-
-        set +x
-        echo "./nix/fmt.sh --check: $nix_fmt"
-        echo "carnix update: $carnixupdate"
-        echo "Cargo.nix changed: $carnixdiff"
-
-        sum=$((manpage + nix_fmt + ciupdate + carnixupdate))
-        if [ "$sum" -gt 0 ]; then
-          return 1
-        fi
-      )
-
-      function ci_test() (
-        cd "$LORRI_ROOT";
-
-        set -x
-
-        git diff --quiet -- src/
-        gendiff=$?
-
-        set +x
-        echo "generated files changed: $gendiff"
-
-        sum=$((gendiff))
-        if [ "$sum" -gt 0 ]; then
-          return 1
-        fi
-      )
-
       function ci_check() (
-        ci_lint
-        lint=$?
-
-        ci_test
-        test=$?
-
-        sum=$((lint + test))
-        if [ "$sum" -gt 0 ]; then
-          return 1
-        fi
+        cd "$LORRI_ROOT";
+        ${ci.testsuite}
       )
 
       ${pkgs.lib.optionalString isDevelopmentShell ''

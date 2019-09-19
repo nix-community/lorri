@@ -46,7 +46,7 @@ let
     rust = { runs-on }: {
       name = "rust-${runs-on}";
       value = {
-        name = "Rust and ci_check (${runs-on})";
+        name = "Rust and CI tests (${runs-on})";
         inherit runs-on;
         steps = [
           (checkout {})
@@ -56,8 +56,15 @@ let
           print-path
           rust-cache
           {
-            name = "CI check";
-            run = "nix-shell --arg isDevelopmentShell false --run 'ci_check'";
+            name = "CI tests";
+            run = ''
+              nix-build \
+                --out-link ./ci-tests \
+                --arg isDevelopmentShell false \
+                -A ci.testsuite \
+                shell.nix \
+                && ./ci-tests
+            '';
           }
         ];
       };
