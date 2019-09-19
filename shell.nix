@@ -11,6 +11,8 @@ let
   # Keep project-specific shell commands local
   HISTFILE = "${toString ./.}/.bash_history";
 
+  ci = import ./nix/ci.nix { inherit pkgs LORRI_ROOT; };
+
   # Lorri-specific
 
   # The root directory of this project
@@ -108,15 +110,15 @@ pkgs.mkShell (
         carnixdiff=$?
         carnixupdate=$((carnixupdate + carnixdiff))
 
-        cargo fmt -- --check
+        ${ci.tests.cargo-fmt.test}
         cargofmtexit=$?
 
-        RUSTFLAGS='-D warnings' cargo clippy
+        ${ci.tests.cargo-clippy.test}
         cargoclippyexit=$?
 
         set +x
         echo "./nix/fmt.sh --check: $nix_fmt"
-        echo "carnix update: $carnixupdates"
+        echo "carnix update: $carnixupdate"
         echo "Cargo.nix changed: $carnixdiff"
         echo "cargo fmt: $cargofmtexit"
         echo "cargo clippy: $cargoclippyexit"
@@ -135,7 +137,7 @@ pkgs.mkShell (
         ./script-tests/run-all.sh
         scripttests=$?
 
-        cargo test
+        ${ci.tests.cargo-test.test}
         cargotestexit=$?
 
         git diff --quiet -- src/
