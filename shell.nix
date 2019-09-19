@@ -11,7 +11,7 @@ let
   # Keep project-specific shell commands local
   HISTFILE = "${toString ./.}/.bash_history";
 
-  ci = import ./nix/ci.nix { inherit pkgs LORRI_ROOT; };
+  ci = import ./nix/ci { inherit pkgs LORRI_ROOT; };
 
   # Lorri-specific
 
