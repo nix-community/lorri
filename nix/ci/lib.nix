@@ -38,6 +38,10 @@ let
           else abort "don’t know mode ${mode}"
         );
 
+  # Specialized pathAdd execline that prepends the `/bin` directories
+  # of a list of (store) paths to PATH.
+  pathPrependBins = paths: [ (pathAdd "prepend") (pkgs.lib.makeBinPath paths) ];
+
   # Takes a derivation and a list of binary names
   # and returns an attribute set of `name -> path`.
   # The list can also contain renames in the form of
@@ -80,6 +84,7 @@ in
   inherit
     allCommandsSucceed
     pathAdd
+    pathPrependBins
     getBins
     ;
 }

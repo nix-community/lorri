@@ -10,6 +10,7 @@ let
     allCommandsSucceed
     pathAdd
     getBins
+    pathPrependBins
     ;
 
   bins = getBins pkgs.shellcheck [ "shellcheck" ]
@@ -34,16 +35,18 @@ let
   cargoEnvironment =
     # we have to add the bin to PATH,
     # otherwise cargo doesn’t find its subcommands
-    [ (pathAdd "prepend") (pkgs.lib.makeBinPath [
+    pathPrependBins [
         # all cargo executables call themselves recursively, smh
         pkgs.rustc
         pkgs.gcc
         pkgs.rustfmt
         pkgs.clippy
         pkgs.cargo
-      ])
+    ]
+    ++ [
       "export" "BUILD_REV_COUNT" (toString BUILD_REV_COUNT)
-      "export" "RUN_TIME_CLOSURE" RUN_TIME_CLOSURE ];
+      "export" "RUN_TIME_CLOSURE" RUN_TIME_CLOSURE
+    ];
 
   cargo = name: setup: args:
     writeExecline name {} (cargoEnvironment ++ setup ++ [ bins.cargo ] ++ args);
@@ -73,7 +76,7 @@ let
       description = "run cargo test";
       test = cargo "cargo-test"
         # the tests need bash and nix and direnv
-        [ (pathAdd "prepend") (pkgs.lib.makeBinPath [ pkgs.coreutils pkgs.bash pkgs.nix pkgs.direnv ]) ]
+        (pathPrependBins [ pkgs.coreutils pkgs.bash pkgs.nix pkgs.direnv ])
         [ "test" ];
     };
 
@@ -89,8 +92,8 @@ let
       description = "check carnix up-to-date";
       test = writeExecline "lint-carnix" {}
         (cargoEnvironment
+        ++ pathPrependBins [ pkgs.carnix ]
         ++ [
-          (pathAdd "prepend") (pkgs.lib.makeBinPath [ pkgs.carnix ])
           "if" [ pkgs.runtimeShell "${LORRI_ROOT}/nix/update-carnix.sh" ]
           bins.git "diff" "--exit-code"
         ]);
@@ -209,10 +212,9 @@ let
     let
       # add a few things to bats’ path that should really be patched upstream instead
       # TODO: upstream
-      bats = writeExecline "bats" {} [
-        (pathAdd "prepend") (pkgs.lib.makeBinPath [ pkgs.coreutils pkgs.gnugrep ])
-        "${pkgs.bats}/bin/bats" "$@"
-      ];
+      bats = writeExecline "bats" {}
+        (pathPrependBins [ pkgs.coreutils pkgs.gnugrep ]
+        ++ [ "${pkgs.bats}/bin/bats" "$@" ]);
       # see https://github.com/bats-core/bats-core/blob/f3a08d5d004d34afb2df4d79f923d241b8c9c462/README.md#file-descriptor-3-read-this-if-bats-hangs
       closeFD3 = "3>&-";
     in name: tests: pkgs.lib.pipe testsWithEmptyEnv [
