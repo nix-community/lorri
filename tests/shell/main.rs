@@ -10,7 +10,7 @@ use lorri::{
 use std::env;
 use std::fs;
 use std::iter::FromIterator;
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 use std::process::Command;
 
 fn cargo_bin(name: &str) -> PathBuf {
@@ -68,23 +68,23 @@ fn project(name: &str, cache_dir: &AbsPathBuf) -> Project {
     fs::create_dir_all(&cas_dir).expect("failed to create CAS directory");
     Project::new(
         NixFile::from(AbsPathBuf::new_unchecked(test_root.join("shell.nix"))),
-        &cache_dir.join("gc_roots").as_absolute_path(),
+        &cache_dir.join("gc_roots"),
         ContentAddressable::new(cas_dir).unwrap(),
     )
     .unwrap()
 }
 
 fn build(project: &Project) -> PathBuf {
-    Path::new(
-        Roots::from_project(&project)
-            .create_roots(
-                builder::run(&project.nix_file, &project.cas, &NixOptions::empty())
-                    .unwrap()
-                    .result,
-            )
-            .unwrap()
-            .shell_gc_root
-            .as_os_str(),
-    )
-    .to_owned()
+    Roots::from_project(&project)
+        .create_roots(
+            builder::run(&project.nix_file, &project.cas, &NixOptions::empty())
+                .unwrap()
+                .result,
+        )
+        .unwrap()
+        .shell_gc_root
+        .0
+        .as_absolute_path()
+        .to_owned()
+
 }

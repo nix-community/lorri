@@ -1,6 +1,7 @@
 //! Handling of nix GC roots
 //!
 //! TODO: inline this module into `::project`
+use crate::{AbsPathBuf};
 use crate::builder::{OutputPaths, RootedPath};
 use crate::nix::StorePath;
 use crate::project::Project;
@@ -13,27 +14,20 @@ use std::path::{Path, PathBuf};
 #[derive(Clone)]
 pub struct Roots {
     /// The GC root directory in the lorri user cache dir
-    gc_root_path: PathBuf,
+    gc_root_path: AbsPathBuf,
     id: String,
 }
 
 /// A path to a gc root.
 #[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
-pub struct RootPath(pub PathBuf);
-
-impl RootPath {
-    /// Underlying `&OsStr`.
-    pub fn as_os_str(&self) -> &std::ffi::OsStr {
-        self.0.as_os_str()
-    }
-}
+pub struct RootPath(pub AbsPathBuf);
 
 impl OutputPaths<RootPath> {
     /// Check whether all all GC roots exist.
     pub fn all_exist(&self) -> bool {
         let crate::builder::OutputPaths { shell_gc_root } = self;
 
-        shell_gc_root.0.exists()
+        shell_gc_root.0.as_absolute_path().exists()
     }
 }
 
@@ -50,7 +44,7 @@ impl Roots {
     /// and ID.
     pub fn from_project(project: &Project) -> Roots {
         Roots {
-            gc_root_path: project.gc_root_path.to_path_buf(),
+            gc_root_path: project.gc_root_path.clone(),
             id: project.hash().to_string(),
         }
     }
@@ -79,17 +73,16 @@ where {
     /// Store a new root under name
     fn add(&self, name: &str, store_path: &StorePath) -> Result<RootPath, AddRootError> {
         // final path in the `self.gc_root_path` directory
-        let mut path = self.gc_root_path.clone();
-        path.push(name);
+        let path = self.gc_root_path.join(name);
 
-        debug!("adding root"; "from" => store_path.as_path().to_str(), "to" => path.to_str());
-        std::fs::remove_file(&path).or_else(|e| AddRootError::remove(e, &path))?;
+        debug!("adding root"; "from" => store_path.as_path().to_str(), "to" => path.display());
+        std::fs::remove_file(&path).or_else(|e| AddRootError::remove(e, &path.as_absolute_path()))?;
 
-        std::fs::remove_file(&path).or_else(|e| AddRootError::remove(e, &path))?;
+        std::fs::remove_file(&path).or_else(|e| AddRootError::remove(e, &path.as_absolute_path()))?;
 
         // the forward GC root that points from the store path to our cache gc_roots dir
         std::os::unix::fs::symlink(store_path.as_path(), &path)
-            .map_err(|e| AddRootError::symlink(e, store_path.as_path(), &path))?;
+            .map_err(|e| AddRootError::symlink(e, store_path.as_path(), path.as_absolute_path()))?;
 
         // the reverse GC root that points from nix to our cache gc_roots dir
         let mut root = if let Ok(path) = env::var("NIX_STATE_DIR") {
@@ -111,11 +104,11 @@ where {
 
         root.push(format!("{}-{}", self.id, name));
 
-        debug!("connecting root"; "from" => path.to_str(), "to" => root.to_str());
+        debug!("connecting root"; "from" => path.display(), "to" => root.to_str());
         std::fs::remove_file(&root).or_else(|e| AddRootError::remove(e, &root))?;
 
         std::os::unix::fs::symlink(&path, &root)
-            .map_err(|e| AddRootError::symlink(e, &path, &root))?;
+            .map_err(|e| AddRootError::symlink(e, path.as_absolute_path(), &root))?;
 
         // TODO: don’t return the RootPath here
         Ok(RootPath(path))

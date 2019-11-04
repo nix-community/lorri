@@ -27,8 +27,8 @@ pub fn main(opts: crate::cli::DaemonOptions) -> OpResult {
 
     let paths = crate::ops::get_paths()?;
     daemon.serve(
-        SocketPath::from(paths.daemon_socket_file()),
-        paths.gc_root_dir().to_path_buf(),
+        SocketPath::from(paths.daemon_socket_file().clone()),
+        paths.gc_root_dir(),
         paths.cas_store().clone(),
     )?;
     build_handle

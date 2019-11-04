@@ -1,17 +1,18 @@
 //! `bind()`ing & `connect()`ing to sockets.
 
 use std::os::unix::io::AsRawFd;
-use std::path::{Path, PathBuf};
+use std::path::{Path};
+use crate::{AbsPathBuf};
 
 /// Small wrapper that makes sure lorri sockets are handled correctly.
 #[derive(Clone)]
-pub struct SocketPath(pub PathBuf);
+pub struct SocketPath(AbsPathBuf);
 
 /// Binding to the socket failed.
 #[derive(Debug)]
 pub enum BindError {
     /// Another process is listening on the socket
-    OtherProcessListening(PathBuf),
+    OtherProcessListening(AbsPathBuf),
     /// I/O error
     Io(std::io::Error),
     /// nix library I/O error (like Io)
@@ -36,8 +37,8 @@ pub struct BindLock(std::fs::File);
 impl SocketPath {
     /// Create from the path of the socket.
     /// Must be passed a valid socket file path (ending in a file name).
-    pub fn from(socket_path: &Path) -> SocketPath {
-        SocketPath(socket_path.to_path_buf())
+    pub fn from(socket_path: AbsPathBuf) -> SocketPath {
+        SocketPath(socket_path)
     }
 
     /// Try to lock the lock file to find outswhether another process is listening.
@@ -59,7 +60,7 @@ impl SocketPath {
     }
 
     /// The absolute path of the socket.
-    pub fn path(&self) -> &Path {
+    pub fn as_absolute_path(&self) -> &Path {
         self.0.as_ref()
     }
 
@@ -68,10 +69,11 @@ impl SocketPath {
         format!("unix:{}", self.0.display())
     }
 
-    fn lockfile(&self) -> PathBuf {
+    fn lockfile(&self) -> AbsPathBuf {
         self.0.with_file_name({
             let mut s = self
                 .0
+                .as_absolute_path()
                 .file_name()
                 .unwrap_or_else(|| panic!("Socket file ({:?}) must end in a file name", self.0))
                 .to_owned();
@@ -88,7 +90,7 @@ mod test {
     #[test]
     fn lock_is_exclusive() {
         let tempdir = tempfile::tempdir().unwrap();
-        let p = tempdir.path().join("socket");
+        let p = AbsPathBuf::new_unchecked(tempdir.path().join("socket"));
         let _lock = SocketPath(p.clone())
             .lock()
             .expect("first locking attempt should succeed");

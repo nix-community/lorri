@@ -9,7 +9,6 @@ use crate::project::{roots::Roots, Project};
 use slog_scope::debug;
 use std::io;
 use std::io::Write;
-use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -137,13 +136,11 @@ fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
         })?
         .result;
 
-    Ok(Path::new(
-        Roots::from_project(&project)
+    Ok(Roots::from_project(&project)
             .create_roots(run_result)
             .map_err(|e| ExitError::temporary(format!("rooting the environment failed: {}", e)))?
             .shell_gc_root
-            .as_os_str(),
-    )
+            .0.as_absolute_path()
     .to_owned())
 }
 
@@ -154,7 +151,7 @@ fn cached_root(project: &Project) -> Result<PathBuf, ExitError> {
             "project has not previously been built successfully",
         ))
     } else {
-        Ok(Path::new(root_paths.shell_gc_root.as_os_str()).to_owned())
+        Ok(root_paths.shell_gc_root.0.as_absolute_path().to_owned())
     }
 }
 

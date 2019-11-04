@@ -24,7 +24,9 @@ pub struct DirenvTestCase {
 impl DirenvTestCase {
     pub fn new(name: &str) -> DirenvTestCase {
         let projectdir = tempdir().expect("tempfile::tempdir() failed us!");
-        let cachedir = tempdir().expect("tempfile::tempdir() failed us!");
+        let cachedir_tmp = tempdir().expect("tempfile::tempdir() failed us!");
+        let cachedir = AbsPathBuf::new_unchecked(cachedir_tmp.path().to_owned());
+
 
         let test_root =
             PathBuf::from_iter(&[env!("CARGO_MANIFEST_DIR"), "tests", "integration", name]);
@@ -32,21 +34,21 @@ impl DirenvTestCase {
         let shell_file = NixFile::from(AbsPathBuf::new_unchecked(test_root.join("shell.nix")));
 
         let cas = ContentAddressable::new(
-            AbsPathBuf::new_unchecked(cachedir.path().to_owned())
+            cachedir
                 .join("cas")
                 .to_owned(),
         )
         .unwrap();
         let project = Project::new(
             shell_file.clone(),
-            &cachedir.path().join("gc_roots").to_owned(),
+            &cachedir.join("gc_roots"),
             cas,
         )
         .unwrap();
 
         DirenvTestCase {
             projectdir,
-            cachedir,
+            cachedir: cachedir_tmp,
             project,
         }
     }
