@@ -11,7 +11,7 @@ use crate::cas::ContentAddressable;
 use crate::error::BuildError;
 use crate::nix::{options::NixOptions, StorePath};
 use crate::osstrlines;
-use crate::{DrvFile, NixFile};
+use crate::{DrvFile, NixFile, AbsPathBuf};
 use regex::Regex;
 use slog_scope::debug;
 use std::ffi::{OsStr, OsString};
@@ -384,7 +384,8 @@ in {}
 
         // build, because instantiate doesn’t return the build output (obviously …)
         run(
-            &crate::NixFile::from_absolute_path_unchecked(cas.file_from_string(&nix_drv)?),
+            &crate::NixFile::from(crate::AbsPathBuf::new_unchecked(cas.file_from_string(&nix_drv)?)
+            ),
             &cas,
             &NixOptions::empty(),
         )
@@ -398,10 +399,12 @@ in {}
         let tmp = tempfile::tempdir()?;
         let cas = ContentAddressable::new(tmp.path().to_owned())?;
 
-        let d = crate::NixFile::from_absolute_path_unchecked(cas.file_from_string(&drv(
-            "shell",
-            &format!("dep = {};", drv("dep", r##"args = [ "-c" "exit 1" ];"##)),
-        ))?);
+        let d = crate::NixFile::from(crate::AbsPathBuf::new_unchecked(cas.file_from_string(
+            &drv(
+                "shell",
+                &format!("dep = {};", drv("dep", r##"args = [ "-c" "exit 1" ];"##)),
+            ),
+        )?));
 
         if let Err(BuildError::Exit { .. }) = run(&d, &cas, &NixOptions::empty()) {
         } else {
@@ -461,7 +464,7 @@ dir-as-source = ./dir;
         let cas = ContentAddressable::new(cas_tmp.path().join("cas"))?;
 
         let inst_info = instrumented_instantiation(
-            &NixFile::from_absolute_path_unchecked(shell),
+            &NixFile::from(AbsPathBuf::new_unchecked(shell)),
             &cas,
             &NixOptions::empty(),
         )

@@ -3,7 +3,7 @@
 
 use lorri::{
     build_loop::BuildLoop, builder, cas::ContentAddressable, error::BuildError,
-    nix::options::NixOptions, ops::direnv, project::roots, project::Project, NixFile,
+    nix::options::NixOptions, ops::direnv, project::roots, project::Project, NixFile, AbsPathBuf
 };
 use std::collections::hash_map::Keys;
 use std::collections::HashMap;
@@ -29,7 +29,7 @@ impl DirenvTestCase {
         let test_root =
             PathBuf::from_iter(&[env!("CARGO_MANIFEST_DIR"), "tests", "integration", name]);
 
-        let shell_file = NixFile::from_absolute_path_unchecked(test_root.join("shell.nix"));
+        let shell_file = NixFile::from(AbsPathBuf::new_unchecked(test_root.join("shell.nix")));
 
         let cas = ContentAddressable::new(cachedir.path().join("cas").to_owned()).unwrap();
         let project = Project::new(

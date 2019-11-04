@@ -38,7 +38,7 @@ pub fn start_job_with_ping() -> std::io::Result<()> {
     connect(&address, Duration::from_millis(1000));
 
     lorri::ops::ping::main(
-        lorri::NixFile::from_absolute_path_unchecked(shell_nix),
+        lorri::NixFile::from(lorri::AbsPathBuf::new_unchecked(shell_nix)),
         Some(address),
     )
     .unwrap();
