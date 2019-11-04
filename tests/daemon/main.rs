@@ -37,7 +37,11 @@ pub fn start_job_with_ping() -> std::io::Result<()> {
 
     connect(&address, Duration::from_millis(1000));
 
-    lorri::ops::ping::main(lorri::NixFile::from(shell_nix), Some(address)).unwrap();
+    lorri::ops::ping::main(
+        lorri::NixFile::from_absolute_path_unchecked(shell_nix),
+        Some(address),
+    )
+    .unwrap();
 
     // Read the first build event, which should be a `Started` message
     match build_rx.recv_timeout(Duration::from_millis(1000)).unwrap() {

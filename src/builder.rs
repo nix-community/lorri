@@ -81,7 +81,7 @@ fn instrumented_instantiation(
         // the source file
         OsStr::new("--argstr"),
     ]);
-    cmd.args(&[OsStr::new("src"), nix_file.as_path().as_os_str()]);
+    cmd.args(&[OsStr::new("src"), nix_file.as_absolute_path().as_os_str()]);
     cmd.args(&[
         // instrumented by `./logged-evaluation.nix`
         OsStr::new("--"),
@@ -384,7 +384,7 @@ in {}
 
         // build, because instantiate doesn’t return the build output (obviously …)
         run(
-            &crate::NixFile(cas.file_from_string(&nix_drv)?),
+            &crate::NixFile::from_absolute_path_unchecked(cas.file_from_string(&nix_drv)?),
             &cas,
             &NixOptions::empty(),
         )
@@ -398,7 +398,7 @@ in {}
         let tmp = tempfile::tempdir()?;
         let cas = ContentAddressable::new(tmp.path().to_owned())?;
 
-        let d = crate::NixFile(cas.file_from_string(&drv(
+        let d = crate::NixFile::from_absolute_path_unchecked(cas.file_from_string(&drv(
             "shell",
             &format!("dep = {};", drv("dep", r##"args = [ "-c" "exit 1" ];"##)),
         ))?);
@@ -460,8 +460,12 @@ dir-as-source = ./dir;
 
         let cas = ContentAddressable::new(cas_tmp.path().join("cas"))?;
 
-        let inst_info =
-            instrumented_instantiation(&NixFile(shell), &cas, &NixOptions::empty()).unwrap();
+        let inst_info = instrumented_instantiation(
+            &NixFile::from_absolute_path_unchecked(shell),
+            &cas,
+            &NixOptions::empty(),
+        )
+        .unwrap();
         let ends_with = |end| inst_info.referenced_paths.iter().any(|p| p.ends_with(end));
         assert!(
             ends_with("foo/default.nix"),

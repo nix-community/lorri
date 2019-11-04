@@ -68,26 +68,21 @@ include!(concat!(env!("OUT_DIR"), "/build_rev.rs"));
 pub struct NixFile(PathBuf);
 
 impl NixFile {
-    /// Underlying `Path`.
-    pub fn as_path(&self) -> &Path {
+    /// Convert from a known absolute path.
+    ///
+    /// Passing a relative path is a programming bug (unchecked).
+    pub fn from_absolute_path_unchecked(path: PathBuf) -> Self {
+        NixFile(path)
+    }
+
+    /// Absolute path of this file
+    pub fn as_absolute_path(&self) -> &Path {
         &self.0
     }
 
     /// Display the underlying path
     pub fn display(&self) -> std::path::Display {
         self.0.display()
-    }
-}
-
-impl From<PathBuf> for NixFile {
-    fn from(p: PathBuf) -> NixFile {
-        NixFile(p)
-    }
-}
-
-impl From<String> for NixFile {
-    fn from(s: String) -> Self {
-        NixFile(PathBuf::from(s))
     }
 }
 
@@ -98,7 +93,7 @@ impl slog::Value for NixFile {
         key: slog::Key,
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
-        serializer.emit_arguments(key, &format_args!("{}", self.as_path().display()))
+        serializer.emit_arguments(key, &format_args!("{}", self.as_absolute_path().display()))
     }
 }
 

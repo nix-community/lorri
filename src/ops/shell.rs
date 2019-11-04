@@ -63,7 +63,7 @@ pub fn main(project: Project, opts: ShellOptions) -> OpResult {
             &shell,
             project
                 .nix_file
-                .as_path()
+                .as_absolute_path()
                 .to_str()
                 .expect("Nix file path not UTF-8 clean"),
         ])

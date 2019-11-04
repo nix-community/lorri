@@ -35,7 +35,12 @@ fn loads_env() {
         .args(&[
             "shell",
             "--shell-file",
-            project.nix_file.as_path().as_os_str().to_str().unwrap(),
+            project
+                .nix_file
+                .as_absolute_path()
+                .as_os_str()
+                .to_str()
+                .unwrap(),
         ])
         .current_dir(&tempdir)
         .output()
@@ -61,7 +66,7 @@ fn project(name: &str, cache_dir: &Path) -> Project {
     let cas_dir = cache_dir.join("cas").to_owned();
     fs::create_dir_all(&cas_dir).expect("failed to create CAS directory");
     Project::new(
-        NixFile::from(test_root.join("shell.nix")),
+        NixFile::from_absolute_path_unchecked(test_root.join("shell.nix")),
         &cache_dir.join("gc_roots").to_owned(),
         ContentAddressable::new(cas_dir).unwrap(),
     )

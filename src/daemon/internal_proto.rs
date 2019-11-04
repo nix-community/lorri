@@ -76,7 +76,7 @@ impl internal_proto::VarlinkInterface for Server {
         if p.is_file() {
             self.activity_tx
                 .send(IndicateActivity {
-                    nix_file: NixFile::from(p),
+                    nix_file: NixFile::from_absolute_path_unchecked(p),
                 })
                 .expect("failed to indicate activity via channel");
             call.reply()
@@ -96,7 +96,7 @@ fn try_file_to_string(file: &std::path::Path) -> Result<String, String> {
 
 // TODO: remove when switching to a protocol that can do [u8]
 fn try_nix_file_to_string(file: &NixFile) -> Result<String, String> {
-    try_file_to_string(file.as_path())
+    try_file_to_string(file.as_absolute_path())
 }
 
 // TODO: remove when switchint to a protocol that can do [u8]
@@ -206,7 +206,9 @@ impl TryFrom<proto::Reason> for build_loop::Event {
 
     fn try_from(r: proto::Reason) -> Result<Self, Self::Error> {
         Ok(build_loop::Event::Started {
-            nix_file: NixFile::from(r.project.clone().ok_or("missing nix file!")?),
+            nix_file: NixFile::from_absolute_path_unchecked(PathBuf::from(
+                r.project.clone().ok_or("missing nix file!")?,
+            )),
             reason: r.try_into()?,
         })
     }
@@ -253,9 +255,9 @@ impl TryFrom<proto::Reason> for build_loop::Reason {
 
         Ok(match rr.kind {
             ping_received => Reason::PingReceived,
-            project_added => {
-                Reason::ProjectAdded(NixFile::from(rr.project.ok_or("missing nix file!")?))
-            }
+            project_added => Reason::ProjectAdded(NixFile::from_absolute_path_unchecked(
+                PathBuf::from(rr.project.ok_or("missing nix file!")?),
+            )),
             files_changed => Reason::FilesChanged(
                 rr.files
                     .ok_or("missing files!")?
@@ -293,7 +295,7 @@ impl TryFrom<proto::Outcome> for build_loop::Event {
         use crate::builder;
         use crate::project::roots;
         Ok(build_loop::Event::Completed {
-            nix_file: NixFile::from(o.nix_file.clone()),
+            nix_file: NixFile::from_absolute_path_unchecked(PathBuf::from(o.nix_file)),
             rooted_output_paths: builder::OutputPaths {
                 shell_gc_root: roots::RootPath(PathBuf::from(o.project_root)),
             },
@@ -364,7 +366,7 @@ impl TryFrom<proto::Failure> for build_loop::Event {
 
     fn try_from(f: proto::Failure) -> Result<Self, Self::Error> {
         Ok(build_loop::Event::Failure {
-            nix_file: NixFile::from(f.nix_file.clone()),
+            nix_file: NixFile::from_absolute_path_unchecked(PathBuf::from(f.nix_file.clone())),
             failure: f.try_into()?,
         })
     }
@@ -419,7 +421,7 @@ impl TryFrom<&NixFile> for internal_proto::ShellNix {
     type Error = &'static str;
 
     fn try_from(nix_file: &NixFile) -> Result<Self, Self::Error> {
-        match nix_file.as_path().as_os_str().to_str() {
+        match nix_file.as_absolute_path().as_os_str().to_str() {
             Some(s) => Ok(internal_proto::ShellNix {
                 path: s.to_string(),
             }),
@@ -430,6 +432,6 @@ impl TryFrom<&NixFile> for internal_proto::ShellNix {
 
 impl From<internal_proto::ShellNix> for NixFile {
     fn from(shell_nix: internal_proto::ShellNix) -> Self {
-        Self::from(shell_nix.path)
+        Self::from_absolute_path_unchecked(PathBuf::from(shell_nix.path))
     }
 }
