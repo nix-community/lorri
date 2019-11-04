@@ -24,7 +24,7 @@ pub fn start_job_with_ping() -> std::io::Result<()> {
 
     let socket_path = SocketPath::from(&tempdir.path().join("socket"));
     let address = socket_path.address();
-    let cas = ContentAddressable::new(tempdir.path().join("cas")).unwrap();
+    let cas = ContentAddressable::new(lorri::AbsPathBuf::new_unchecked(tempdir.path().join("cas"))).unwrap();
     let gc_root_dir = tempdir.path().join("gc_root").to_path_buf();
 
     // The daemon knows how to build stuff

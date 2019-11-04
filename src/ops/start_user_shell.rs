@@ -47,7 +47,7 @@ PS1="(lorri) $PS1"
                 .expect("failed to write bash init script");
             cmd.args(&[
                 "--rcfile",
-                rcfile.to_str().expect("file path not UTF-8 clean"),
+                rcfile.as_absolute_path().to_str().expect("file path not UTF-8 clean"),
             ]);
         }
         "zsh" => {

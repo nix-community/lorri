@@ -105,7 +105,7 @@ pub fn main(upgrade_target: cli::UpgradeTo, cas: &ContentAddressable) -> OpResul
             UpgradeSource::Local(ref p) => println!("Upgrading from local path: {}", p.display()),
         }
 
-        let mut expr = nix::CallOpts::file(&upgrade_expr);
+        let mut expr = nix::CallOpts::file(&upgrade_expr.as_absolute_path());
 
         match src {
             UpgradeSource::Branch(b) => {

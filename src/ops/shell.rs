@@ -180,6 +180,7 @@ EVALUATION_ROOT="{}"
     cmd.env(
         "BASH_ENV",
         init_file
+            .as_absolute_path()
             .to_str()
             .expect("script file path not UTF-8 clean"),
     );
