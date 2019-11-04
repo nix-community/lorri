@@ -60,8 +60,10 @@ fn install_signal_handler() {
     .expect("Error setting SIGINT and SIGTERM handler");
 }
 
-/// Try to read `shell.nix` from the current working dir.
-fn get_shell_nix(shellfile: &PathBuf) -> Result<NixFile, ExitError> {
+/// Reads a nix filename given by the user and either returns
+/// the `NixFile` type or exists with a helpful error message
+/// that instructs the user how to write a minimal `shell.nix`.
+fn find_nix_file(shellfile: &PathBuf) -> Result<NixFile, ExitError> {
     // use shell.nix from cwd
     Ok(NixFile::from_absolute_path_unchecked(
         locate_file::in_cwd(&shellfile).map_err(|_| {
@@ -89,7 +91,7 @@ fn run_command(log: slog::Logger, opts: Arguments) -> OpResult {
     // one of them so the logger gets set up correctly.
     let without_project = || slog_scope::set_global_logger(log.clone());
     let with_project = |nix_file| -> std::result::Result<(Project, GlobalLoggerGuard), ExitError> {
-        let project = create_project(&lorri::ops::get_paths()?, get_shell_nix(nix_file)?)?;
+        let project = create_project(&lorri::ops::get_paths()?, find_nix_file(nix_file)?)?;
         let guard = slog_scope::set_global_logger(log.new(o!("expr" => project.nix_file.clone())));
         Ok((project, guard))
     };
@@ -129,7 +131,7 @@ fn run_command(log: slog::Logger, opts: Arguments) -> OpResult {
         Command::Internal { command } => match command {
             Internal_::Ping_(opts) => {
                 let _guard = without_project();
-                get_shell_nix(&opts.nix_file).and_then(|nf| ping::main(nf, opts.socket_address))
+                find_nix_file(&opts.nix_file).and_then(|nf| ping::main(nf, opts.socket_address))
             }
             Internal_::StartUserShell_(opts) => {
                 let (project, _guard) = with_project(&opts.nix_file)?;
