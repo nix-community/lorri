@@ -3,10 +3,8 @@
 let
 
   # remove everything but a few selected environment variables
-  runInEmptyEnv = additionalVars:
+  runInEmptyEnv = keepVars:
     let
-        baseVars = [ "USER" "HOME" "TERM" ];
-        keepVars = baseVars ++ additionalVars;
         importas = pkgs.lib.concatMap (var: [ "importas" "-D" "" var var ]) keepVars;
         # we have to explicitely call export here, because PATH is probably empty
         export = pkgs.lib.concatMap (var: [ "${pkgs.execline}/bin/export" var ''''${${var}}'' ]) keepVars;
