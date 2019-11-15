@@ -23,10 +23,10 @@ pub fn start_job_with_ping() -> std::io::Result<()> {
     let shell_nix = tempdir.as_ref().join("shell.nix");
     std::fs::File::create(&shell_nix)?;
 
-    let socket_path = SocketPath::from(AbsPathBuf::new_unchecked(tempdir.path().to_owned()).join("socket"));
+    let socket_path = SocketPath::from(AbsPathBuf::new(tempdir.path().to_owned()).unwrap().join("socket"));
     let address = socket_path.address();
-    let cas = ContentAddressable::new(AbsPathBuf::new_unchecked(tempdir.path().join("cas"))).unwrap();
-    let gc_root_dir = lorri::AbsPathBuf::new_unchecked(tempdir.path().to_owned()).join("gc_root");
+    let cas = ContentAddressable::new(AbsPathBuf::new(tempdir.path().join("cas")).unwrap()).unwrap();
+    let gc_root_dir = lorri::AbsPathBuf::new(tempdir.path().to_owned()).unwrap().join("gc_root");
 
     // The daemon knows how to build stuff
     let (mut daemon, build_rx) = Daemon::new(NixOptions::empty());
@@ -39,7 +39,7 @@ pub fn start_job_with_ping() -> std::io::Result<()> {
     connect(&address, Duration::from_millis(1000));
 
     lorri::ops::ping::main(
-        lorri::NixFile::from(lorri::AbsPathBuf::new_unchecked(shell_nix)),
+        lorri::NixFile::from(lorri::AbsPathBuf::new(shell_nix).unwrap()),
         Some(address),
     )
     .unwrap();

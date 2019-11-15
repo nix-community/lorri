@@ -90,7 +90,7 @@ mod test {
     #[test]
     fn lock_is_exclusive() {
         let tempdir = tempfile::tempdir().unwrap();
-        let p = AbsPathBuf::new_unchecked(tempdir.path().join("socket"));
+        let p = AbsPathBuf::new(tempdir.path().join("socket")).unwrap();
         let _lock = SocketPath(p.clone())
             .lock()
             .expect("first locking attempt should succeed");

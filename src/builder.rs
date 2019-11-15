@@ -357,7 +357,7 @@ derivation {{
     #[test]
     fn non_utf8_nix_output() -> std::io::Result<()> {
         let tmp = tempfile::tempdir()?;
-        let cas = ContentAddressable::new(crate::AbsPathBuf::new_unchecked(tmp.path().to_owned()))?;
+        let cas = ContentAddressable::new(crate::AbsPathBuf::new(tmp.path().to_owned()).unwrap())?;
 
         let inner_drv = drv(
             "dep",
@@ -398,7 +398,7 @@ in {}
     #[test]
     fn gracefully_handle_failing_build() -> std::io::Result<()> {
         let tmp = tempfile::tempdir()?;
-        let cas = ContentAddressable::new(crate::AbsPathBuf::new_unchecked(tmp.path().to_owned()))?;
+        let cas = ContentAddressable::new(crate::AbsPathBuf::new(tmp.path().to_owned()).unwrap())?;
 
         let d = crate::NixFile::from(cas.file_from_string(&drv(
             "shell",
@@ -461,10 +461,10 @@ dir-as-source = ./dir;
         std::fs::write(&foo_baz, "\"This file should be watched\"")?;
 
         let cas =
-            ContentAddressable::new(crate::AbsPathBuf::new_unchecked(cas_tmp.path().join("cas")))?;
+            ContentAddressable::new(crate::AbsPathBuf::new(cas_tmp.path().join("cas")).unwrap())?;
 
         let inst_info = instrumented_instantiation(
-            &NixFile::from(AbsPathBuf::new_unchecked(shell)),
+            &NixFile::from(AbsPathBuf::new(shell).unwrap()),
             &cas,
             &NixOptions::empty(),
         )
