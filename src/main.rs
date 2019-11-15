@@ -2,7 +2,7 @@ use lorri::cli::{Arguments, Command, Internal_};
 use lorri::constants;
 use lorri::locate_file;
 use lorri::logging;
-use lorri::{AbsPathBuf, NixFile};
+use lorri::{NixFile};
 use lorri::ops::error::{ExitError, OpResult};
 use lorri::ops::{
     daemon, direnv, info, init, ping, shell, start_user_shell, stream_events, upgrade, watch,
@@ -66,8 +66,7 @@ fn install_signal_handler() {
 fn find_nix_file(shellfile: &PathBuf) -> Result<NixFile, ExitError> {
     // use shell.nix from cwd
     Ok(NixFile::from(
-        // `::in_cwd` is guaranteed to return an absolute path
-        AbsPathBuf::new(locate_file::in_cwd(&shellfile).map_err(|_| {
+        locate_file::in_cwd(&shellfile).map_err(|_| {
             ExitError::user_error(format!(
                 "`{}` does not exist\n\
                  You can use the following minimal `shell.nix` to get started:\n\n\
@@ -75,7 +74,7 @@ fn find_nix_file(shellfile: &PathBuf) -> Result<NixFile, ExitError> {
                 shellfile.display(),
                 TRIVIAL_SHELL_SRC
             ))
-        })?).expect("in_cwd didn’t return an absolute path"),
+        })?
     ))
 }
 
