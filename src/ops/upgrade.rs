@@ -1,7 +1,7 @@
 //! Upgrade lorri by using nix-env to install from Git.
 //!
 //! This is useful for pointing users to an fix to a reported bug,
-//! or for users who want to follow the lorri master locally.
+//! or for users who want to follow the lorri canon locally.
 //!
 //! Originally it was used as pre-release, that’s why there is support
 //! for updating to a special rolling-release branch.
@@ -43,7 +43,8 @@ impl UpgradeSource {
             cli::UpgradeSource::RollingRelease => {
                 UpgradeSource::Branch(String::from("rolling-release"))
             }
-            cli::UpgradeSource::Master => UpgradeSource::Branch(String::from("master")),
+            cli::UpgradeSource::Master => UpgradeSource::Branch(String::from("canon")),
+            cli::UpgradeSource::Canon => UpgradeSource::Branch(String::from("canon")),
             cli::UpgradeSource::Branch(b) => UpgradeSource::Branch(b.branch),
             cli::UpgradeSource::Local(dest) => {
                 // make it absolute to not confuse ./upgrade.nix

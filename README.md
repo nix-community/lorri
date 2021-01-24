@@ -3,7 +3,7 @@
 https://github.com/nix-community/lorri
 
 [![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
-![CI](https://github.com/nix-community/lorri/workflows/CI/badge.svg?branch=master)
+![CI](https://github.com/nix-community/lorri/workflows/CI/badge.svg?branch=canon)
 
 lorri is a `nix-shell` replacement for project development. lorri is
 based around fast direnv integration for robust CLI and editor
@@ -86,7 +86,7 @@ the following instructions will help you get started with lorri.
    Otherwise, install lorri from the repository as follows:
 
    ```console
-   $ nix-env -if https://github.com/nix-community/lorri/archive/master.tar.gz
+   $ nix-env -if https://github.com/nix-community/lorri/archive/canon.tar.gz
    ```
 
 2. **Start the daemon.** For testing, you can start the daemon in a separate
@@ -233,7 +233,7 @@ not expect. This can happen for a number of reasons:
 
 Upgrading lorri is easy with the `lorri self-upgrade` command.
 
-By default, the upgrade command will upgrade from the `master` branch.
+By default, the upgrade command will upgrade from the `canon` branch.
 
 Other upgrade options are available, including upgrading from a
 local clone. See `lorri self-upgrade --help` for more details.

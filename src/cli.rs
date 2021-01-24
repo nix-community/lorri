@@ -198,12 +198,16 @@ pub struct UpgradeTo {
 pub enum UpgradeSource {
     /// Upgrade to the current rolling-release version, will be
     /// fetched from git and built locally. rolling-release is
-    /// expected to be more stable than master. (default)
+    /// expected to be more stable than canon. (default)
     #[structopt(name = "rolling-release")]
     RollingRelease,
 
-    /// Upgrade to the current version from the master branch, which
-    /// will be fetched from git and built locally.
+    /// Upgrade to the current version from the canon (previously: master) branch,
+    /// which will be fetched from git and built locally.
+    #[structopt(name = "canon")]
+    Canon,
+
+    /// Alias for `canon`.
     #[structopt(name = "master")]
     Master,
 

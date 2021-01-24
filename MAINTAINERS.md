@@ -97,7 +97,7 @@ To update the lorri version in [nixpkgs][]:
 
    > @GrahamcOfBorg build lorri.tests
 
-2. **latest `nixos` stable**: _after_ the first PR has been merged into `master`,
+2. **latest `nixos` stable**: _after_ the first PR has been merged into nixpkgs `master`,
    if the new release is *not* a major version bump (aka a breaking change),
    follow the [backporting procedure][nixpkgs-backporting] to create a PR
    against `release-<latest-stable-release-date>` (e.g. `release-20.03`);

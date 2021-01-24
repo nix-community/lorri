@@ -24,7 +24,7 @@
 .Nm
 .Cm init
 .Nm
-.Cm self-upgrade Op Ar local Ar <path> | master | rolling-release
+.Cm self-upgrade Op Ar local Ar <path> | canon | rolling-release
 .Nm
 .Cm shell
 .Op Fl -cached
@@ -130,7 +130,7 @@ A direnv config with the
 call.
 .El
 .\"
-.It Nm Cm self-upgrade Op Ar local Ar <path> | master | rolling-release
+.It Nm Cm self-upgrade Op Ar local Ar <path> | canon | rolling-release
 Upgrade
 .Nm
 to a newer version.
@@ -139,14 +139,14 @@ This uses
 internally, and will install the new
 .Nm
 to your user profile.
-It is intended as a quick way to update to latest master, or to try out a specific branch.
+It is intended as a quick way to update to latest canon, or to try out a specific branch.
 .Pp
 .Ar local
 will use the
 .Nm
 checkout in
 .Ar <path> .
-.Ar master
+.Ar canon
 will update to the master branch of
 .Lk https://github.com/nix-community/lorri/ .
 .Ar rolling-release
