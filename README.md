@@ -288,7 +288,7 @@ evaluates your project.
 
 ### License & Copyright
 
-Copyright 2019 Target
+Copyright 2019–2020 Target, Copyright 2021 The Nix Community
 License: Apache 2.0 (see [`LICENSE` file](./LICENSE))
 
 ---
