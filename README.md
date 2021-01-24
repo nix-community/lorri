@@ -1,9 +1,9 @@
 # lorri
 
-https://github.com/target/lorri
+https://github.com/nix-community/lorri
 
 [![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
-![CI](https://github.com/target/lorri/workflows/CI/badge.svg?branch=master)
+![CI](https://github.com/nix-community/lorri/workflows/CI/badge.svg?branch=master)
 
 lorri is a `nix-shell` replacement for project development. lorri is
 based around fast direnv integration for robust CLI and editor
@@ -86,7 +86,7 @@ the following instructions will help you get started with lorri.
    Otherwise, install lorri from the repository as follows:
 
    ```console
-   $ nix-env -if https://github.com/target/lorri/archive/master.tar.gz
+   $ nix-env -if https://github.com/nix-community/lorri/archive/master.tar.gz
    ```
 
 2. **Start the daemon.** For testing, you can start the daemon in a separate
@@ -171,7 +171,7 @@ For pinning versions of software during development,
 
 ## Support & Questions
 
-Please use the [issue tracker](https://github.com/target/lorri/issues)
+Please use the [issue tracker](https://github.com/nix-community/lorri/issues)
 for any problems or bugs you encounter. We are on `#lorri` on
 `freenode` ([Webchat][]), though we might not be responsive at all
 times.

@@ -37,7 +37,7 @@ cargoLorri.override {
       # required by human-panic, because carnix doesn’t
       # set the cargo environment variables correctly.
       # see https://doc.rust-lang.org/cargo/reference/environment-variables.html
-      homepage = "https://github.com/target/lorri";
+      homepage = "https://github.com/nix-community/lorri";
 
       preConfigure = ''
         . ${./nix/pre-check.sh}

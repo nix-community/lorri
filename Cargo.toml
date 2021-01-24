@@ -7,7 +7,7 @@ version = "1.2.0" # Format: MAJOR.MINOR.0
 authors = [
   "Graham Christensen <graham.christensen@target.com>",
 ]
-homepage = "https://github.com/target/lorri"
+homepage = "https://github.com/nix-community/lorri"
 license = "Apache-2.0"
 edition = "2018"
 

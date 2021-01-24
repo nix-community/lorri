@@ -23,7 +23,7 @@ let
   inherit (builtins) fetchGit isFunction;
 
   fetchBranch = branch: fetchGit {
-    url = "https://github.com/target/lorri.git";
+    url = "https://github.com/nix-community/lorri.git";
     ref = branch;
   };
 

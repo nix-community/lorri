@@ -7,7 +7,7 @@ the procedures outlined below.
 ## Raising issues
 
 If you would like to fix a bug or request a bug fix, please [raise an
-issue](https://github.com/target/lorri/issues) so the issue can be documented
+issue](https://github.com/nix-community/lorri/issues) so the issue can be documented
 and discussed.
 
 ## How to contribute
