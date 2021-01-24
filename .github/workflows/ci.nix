@@ -15,7 +15,7 @@ let
     name = "Cachix";
     uses = "cachix/cachix-action@v8";
     "with" = {
-      name = "lorri-test";
+      name = "nix-community";
       signingKey = "\${{ secrets.CACHIX_SIGNING_KEY }}";
     };
   };
