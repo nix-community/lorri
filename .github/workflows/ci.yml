@@ -10,9 +10,9 @@ jobs:
       with:
         fetch-depth: null
     - name: Nix
-      uses: cachix/install-nix-action@v11
+      uses: cachix/install-nix-action@v12
     - name: Cachix
-      uses: cachix/cachix-action@v6
+      uses: cachix/cachix-action@v8
       with:
         name: lorri-test
         signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
@@ -27,9 +27,9 @@ jobs:
       with:
         fetch-depth: null
     - name: Nix
-      uses: cachix/install-nix-action@v11
+      uses: cachix/install-nix-action@v12
     - name: Cachix
-      uses: cachix/cachix-action@v6
+      uses: cachix/cachix-action@v8
       with:
         name: lorri-test
         signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
@@ -44,9 +44,9 @@ jobs:
       with:
         fetch-depth: 0
     - name: Nix
-      uses: cachix/install-nix-action@v11
+      uses: cachix/install-nix-action@v12
     - name: Cachix
-      uses: cachix/cachix-action@v6
+      uses: cachix/cachix-action@v8
       with:
         name: lorri-test
         signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
@@ -65,9 +65,9 @@ jobs:
       with:
         fetch-depth: 0
     - name: Nix
-      uses: cachix/install-nix-action@v11
+      uses: cachix/install-nix-action@v12
     - name: Cachix
-      uses: cachix/cachix-action@v6
+      uses: cachix/cachix-action@v8
       with:
         name: lorri-test
         signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
@@ -86,9 +86,9 @@ jobs:
       with:
         fetch-depth: null
     - name: Nix
-      uses: cachix/install-nix-action@v11
+      uses: cachix/install-nix-action@v12
     - name: Cachix
-      uses: cachix/cachix-action@v6
+      uses: cachix/cachix-action@v8
       with:
         name: lorri-test
         signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
@@ -105,9 +105,9 @@ jobs:
       with:
         fetch-depth: null
     - name: Nix
-      uses: cachix/install-nix-action@v11
+      uses: cachix/install-nix-action@v12
     - name: Cachix
-      uses: cachix/cachix-action@v6
+      uses: cachix/cachix-action@v8
       with:
         name: lorri-test
         signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
@@ -124,9 +124,9 @@ jobs:
       with:
         fetch-depth: null
     - name: Nix
-      uses: cachix/install-nix-action@v11
+      uses: cachix/install-nix-action@v12
     - name: Cachix
-      uses: cachix/cachix-action@v6
+      uses: cachix/cachix-action@v8
       with:
         name: lorri-test
         signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
@@ -149,9 +149,9 @@ jobs:
       with:
         fetch-depth: null
     - name: Nix
-      uses: cachix/install-nix-action@v11
+      uses: cachix/install-nix-action@v12
     - name: Cachix
-      uses: cachix/cachix-action@v6
+      uses: cachix/cachix-action@v8
       with:
         name: lorri-test
         signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}

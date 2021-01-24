@@ -9,11 +9,11 @@ let
   };
   setup-nix = {
     name = "Nix";
-    uses = "cachix/install-nix-action@v11";
+    uses = "cachix/install-nix-action@v12";
   };
   setup-cachix = {
     name = "Cachix";
-    uses = "cachix/cachix-action@v6";
+    uses = "cachix/cachix-action@v8";
     "with" = {
       name = "lorri-test";
       signingKey = "\${{ secrets.CACHIX_SIGNING_KEY }}";
