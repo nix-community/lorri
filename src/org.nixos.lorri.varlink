@@ -1,5 +1,5 @@
 # The interface `lorri daemon` exposes.
-interface com.target.lorri
+interface org.nixos.lorri
 
 # Monitor the daemon. The method will reply with an Event update whenever a
 # build begins or ends.  Monitor will immediately reply with a snapshot of

@@ -45,10 +45,10 @@ impl Server {
     pub fn serve(self) -> Result<(), ExitError> {
         let address = &self.socket_path.address();
         let service = varlink::VarlinkService::new(
-            /* vendor */ "com.target",
+            /* vendor */ "org.nixos",
             /* product */ "lorri",
             /* version */ "0.1",
-            /* url */ "https://github.com/target/lorri",
+            /* url */ "https://github.com/nix-community/lorri",
             vec![Box::new(internal_proto::new(Box::new(self)))],
         );
         let initial_worker_threads = 1;
@@ -65,7 +65,7 @@ impl Server {
     }
 }
 
-/// The actual varlink server implementation. See com.target.lorri.varlink for the interface
+/// The actual varlink server implementation. See org.nixos.lorri.varlink for the interface
 /// specification.
 impl internal_proto::VarlinkInterface for Server {
     fn watch_shell(
