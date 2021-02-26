@@ -13,10 +13,9 @@ type ShellNix (
 )
 
 type Reason (
-    kind: (project_added, ping_received, files_changed, unknown),
+    kind: (project_added, ping_received, files_changed),
     project: ?ShellNix, # only present if kind == project_added
-    files: ?[]string,   # only present if kind == files_changed
-    debug: ?string      # only present if kind == unknown
+    files: ?[]string    # only present if kind == files_changed
 )
 
 type Outcome (

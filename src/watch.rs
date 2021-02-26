@@ -28,13 +28,6 @@ struct FilteredOut<'a> {
     path: PathBuf,
 }
 
-/// We weren’t able to understand a `notify::Event`.
-#[derive(Clone, Debug)]
-pub enum EventError {
-    /// The changed file event had no file path
-    EventHasNoFilePath(notify::Event),
-}
-
 impl Watch {
     /// Instantiate a new Watch.
     pub fn try_new() -> Result<Watch, notify::Error> {
@@ -49,28 +42,22 @@ impl Watch {
 
     /// Process `notify::Event`s coming in via `Watch::rx`.
     ///
+    /// Returns a list of „interesting“ paths.
+    ///
     /// `None` if there were no relevant changes.
-    pub fn process(
-        &self,
-        event: notify::Result<notify::Event>,
-    ) -> Option<Result<Vec<PathBuf>, EventError>> {
+    pub fn process(&self, event: notify::Result<notify::Event>) -> Option<Vec<PathBuf>> {
         match event {
             Err(err) => panic!("notify error: {}", err),
             Ok(event) => {
                 Self::log_event(&event);
-                if event.paths.is_empty() {
-                    Some(Err(EventError::EventHasNoFilePath(event)))
-                } else {
-                    let notify::Event { paths, kind, .. } = event;
-                    let interesting_paths: Vec<PathBuf> = paths
-                        .into_iter()
-                        .filter(|p| Self::path_is_interesting(&self.watches, p, &kind))
-                        .collect();
-                    if !interesting_paths.is_empty() {
-                        Some(Ok(interesting_paths))
-                    } else {
-                        None
-                    }
+                let notify::Event { paths, kind, .. } = event;
+                let interesting_paths: Vec<PathBuf> = paths
+                    .into_iter()
+                    .filter(|p| Self::path_is_interesting(&self.watches, p, &kind))
+                    .collect();
+                match interesting_paths.is_empty() {
+                    true => None,
+                    false => Some(interesting_paths),
                 }
             }
         }
@@ -271,7 +258,7 @@ fn path_match(watched_paths: &HashSet<PathBuf>, event_path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{EventError, Watch};
+    use super::Watch;
     use crate::bash::expect_bash;
     use std::path::PathBuf;
     use std::thread::sleep;
@@ -285,7 +272,7 @@ mod tests {
     }
 
     /// Collect all notifications
-    fn process_all(watch: &Watch) -> Vec<Option<Result<Vec<PathBuf>, EventError>>> {
+    fn process_all(watch: &Watch) -> Vec<Option<Vec<PathBuf>>> {
         watch.rx.try_iter().map(|e| watch.process(e)).collect()
     }
 
@@ -294,7 +281,7 @@ mod tests {
         let mut reasons = Vec::new();
         let mut changed = false;
         for event in process_all(watch) {
-            if let Some(Ok(files)) = event {
+            if let Some(files) = event {
                 reasons.extend_from_slice(&files);
                 changed = changed
                     || files

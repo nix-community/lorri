@@ -132,14 +132,12 @@ pub enum r#Reason_kind {
     r#project_added,
     r#ping_received,
     r#files_changed,
-    r#unknown,
 }
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct r#Reason {
     pub r#kind: Reason_kind,
     pub r#project: Option<ShellNix>,
     pub r#files: Option<Vec<String>>,
-    pub r#debug: Option<String>,
 }
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct r#ShellNix {
@@ -210,7 +208,7 @@ pub fn new(inner: Box<dyn VarlinkInterface + Send + Sync>) -> VarlinkInterfacePr
 }
 impl varlink::Interface for VarlinkInterfaceProxy {
     fn get_description(&self) -> &'static str {
-        "# The interface `lorri daemon` exposes.\ninterface com.target.lorri.internal\n\n# WatchShell instructs the daemon to evaluate a Nix expression and re-evaluate\n# it when it or its dependencies change.\nmethod WatchShell(shell_nix: ShellNix) -> ()\n\n# ShellNix describes the Nix expression which evaluates to a development\n# environment.\ntype ShellNix (\n  # The absolute path of a Nix file specifying the project environment.\n  path: string\n)\n\ntype Reason (\n    kind: (project_added, ping_received, files_changed, unknown),\n    project: ?ShellNix, # only present if kind == project_added\n    files: ?[]string,   # only present if kind == files_changed\n    debug: ?string      # only present if kind == unknown\n)\n\ntype Outcome (\n    project_root: string\n)\n\ntype Failure (\n    kind: (io, spawn, exit, output),\n    msg: ?string,   # only present if kind in (io, spawn)\n    cmd: ?string,   # only present if kind in (spawn, exit)\n    status: ?int,   # only present if kind == exit\n    logs: ?[]string # only present if kind == exit\n)\n"
+        "# The interface `lorri daemon` exposes.\ninterface com.target.lorri.internal\n\n# WatchShell instructs the daemon to evaluate a Nix expression and re-evaluate\n# it when it or its dependencies change.\nmethod WatchShell(shell_nix: ShellNix) -> ()\n\n# ShellNix describes the Nix expression which evaluates to a development\n# environment.\ntype ShellNix (\n  # The absolute path of a Nix file specifying the project environment.\n  path: string\n)\n\ntype Reason (\n    kind: (project_added, ping_received, files_changed),\n    project: ?ShellNix, # only present if kind == project_added\n    files: ?[]string    # only present if kind == files_changed\n)\n\ntype Outcome (\n    project_root: string\n)\n\ntype Failure (\n    kind: (io, spawn, exit, output),\n    msg: ?string,   # only present if kind in (io, spawn)\n    cmd: ?string,   # only present if kind in (spawn, exit)\n    status: ?int,   # only present if kind == exit\n    logs: ?[]string # only present if kind == exit\n)\n"
     }
     fn get_name(&self) -> &'static str {
         "com.target.lorri.internal"
