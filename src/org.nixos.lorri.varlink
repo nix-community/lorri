@@ -36,16 +36,13 @@ type Reason (
     # - project_added: Lorri has been newly informed of a project
     # - ping_received: A client requested a new build
     # - files_changed: Lorri received a filesystem notification of changed files
-    # - unknown: A build started for an unknown reason
-    kind: (project_added, ping_received, files_changed, unknown),
+    kind: (project_added, ping_received, files_changed),
     # The absolute path to the shell.nix file for the added project
     project: ?string, # present iff kind == project_added
     # A list of files that changed, triggering a new build
     # This can be useful e.g. to debug Nix expressions bringing in too many
     # files and thereby building too frequently
-    files: ?[]string, # present iff kind == files_changed
-    # A message describing the unknown cause for a new build.
-    debug: ?string    # present iff kind == unknown
+    files: ?[]string  # present iff kind == files_changed
 )
 
 # Details about the built project.

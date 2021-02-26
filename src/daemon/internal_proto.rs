@@ -8,7 +8,6 @@ use crate::internal_proto;
 use crate::ops::error::ExitError;
 use crate::proto;
 use crate::socket::{BindLock, SocketPath};
-use crate::watch;
 use crate::NixFile;
 
 use crossbeam_channel as chan;
@@ -225,13 +224,11 @@ impl TryFrom<&build_loop::Reason> for proto::Reason {
                 kind: ping_received,
                 project: None,
                 files: None,
-                debug: None,
             },
             Reason::ProjectAdded(nix_file) => proto::Reason {
                 kind: project_added,
                 project: Some(try_nix_file_to_string(nix_file)?),
                 files: None,
-                debug: None,
             },
             Reason::FilesChanged(changed) => proto::Reason {
                 kind: files_changed,
@@ -242,14 +239,6 @@ impl TryFrom<&build_loop::Reason> for proto::Reason {
                         .map(|pb| try_file_to_string(&pb))
                         .collect::<Result<Vec<String>, String>>()?,
                 ),
-                debug: None,
-            },
-            Reason::UnknownEvent(dbg) => proto::Reason {
-                kind: unknown,
-                project: None,
-                files: None,
-                // TODO
-                debug: Some(dbg.0.clone()),
             },
         })
     }
@@ -274,9 +263,6 @@ impl TryFrom<proto::Reason> for build_loop::Reason {
                     .map(PathBuf::from)
                     .collect(),
             ),
-            unknown => Reason::UnknownEvent(watch::DebugMessage(
-                rr.debug.ok_or("missing debug string!")?,
-            )),
         })
     }
 }

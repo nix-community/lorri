@@ -9,10 +9,10 @@ use crate::pathreduction::reduce_paths;
 use crate::project::roots;
 use crate::project::roots::Roots;
 use crate::project::Project;
-use crate::watch::{DebugMessage, EventError, Watch};
+use crate::watch::Watch;
 use crate::NixFile;
 use crossbeam_channel as chan;
-use slog_scope::{debug, warn};
+use slog_scope::debug;
 use std::path::PathBuf;
 
 /// Builder events sent back over `BuildLoop.tx`.
@@ -55,8 +55,6 @@ pub enum Reason {
     /// When there is a filesystem change, the first changed file is recorded,
     /// along with a count of other filesystem events.
     FilesChanged(Vec<PathBuf>),
-    /// When the underlying notifier reports something strange.
-    UnknownEvent(DebugMessage),
 }
 
 /// Results of a single, successful build.
@@ -97,19 +95,6 @@ impl<'a> BuildLoop<'a> {
     /// still running, it is finished first before starting a new build.
     #[allow(clippy::drop_copy, clippy::zero_ptr)] // triggered by `select!`
     pub fn forever(&mut self, tx: chan::Sender<LoopHandlerEvent>, rx_ping: chan::Receiver<()>) {
-        let translate_reason = |rsn| match rsn {
-            Ok(changed_paths) => Reason::FilesChanged(changed_paths),
-            // we should continue and just cite an unknown reason
-            Err(EventError::EventHasNoFilePath(msg)) => {
-                warn!(
-                    "event has no file path; possible issue with the watcher?";
-                    "message" => ?msg
-                );
-                // can’t Clone `Event`s, so we return the Debug output here
-                Reason::UnknownEvent(DebugMessage(format!("{:#?}", msg)))
-            }
-        };
-
         // The project has just been added, so run the builder in the first iteration
         let mut output_paths = self.once_with_send(
             &tx,
@@ -129,10 +114,10 @@ impl<'a> BuildLoop<'a> {
                 recv(rx_notify) -> msg => match msg {
                     Ok(msg) => {
                         match self.watch.process(msg) {
-                            Some(rsn) => {
+                            Some(changed) => {
                                 Some(Event::Started{
                                     nix_file: self.project.nix_file.clone(),
-                                    reason: translate_reason(rsn)
+                                    reason: Reason::FilesChanged(changed)
                                 })
                             },
                             None => {
