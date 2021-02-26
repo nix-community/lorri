@@ -75,14 +75,14 @@ impl Watch {
         match event {
             Err(err) => panic!("notify error: {}", err),
             Ok(event) => {
-                self.log_event(&event);
+                Self::log_event(&event);
                 if event.paths.is_empty() {
                     Some(Err(EventError::EventHasNoFilePath(event)))
                 } else {
                     let notify::Event { paths, kind, .. } = event;
                     let interesting_paths: Vec<PathBuf> = paths
                         .into_iter()
-                        .filter(|p| self.path_is_interesting(p, &kind))
+                        .filter(|p| Self::path_is_interesting(&self.watches, p, &kind))
                         .collect();
                     if !interesting_paths.is_empty() {
                         Some(Ok(Reason::FilesChanged(interesting_paths)))
@@ -126,7 +126,7 @@ impl Watch {
         }
     }
 
-    fn log_event(&self, event: &notify::Event) {
+    fn log_event(event: &notify::Event) {
         debug!("Watch Event: {:#?}", event);
         match &event.kind {
             notify::event::EventKind::Remove(_) if !event.paths.is_empty() => {
@@ -157,8 +157,8 @@ impl Watch {
         Ok(())
     }
 
-    fn path_is_interesting(&self, path: &PathBuf, kind: &EventKind) -> bool {
-        path_match(&self.watches, path)
+    fn path_is_interesting(watches: &HashSet<PathBuf>, path: &PathBuf, kind: &EventKind) -> bool {
+        path_match(watches, path)
             && match kind {
                 // We ignore metadata modification events for the profiles directory
                 // tree as it is a symlink forest that is used to keep track of
