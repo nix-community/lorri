@@ -108,9 +108,6 @@ impl<'a> BuildLoop<'a> {
                 // can’t Clone `Event`s, so we return the Debug output here
                 Reason::UnknownEvent(DebugMessage(format!("{:#?}", msg)))
             }
-            Err(EventError::RxNoEventReceived) => {
-                panic!("The file watcher died!");
-            }
         };
 
         // The project has just been added, so run the builder in the first iteration

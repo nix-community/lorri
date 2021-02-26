@@ -31,8 +31,6 @@ struct FilteredOut<'a> {
 /// We weren’t able to understand a `notify::Event`.
 #[derive(Clone, Debug)]
 pub enum EventError {
-    /// No message was received from the raw event channel
-    RxNoEventReceived,
     /// The changed file event had no file path
     EventHasNoFilePath(notify::Event),
 }
