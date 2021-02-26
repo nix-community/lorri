@@ -15,6 +15,8 @@ pub struct Watch {
     /// Event receiver. Process using `Watch::process`.
     pub rx: chan::Receiver<notify::Result<notify::Event>>,
     notify: RecommendedWatcher,
+    /// Set of paths this Watch is watching at the moment.
+    /// Statefully updated by `extend`.
     watches: HashSet<PathBuf>,
 }
 
