@@ -184,11 +184,12 @@ impl<'a> BuildLoop<'a> {
     /// This will create GC roots and expand the file watch list for
     /// the evaluation.
     pub fn once(&mut self) -> Result<builder::OutputPaths<roots::RootPath>, BuildError> {
-        let run_result = builder::run(
-            &self.project.nix_file,
-            &self.project.cas,
-            &self.extra_nix_options,
-        )?;
+        let nix_file = self.project.nix_file.clone();
+        let cas = self.project.cas.clone();
+        let extra_nix_options = self.extra_nix_options.clone();
+        let run_result =
+            crate::run_async::Async::run(move || builder::run(&nix_file, &cas, &extra_nix_options))
+                .block()?;
         self.register_paths(&run_result.referenced_paths)?;
         self.root_result(run_result.result)
     }

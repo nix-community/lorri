@@ -25,6 +25,7 @@ pub mod ops;
 pub mod osstrlines;
 pub mod pathreduction;
 pub mod project;
+pub mod run_async;
 pub mod socket;
 pub mod thread;
 pub mod watch;
