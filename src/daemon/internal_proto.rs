@@ -213,12 +213,12 @@ impl TryFrom<proto::Reason> for build_loop::Event {
     }
 }
 
-impl TryFrom<&watch::Reason> for proto::Reason {
+impl TryFrom<&build_loop::Reason> for proto::Reason {
     type Error = String;
 
-    fn try_from(wr: &watch::Reason) -> Result<Self, Self::Error> {
+    fn try_from(wr: &build_loop::Reason) -> Result<Self, Self::Error> {
+        use build_loop::Reason;
         use proto::Reason_kind::*;
-        use watch::Reason;
 
         Ok(match wr {
             Reason::PingReceived => proto::Reason {
@@ -255,12 +255,12 @@ impl TryFrom<&watch::Reason> for proto::Reason {
     }
 }
 
-impl TryFrom<proto::Reason> for watch::Reason {
+impl TryFrom<proto::Reason> for build_loop::Reason {
     type Error = String;
 
     fn try_from(rr: proto::Reason) -> Result<Self, Self::Error> {
+        use build_loop::Reason;
         use proto::Reason_kind::*;
-        use watch::Reason;
 
         Ok(match rr.kind {
             ping_received => Reason::PingReceived,

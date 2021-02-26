@@ -9,7 +9,7 @@ use crate::pathreduction::reduce_paths;
 use crate::project::roots;
 use crate::project::roots::Roots;
 use crate::project::Project;
-use crate::watch::{DebugMessage, EventError, Reason, Watch};
+use crate::watch::{DebugMessage, EventError, Watch};
 use crate::NixFile;
 use crossbeam_channel as chan;
 use slog_scope::{debug, warn};
@@ -42,6 +42,21 @@ pub enum Event {
         /// The error that exited the build
         failure: BuildError,
     },
+}
+
+/// Description of the project change that triggered a build.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Reason {
+    /// When a project is presented to Lorri to track, it's built for this reason.
+    ProjectAdded(NixFile),
+    /// When a ping is received.
+    PingReceived,
+    /// When there is a filesystem change, the first changed file is recorded,
+    /// along with a count of other filesystem events.
+    FilesChanged(Vec<PathBuf>),
+    /// When the underlying notifier reports something strange.
+    UnknownEvent(DebugMessage),
 }
 
 /// Results of a single, successful build.
@@ -83,7 +98,7 @@ impl<'a> BuildLoop<'a> {
     #[allow(clippy::drop_copy, clippy::zero_ptr)] // triggered by `select!`
     pub fn forever(&mut self, tx: chan::Sender<LoopHandlerEvent>, rx_ping: chan::Receiver<()>) {
         let translate_reason = |rsn| match rsn {
-            Ok(rsn) => rsn,
+            Ok(changed_paths) => Reason::FilesChanged(changed_paths),
             // we should continue and just cite an unknown reason
             Err(EventError::EventHasNoFilePath(msg)) => {
                 warn!(

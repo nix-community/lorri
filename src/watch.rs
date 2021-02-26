@@ -1,7 +1,6 @@
 //! Recursively watch paths for changes, in an extensible and
 //! cross-platform way.
 
-use crate::NixFile;
 use crossbeam_channel as chan;
 use notify::event::ModifyKind;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -27,21 +26,6 @@ pub struct DebugMessage(pub String);
 struct FilteredOut<'a> {
     reason: &'a str,
     path: PathBuf,
-}
-
-/// Description of the project change that triggered a build.
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Reason {
-    /// When a project is presented to Lorri to track, it's built for this reason.
-    ProjectAdded(NixFile),
-    /// When a ping is received.
-    PingReceived,
-    /// When there is a filesystem change, the first changed file is recorded,
-    /// along with a count of other filesystem events.
-    FilesChanged(Vec<PathBuf>),
-    /// When the underlying notifier reports something strange.
-    UnknownEvent(DebugMessage),
 }
 
 /// We weren’t able to understand a `notify::Event`.
@@ -71,7 +55,7 @@ impl Watch {
     pub fn process(
         &self,
         event: notify::Result<notify::Event>,
-    ) -> Option<Result<Reason, EventError>> {
+    ) -> Option<Result<Vec<PathBuf>, EventError>> {
         match event {
             Err(err) => panic!("notify error: {}", err),
             Ok(event) => {
@@ -85,7 +69,7 @@ impl Watch {
                         .filter(|p| Self::path_is_interesting(&self.watches, p, &kind))
                         .collect();
                     if !interesting_paths.is_empty() {
-                        Some(Ok(Reason::FilesChanged(interesting_paths)))
+                        Some(Ok(interesting_paths))
                     } else {
                         None
                     }
@@ -289,7 +273,7 @@ fn path_match(watched_paths: &HashSet<PathBuf>, event_path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{EventError, Reason, Watch};
+    use super::{EventError, Watch};
     use crate::bash::expect_bash;
     use std::path::PathBuf;
     use std::thread::sleep;
@@ -303,37 +287,35 @@ mod tests {
     }
 
     /// Collect all notifications
-    fn process_all(watch: &Watch) -> Vec<Option<Result<Reason, EventError>>> {
+    fn process_all(watch: &Watch) -> Vec<Option<Result<Vec<PathBuf>, EventError>>> {
         watch.rx.try_iter().map(|e| watch.process(e)).collect()
     }
 
     /// Returns true iff the given file has changed
-    fn file_changed(watch: &Watch, file_name: &str) -> (bool, Vec<Reason>) {
+    fn file_changed(watch: &Watch, file_name: &str) -> (bool, Vec<PathBuf>) {
         let mut reasons = Vec::new();
         let mut changed = false;
         for event in process_all(watch) {
-            if let Some(Ok(reason)) = event {
-                reasons.push(reason.clone());
-                if let Reason::FilesChanged(files) = reason {
-                    changed = changed
-                        || files
-                            .iter()
-                            .map(|p| p.file_name())
-                            .filter(|f| f.is_some())
-                            .map(|f| f.unwrap())
-                            .any(|f| f == file_name)
-                }
+            if let Some(Ok(files)) = event {
+                reasons.extend_from_slice(&files);
+                changed = changed
+                    || files
+                        .iter()
+                        .map(|p| p.file_name())
+                        .filter(|f| f.is_some())
+                        .map(|f| f.unwrap())
+                        .any(|f| f == file_name)
             }
         }
         (changed, reasons)
     }
 
     fn assert_file_changed(watch: &Watch, file_name: &str) {
-        let (file_changed, events) = file_changed(watch, file_name);
+        let (file_changed, changed) = file_changed(watch, file_name);
         assert!(
             file_changed,
-            "no file change notification for '{}'; these events occurred instead: {:?}",
-            file_name, events
+            "no file change notification for '{}'; these files changed instead: {:?}",
+            file_name, changed
         );
     }
 
