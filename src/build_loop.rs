@@ -120,17 +120,18 @@ impl<'a> BuildLoop<'a> {
                                     reason: Reason::FilesChanged(changed)
                                 })
                             },
-                            None => {
-                                // No relevant file events
-                                None
-                            }
+                            // No relevant file events
+                            None => None
                         }
                     }
-                    // TODO: can we just ignore Err?
-                    Err(_) => None
+                    Err(chan::RecvError) => {
+                        debug!("notify chan was disconnected"; "project" => &self.project.nix_file);
+                        None
+                    }
                 },
                 recv(rx_ping) -> msg => match (msg, &output_paths) {
                     (Ok(()), Some(output_paths)) => {
+                        debug!("pinged"; "project" => &self.project.nix_file);
                         // TODO: why is this check done here?
                         if !output_paths.shell_gc_root_is_dir() {
                             Some(Event::Started{
@@ -140,9 +141,12 @@ impl<'a> BuildLoop<'a> {
                         }
                         else { None }
                     },
-                    // TODO: can we just ignore these two cases?
+                    // TODO: can we just ignore this case?
                     (Ok(()), None) => None,
-                    (Err(_), _) => None
+                    (Err(chan::RecvError), _) => {
+                        debug!("ping chan was disconnected"; "project" => &self.project.nix_file);
+                        None
+                    }
                 }
             };
 
