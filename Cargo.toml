@@ -11,28 +11,56 @@ homepage = "https://github.com/nix-community/lorri"
 license = "Apache-2.0"
 edition = "2018"
 
+# before updating dependencies: we want to keep the rustc compatible with 1.41.0 for now (start of 2020).
 [dependencies]
-atomicwrites = "0.2.3"
-crossbeam-channel = "0.3.8"
-ctrlc = { version = "3.1.6", features = ["termination"] }
-directories = "1.0.2"
-lazy_static = "1.2.0"
-md5  = "0.6.1"
-nix = "0.14.0"
+# central features
 notify = "= 5.0.0-pre.1"
-proptest = "0.9.1"
-regex = "1.1.0"
+atomicwrites = "0.2.5"
+crossbeam-channel = "0.3.8"
+nix = "0.20.0"
+regex = "1.4.3"
+tempfile = "3.1.0"
+# TODO: update to 0.3
+structopt.version = "0.2"
+structopt.default-features = false
+structopt.features = [
+    # "default",
+    "suggestions",
+    "color",
+    # "wrap_help",
+    # "yaml",
+    # "debug",
+    "no_cargo",
+    # "doc" (enables yaml)
+  ]
+# logging
+slog = "2.7.0"
+slog-scope = "4.3.0"
+slog-term = "2.5.0"
+# serialization
 serde = "1.0.88"
 serde_derive = "1.0.88"
 serde_json = "1.0.38"
-slog = "2.5.2"
-slog-scope = "4.3.0"
-slog-term = "2.5.0"
-structopt = "0.2"
-tempfile = "3.0.7"
 varlink = "10.0.0"
+# nice-to-have
+ctrlc = { version = "3.1.8", features = ["termination"] }
+directories = "3.0.1"
+lazy_static = "1.4.0"
+md5  = "0.7.0"
 vec1 = "1.1.0"
+# TODO: might want to remove? Big footprint?
 human-panic = "1.0.3"
+
+[dev-dependencies]
+# 1.0.0 requires at least rust 1.50
+proptest.version = "0.10.1"
+proptest.default-features = false
+proptest.features = [
+  "std",
+  # reenable if proptest kills the test runner
+  # "fork",
+  # "timeout"
+]
 
 [build-dependencies]
 varlink_generator = "9.0.0"
