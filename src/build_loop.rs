@@ -89,7 +89,7 @@ impl<'a> BuildLoop<'a> {
     #[allow(clippy::drop_copy, clippy::zero_ptr)] // triggered by `select!`
     pub fn forever(&mut self, tx: chan::Sender<LoopHandlerEvent>, rx_ping: chan::Receiver<()>) {
         // The project has just been added, so run the builder in the first iteration
-        let mut output_paths = self.once_with_send(
+        self.once_with_send(
             &tx,
             Event::Started {
                 nix_file: self.project.nix_file.clone(),
@@ -122,21 +122,13 @@ impl<'a> BuildLoop<'a> {
                         None
                     }
                 },
-                recv(rx_ping) -> msg => match (msg, &output_paths) {
-                    (Ok(()), Some(output_paths)) => {
-                        debug!("pinged"; "project" => &self.project.nix_file);
-                        // TODO: why is this check done here?
-                        if !output_paths.shell_gc_root_is_dir() {
-                            Some(Event::Started{
-                                nix_file: self.project.nix_file.clone(),
-                                reason: Reason::PingReceived
-                            })
-                        }
-                        else { None }
-                    },
-                    // TODO: can we just ignore this case?
-                    (Ok(()), None) => None,
-                    (Err(chan::RecvError), _) => {
+
+                recv(rx_ping) -> msg => match msg {
+                    Ok(()) => Some(Event::Started{
+                        nix_file: self.project.nix_file.clone(),
+                        reason: Reason::PingReceived
+                    }),
+                    Err(chan::RecvError) => {
                         debug!("ping chan was disconnected"; "project" => &self.project.nix_file);
                         None
                     }
@@ -145,7 +137,7 @@ impl<'a> BuildLoop<'a> {
 
             // If there is some reason to build, run the build!
             if let Some(rsn) = reason {
-                output_paths = self.once_with_send(&tx, rsn)
+                self.once_with_send(&tx, rsn)
             }
         }
     }
@@ -154,16 +146,15 @@ impl<'a> BuildLoop<'a> {
         &mut self,
         tx: &chan::Sender<LoopHandlerEvent>,
         reason: Event,
-    ) -> Option<builder::OutputPaths<roots::RootPath>> {
+    ) {
         let send = |msg| tx.send(msg).expect("Failed to send an event");
         send(LoopHandlerEvent::BuildEvent(reason));
         match self.once() {
             Ok(rooted_output_paths) => {
                 send(LoopHandlerEvent::BuildEvent(Event::Completed {
                     nix_file: self.project.nix_file.clone(),
-                    rooted_output_paths: rooted_output_paths.clone(),
+                    rooted_output_paths: rooted_output_paths,
                 }));
-                Some(rooted_output_paths)
             }
             Err(e) => {
                 if e.is_actionable() {
@@ -174,7 +165,6 @@ impl<'a> BuildLoop<'a> {
                 } else {
                     panic!("Unrecoverable error:\n{:#?}", e);
                 }
-                None
             }
         }
     }
