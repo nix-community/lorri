@@ -162,25 +162,22 @@ impl<'a> BuildLoop<'a> {
         tx: &chan::Sender<LoopHandlerEvent>,
         reason: Event,
     ) -> Option<builder::OutputPaths<roots::RootPath>> {
-        let send = |msg| {
-            tx.send(LoopHandlerEvent::from(msg))
-                .expect("Failed to send an event")
-        };
-        send(reason);
+        let send = |msg| tx.send(msg).expect("Failed to send an event");
+        send(LoopHandlerEvent::BuildEvent(reason));
         match self.once() {
             Ok(result) => {
-                send(Event::Completed {
+                send(LoopHandlerEvent::BuildEvent(Event::Completed {
                     nix_file: self.project.nix_file.clone(),
                     result: result.clone(),
-                });
+                }));
                 Some(result.output_paths)
             }
             Err(e) => {
                 if e.is_actionable() {
-                    send(Event::Failure {
+                    send(LoopHandlerEvent::BuildEvent(Event::Failure {
                         nix_file: self.project.nix_file.clone(),
                         failure: e,
-                    })
+                    }))
                 } else {
                     panic!("Unrecoverable error:\n{:#?}", e);
                 }
