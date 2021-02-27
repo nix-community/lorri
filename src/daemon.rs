@@ -21,12 +21,6 @@ pub enum LoopHandlerEvent {
     BuildEvent(Event),
 }
 
-impl From<Event> for LoopHandlerEvent {
-    fn from(item: Event) -> Self {
-        LoopHandlerEvent::BuildEvent(item)
-    }
-}
-
 /// Indicate that the user is interested in a specific nix file.
 /// Usually a nix file describes the environment of a project,
 /// so the user editor would send this message when a file
