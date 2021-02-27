@@ -6,9 +6,9 @@ fn trivial() -> std::io::Result<()> {
     let res = testcase.evaluate().expect("Failed to build the first time");
 
     assert!(
-        res.output_paths.all_exist(),
+        res.all_exist(),
         "no build output (build-0) in {}.\nContents of {}\n{}",
-        res.output_paths.shell_gc_root,
+        res.shell_gc_root,
         testcase.cachedir.path().display(),
         std::str::from_utf8(
             &std::process::Command::new("ls")

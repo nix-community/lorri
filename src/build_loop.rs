@@ -32,8 +32,8 @@ pub enum Event {
     Completed {
         /// The shell.nix file for the building project
         nix_file: NixFile,
-        /// The result of the build
-        result: BuildResults,
+        /// the output paths of the build
+        rooted_output_paths: builder::OutputPaths<roots::RootPath>,
     },
     /// A build command returned a failing exit status
     Failure {
@@ -55,13 +55,6 @@ pub enum Reason {
     /// When there is a filesystem change, the first changed file is recorded,
     /// along with a count of other filesystem events.
     FilesChanged(Vec<PathBuf>),
-}
-
-/// Results of a single, successful build.
-#[derive(Clone, Debug, Serialize)]
-pub struct BuildResults {
-    /// See `build::Info.outputPaths
-    pub output_paths: builder::OutputPaths<roots::RootPath>,
 }
 
 /// The BuildLoop repeatedly builds the Nix expression in
@@ -165,12 +158,12 @@ impl<'a> BuildLoop<'a> {
         let send = |msg| tx.send(msg).expect("Failed to send an event");
         send(LoopHandlerEvent::BuildEvent(reason));
         match self.once() {
-            Ok(result) => {
+            Ok(rooted_output_paths) => {
                 send(LoopHandlerEvent::BuildEvent(Event::Completed {
                     nix_file: self.project.nix_file.clone(),
-                    result: result.clone(),
+                    rooted_output_paths: rooted_output_paths.clone(),
                 }));
-                Some(result.output_paths)
+                Some(rooted_output_paths)
             }
             Err(e) => {
                 if e.is_actionable() {
@@ -190,7 +183,7 @@ impl<'a> BuildLoop<'a> {
     ///
     /// This will create GC roots and expand the file watch list for
     /// the evaluation.
-    pub fn once(&mut self) -> Result<BuildResults, BuildError> {
+    pub fn once(&mut self) -> Result<builder::OutputPaths<roots::RootPath>, BuildError> {
         let run_result = builder::run(
             &self.project.nix_file,
             &self.project.cas,
@@ -211,11 +204,11 @@ impl<'a> BuildLoop<'a> {
         Ok(())
     }
 
-    fn root_result(&mut self, build: builder::RootedPath) -> Result<BuildResults, BuildError> {
+    fn root_result(
+        &mut self,
+        build: builder::RootedPath,
+    ) -> Result<builder::OutputPaths<roots::RootPath>, BuildError> {
         let roots = Roots::from_project(&self.project);
-
-        Ok(BuildResults {
-            output_paths: roots.create_roots(build).map_err(BuildError::io)?,
-        })
+        roots.create_roots(build).map_err(BuildError::io)
     }
 }

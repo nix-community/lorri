@@ -271,10 +271,14 @@ impl TryFrom<&build_loop::Event> for proto::Outcome {
     type Error = String;
 
     fn try_from(ev: &build_loop::Event) -> Result<Self, Self::Error> {
-        if let build_loop::Event::Completed { nix_file, result } = ev {
+        if let build_loop::Event::Completed {
+            nix_file,
+            rooted_output_paths,
+        } = ev
+        {
             Ok(proto::Outcome {
                 nix_file: try_nix_file_to_string(nix_file)?,
-                project_root: result.output_paths.shell_gc_root.to_string(),
+                project_root: rooted_output_paths.shell_gc_root.to_string(),
             })
         } else {
             Err(format!("can't make an Outcome out of {:?}", ev))
@@ -286,24 +290,14 @@ impl TryFrom<proto::Outcome> for build_loop::Event {
     type Error = String;
 
     fn try_from(o: proto::Outcome) -> Result<Self, Self::Error> {
+        use crate::builder;
+        use crate::project::roots;
         Ok(build_loop::Event::Completed {
             nix_file: NixFile::from(o.nix_file.clone()),
-            result: build_loop::BuildResults::from(o),
-        })
-    }
-}
-
-impl From<proto::Outcome> for build_loop::BuildResults {
-    fn from(ro: proto::Outcome) -> Self {
-        use crate::build_loop::BuildResults;
-        use crate::builder::OutputPaths;
-        use crate::project::roots::RootPath;
-
-        BuildResults {
-            output_paths: OutputPaths {
-                shell_gc_root: RootPath(PathBuf::from(ro.project_root)),
+            rooted_output_paths: builder::OutputPaths {
+                shell_gc_root: roots::RootPath(PathBuf::from(o.project_root)),
             },
-        }
+        })
     }
 }
 

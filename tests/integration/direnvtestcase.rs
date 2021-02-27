@@ -2,13 +2,8 @@
 //! cases.
 
 use lorri::{
-    build_loop::{BuildLoop, BuildResults},
-    cas::ContentAddressable,
-    error::BuildError,
-    nix::options::NixOptions,
-    ops::direnv,
-    project::Project,
-    NixFile,
+    build_loop::BuildLoop, builder, cas::ContentAddressable, error::BuildError,
+    nix::options::NixOptions, ops::direnv, project::roots, project::Project, NixFile,
 };
 use std::collections::hash_map::Keys;
 use std::collections::HashMap;
@@ -52,7 +47,7 @@ impl DirenvTestCase {
     }
 
     /// Execute the build loop one time
-    pub fn evaluate(&mut self) -> Result<BuildResults, BuildError> {
+    pub fn evaluate(&mut self) -> Result<builder::OutputPaths<roots::RootPath>, BuildError> {
         BuildLoop::new(&self.project, NixOptions::empty()).once()
     }
 
