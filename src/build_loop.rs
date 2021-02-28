@@ -128,76 +128,75 @@ impl<'a> BuildLoop<'a> {
                    "project" => &self.project.nix_file);
             let rx_current_build = current_build.result_chan();
 
-            let send = |msg| tx.send(msg).expect("Failed to send an event");
+            let send = |msg| {
+                tx.send(LoopHandlerEvent::BuildEvent(msg))
+                    .expect("Failed to send an event")
+            };
 
-            let reason = chan::select! {
+            chan::select! {
 
+                // build finished
                 recv(rx_current_build) -> msg => match msg {
                     Ok(run_result) => {
                         self.start_if_scheduled_or_stop(&mut current_build);
 
                         match self.handle_run_result(run_result) {
                             Ok(rooted_output_paths) => {
-                                send(LoopHandlerEvent::BuildEvent(Event::Completed {
+                                send(Event::Completed {
                                     nix_file: self.project.nix_file.clone(),
                                     rooted_output_paths,
-                                }));
+                                });
                             }
                             Err(e) => {
                                 if e.is_actionable() {
-                                    send(LoopHandlerEvent::BuildEvent(Event::Failure {
+                                    send(Event::Failure {
                                         nix_file: self.project.nix_file.clone(),
                                         failure: e,
-                                    }))
+                                    })
                                 } else {
                                     panic!("Unrecoverable error:\n{:#?}", e);
                                 }
                             }
                         }
-                        None
                     },
-                    Err(chan::RecvError) => {
-                        debug!("current build async chan was disconnected"; "project" => &self.project.nix_file);
-                        None
-                    }
+                    Err(chan::RecvError) =>
+                        debug!("current build async chan was disconnected"; "project" => &self.project.nix_file)
                 },
 
+                // watcher found file change
                 recv(rx_watcher) -> msg => match msg {
                     Ok(msg) => {
                         match self.watch.process(msg) {
                             Some(changed) => {
-                                Some(Event::Started{
+                                // TODO: this is not a started, this is just a scheduled!
+                                send(Event::Started {
                                     nix_file: self.project.nix_file.clone(),
                                     reason: Reason::FilesChanged(changed)
-                                })
+                                });
+                                self.schedule_build(&mut current_build)
                             },
                             // No relevant file events
-                            None => None
+                            None => {}
                         }
-                    }
-                    Err(chan::RecvError) => {
-                        debug!("notify chan was disconnected"; "project" => &self.project.nix_file);
-                        None
-                    }
+                    },
+                    Err(chan::RecvError) =>
+                        debug!("notify chan was disconnected"; "project" => &self.project.nix_file)
                 },
 
+                // we were pinged
                 recv(rx_ping) -> msg => match msg {
-                    Ok(()) => Some(Event::Started{
-                        nix_file: self.project.nix_file.clone(),
-                        reason: Reason::PingReceived
-                    }),
-                    Err(chan::RecvError) => {
-                        debug!("ping chan was disconnected"; "project" => &self.project.nix_file);
-                        None
-                    }
+                    Ok(()) => {
+                        // TODO: this is not a started, this is just a scheduled!
+                        send(Event::Started{
+                            nix_file: self.project.nix_file.clone(),
+                            reason: Reason::PingReceived
+                        });
+                        self.schedule_build(&mut current_build)
+                    },
+                    Err(chan::RecvError) =>
+                        debug!("ping chan was disconnected"; "project" => &self.project.nix_file)
                 }
             };
-
-            // If there is some reason to build, run the build!
-            if let Some(rsn) = reason {
-                send(LoopHandlerEvent::BuildEvent(rsn));
-                self.schedule_build(&mut current_build)
-            }
         }
     }
 

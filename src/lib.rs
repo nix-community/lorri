@@ -3,6 +3,9 @@
 //! configuration and patterns in to a declarative configuration.
 
 #![warn(missing_docs)]
+// We usually want to use matches for clarity
+#![allow(clippy::match_bool)]
+#![allow(clippy::single_match)]
 
 #[macro_use]
 extern crate structopt;
