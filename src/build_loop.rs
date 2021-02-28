@@ -120,18 +120,6 @@ impl<'a> BuildLoop<'a> {
     #[allow(clippy::drop_copy, clippy::zero_ptr)] // triggered by `select!`
     pub fn forever(&mut self, tx: chan::Sender<LoopHandlerEvent>, rx_ping: chan::Receiver<()>) {
         let mut current_build = BuildState::NotRunning;
-        // The project has just been added, so run the builder in the first iteration
-        // TODO: move this into a ping done outside the forever?
-        self.schedule_build(&mut current_build);
-        tx.send(LoopHandlerEvent::BuildEvent(Event::Started {
-            nix_file: self.project.nix_file.clone(),
-            reason: Reason::ProjectAdded(self.project.nix_file.clone()),
-        }))
-        .expect("could not send event");
-
-        // Drain pings initially: we're going to trigger a first build anyway
-        rx_ping.try_iter().for_each(drop);
-
         let rx_watcher = self.watch.rx.clone();
 
         loop {
