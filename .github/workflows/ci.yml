@@ -130,14 +130,15 @@ jobs:
       with:
         name: nix-community
         signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
-    - name: Cache cargo registry
-      uses: actions/cache@v2
-      with:
-        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-        path: |
-          "~/.cargo/registry"
-          "~/.cargo/git"
-          "target"
+    - name: Add rustc to PATH
+      run: |
+        set -euo pipefail
+        rustc_path="$(nix-build -A rustc nix/nixpkgs-stable.nix)/bin"
+        echo "$rustc_path" >> "$GITHUB_PATH"
+    - name: print PATH
+      run: printenv PATH
+    - name: Rust Cache
+      uses: Swatinem/rust-cache@v1.2.0
     - name: CI check
       run: nix-shell --arg isDevelopmentShell false --run 'ci_check'
   rust-ubuntu-latest:
@@ -155,14 +156,15 @@ jobs:
       with:
         name: nix-community
         signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
-    - name: Cache cargo registry
-      uses: actions/cache@v2
-      with:
-        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-        path: |
-          "~/.cargo/registry"
-          "~/.cargo/git"
-          "target"
+    - name: Add rustc to PATH
+      run: |
+        set -euo pipefail
+        rustc_path="$(nix-build -A rustc nix/nixpkgs-stable.nix)/bin"
+        echo "$rustc_path" >> "$GITHUB_PATH"
+    - name: print PATH
+      run: printenv PATH
+    - name: Rust Cache
+      uses: Swatinem/rust-cache@v1.2.0
     - name: CI check
       run: nix-shell --arg isDevelopmentShell false --run 'ci_check'
 name: CI

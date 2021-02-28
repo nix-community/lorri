@@ -19,18 +19,22 @@ let
       signingKey = "\${{ secrets.CACHIX_SIGNING_KEY }}";
     };
   };
-
+  # required to set up rust-cache
+  add-rustc-to-path = {
+    name = "Add rustc to PATH";
+    run = ''
+      set -euo pipefail
+      rustc_path="$(nix-build -A rustc nix/nixpkgs-stable.nix)/bin"
+      echo "$rustc_path" >> "$GITHUB_PATH"
+    '';
+  };
+  print-path = {
+    name = "print PATH";
+    run = "printenv PATH";
+  };
   rust-cache = {
-    name = "Cache cargo registry";
-    uses = "actions/cache@v2";
-    "with" = {
-      path = ''
-        "~/.cargo/registry"
-        "~/.cargo/git"
-        "target"
-      '';
-      key = "\${{ runner.os }}-cargo-registry-\${{ hashFiles('**/Cargo.lock') }}";
-    };
+    name = "Rust Cache";
+    uses = "Swatinem/rust-cache@v1.2.0";
   };
 
   githubRunners = {
@@ -48,6 +52,8 @@ let
           (checkout {})
           setup-nix
           setup-cachix
+          add-rustc-to-path
+          print-path
           rust-cache
           {
             name = "CI check";
