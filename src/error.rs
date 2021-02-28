@@ -170,6 +170,7 @@ impl fmt::Display for BuildError {
     }
 }
 
+// TODO: rethink these constructors
 impl BuildError {
     /// Smart constructor for `BuildError::Io`
     pub fn io<D>(e: D) -> BuildError
