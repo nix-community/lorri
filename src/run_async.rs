@@ -91,7 +91,7 @@ mod tests {
         // now finish the thread, which will give us the return value on the chan
         tx.send(42).unwrap();
         assert_eq!(
-            c.recv_timeout(std::time::Duration::from_millis(1)),
+            c.recv_timeout(std::time::Duration::from_millis(100)),
             Ok(Ok(42))
         );
         // and we can drop the async, it should not block because the thread has finished and can be joined
