@@ -40,18 +40,21 @@ fn main_run_once(project: Project) -> OpResult {
 }
 
 fn main_run_forever(project: Project) -> OpResult {
-    let (tx, rx) = chan::unbounded();
+    let (tx_build_results, rx_build_results) = chan::unbounded();
+    let (tx_ping, rx_ping) = chan::unbounded();
     let build_thread = {
         thread::spawn(move || {
             // TODO: add the ability to pass extra_nix_options to watch
             let mut build_loop = BuildLoop::new(&project, NixOptions::empty());
 
-            // The `watch` command does not currently react to pings, hence the `chan::never()`
-            build_loop.forever(tx, chan::never());
+            build_loop.forever(tx_build_results, rx_ping);
         })
     };
 
-    for msg in rx {
+    // We ping the build loop once, to make it run the first build immediately
+    tx_ping.send(()).expect("could not send ping to build_loop");
+
+    for msg in rx_build_results {
         print_build_message(msg);
     }
 

@@ -35,14 +35,6 @@ impl OutputPaths<RootPath> {
 
         shell_gc_root.0.exists()
     }
-
-    /// Check that the shell_gc_root is a directory.
-    pub fn shell_gc_root_is_dir(&self) -> bool {
-        match self.shell_gc_root.0.metadata() {
-            Err(_) => false,
-            Ok(m) => m.is_dir(),
-        }
-    }
 }
 
 /// Proxy through the `Display` class for `PathBuf`.

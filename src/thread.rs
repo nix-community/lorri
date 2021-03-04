@@ -95,7 +95,7 @@ impl Pool {
 
     /// Attempt to join all threads, and if any of them panicked,
     /// also panic this thread.
-    pub fn join_all_or_panic(mut self) {
+    pub fn join_all_or_panic(&mut self) {
         loop {
             if self.threads.is_empty() {
                 return;
