@@ -126,7 +126,7 @@ pub fn main(upgrade_target: cli::UpgradeTo, cas: &ContentAddressable) -> OpResul
     let changelog: changelog::Log = expr.clone().attribute("changelog").value().unwrap();
 
     println!("Changelog when upgrading from {}:", VERSION_BUILD_REV);
-    for entry in changelog.entries {
+    for entry in changelog.entries.iter().rev() {
         if VERSION_BUILD_REV < entry.version {
             println!();
             println!("{}:", entry.version);
