@@ -5,6 +5,25 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
+        version = 702;
+        changes = ''
+          Fix the build loop.
+
+          Previously, any change (for example a direnv ping or a change in the nix files)
+          would add a new build invocation to the queue, and the builds would all be done
+          one after the other.
+
+          However, a new build will always use the *newest* state of the files anyway,
+          so the CPU time spent on all the other builds will be wasted (and hog your processor).
+
+          Now lorri will only
+          1. finish the current build (if running)
+          2. schedule at maximum one additional build if requested
+
+          This should improve the resource use drastically in some situations.
+        '';
+      }
+      {
         version = 676;
         changes = ''
           Make `lorri daemon` exit with exit code 0 instead of 130/143 on
