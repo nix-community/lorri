@@ -325,7 +325,7 @@ dependencies = [
  "serde 1.0.114 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.114 (registry+https://github.com/rust-lang/crates.io-index)",
  "termcolor 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "toml 0.5.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "toml 0.5.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "uuid 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -415,9 +415,10 @@ dependencies = [
  "slog-term 2.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "structopt 0.2.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "toml 0.5.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "varlink 10.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "varlink_generator 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "vec1 1.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "vec1 1.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -991,7 +992,7 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.5.6"
+version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "serde 1.0.114 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1085,7 +1086,7 @@ dependencies = [
 
 [[package]]
 name = "vec1"
-version = "1.5.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -1271,7 +1272,7 @@ dependencies = [
 "checksum textwrap 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d326610f408c7a4eb6f51c37c330e496b08506c9457c9d34287ecc38809fb060"
 "checksum thread_local 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "d40c6d1b69745a6ec6fb1ca717914848da4b44ae29d9b3080cbee91d72a69b14"
 "checksum time 0.1.43 (registry+https://github.com/rust-lang/crates.io-index)" = "ca8a50ef2360fbd1eeb0ecd46795a87a19024eb4b53c5dc916ca1fd95fe62438"
-"checksum toml 0.5.6 (registry+https://github.com/rust-lang/crates.io-index)" = "ffc92d160b1eef40665be3a05630d003936a3bc7da7421277846c2613e92c71a"
+"checksum toml 0.5.8 (registry+https://github.com/rust-lang/crates.io-index)" = "a31142970826733df8241ef35dc040ef98c679ab14d7c3e54d827099b3acecaa"
 "checksum uds_windows 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "cf61006548cd6cf63fcc45d6cee370859692c2dcf7f15e8fc6e73da9ce36e5a3"
 "checksum unicode-segmentation 1.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e83e153d1053cbb5a118eeff7fd5be06ed99153f00dbcd8ae310c5fb2b22edc0"
 "checksum unicode-width 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)" = "caaa9d531767d1ff2150b9332433f32a24622147e5ebb1f26409d5da67afd479"
@@ -1282,7 +1283,7 @@ dependencies = [
 "checksum varlink 10.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "3e9ea65577eb459340e8b31131f80b58d5c514cba9394d7ecc6d8164a29e2e9d"
 "checksum varlink_generator 9.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "3a56e7bf98749ac88a93149700cbddb9da8b9639b54d2d87958d872a38d28db9"
 "checksum varlink_parser 4.0.4 (registry+https://github.com/rust-lang/crates.io-index)" = "a63258ed1db0f33125967976d717708be22f165089fca9b12a9c5c42328be4b1"
-"checksum vec1 1.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "a53a12216d700fcf70bd690b23485687dc05e4d7ffb6470d87e37cb8118dbfd1"
+"checksum vec1 1.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "f2fffd117bafd8d50c625cce64efde70f416ce6d38f78104035a0913cf15fe97"
 "checksum void 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 "checksum walkdir 2.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "777182bc735b6424e1a57516d35ed72cb8019d85c8c9bf536dccb3445c1a2f7d"
 "checksum wasi 0.9.0+wasi-snapshot-preview1 (registry+https://github.com/rust-lang/crates.io-index)" = "cccddf32554fecc6acb585f82a32a72e28b48f8c4c1883ddfeeeaa96f7d8e519"

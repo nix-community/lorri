@@ -24,9 +24,6 @@ let
 
   # Rust-specific
 
-  # Enable printing backtraces for rust binaries
-  RUST_BACKTRACE = 1;
-
   # Only in development shell
 
   # Needed for racer “jump to definition” editor support
@@ -66,8 +63,6 @@ pkgs.mkShell (
     ++ pkgs.stdenv.lib.optionals isDevelopmentShell [ pkgs.rustracer ];
 
     inherit BUILD_REV_COUNT RUN_TIME_CLOSURE;
-
-    inherit RUST_BACKTRACE;
 
     # Executed when entering `nix-shell`
     shellHook = ''
