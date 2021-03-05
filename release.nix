@@ -2,6 +2,7 @@
   package = import ./default.nix {};
 
   changelog = {
+    # TODO: change the version number to the actual lorri versions, (and transfer the changelog to a real conventional changelog file, then update lorri self-upgrade (maybe use toml?))
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
