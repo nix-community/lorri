@@ -193,7 +193,7 @@ impl VarlinkClientInterface for VarlinkClient {
     ) -> varlink::MethodCall<WatchShell_Args, WatchShell_Reply, Error> {
         varlink::MethodCall::<WatchShell_Args, WatchShell_Reply, Error>::new(
             self.connection.clone(),
-            "com.target.lorri.internal.WatchShell",
+            "com.nixos.lorri.internal.WatchShell",
             WatchShell_Args { r#shell_nix },
         )
     }
@@ -208,10 +208,10 @@ pub fn new(inner: Box<dyn VarlinkInterface + Send + Sync>) -> VarlinkInterfacePr
 }
 impl varlink::Interface for VarlinkInterfaceProxy {
     fn get_description(&self) -> &'static str {
-        "# The interface `lorri daemon` exposes.\ninterface com.target.lorri.internal\n\n# WatchShell instructs the daemon to evaluate a Nix expression and re-evaluate\n# it when it or its dependencies change.\nmethod WatchShell(shell_nix: ShellNix) -> ()\n\n# ShellNix describes the Nix expression which evaluates to a development\n# environment.\ntype ShellNix (\n  # The absolute path of a Nix file specifying the project environment.\n  path: string\n)\n\ntype Reason (\n    kind: (project_added, ping_received, files_changed),\n    project: ?ShellNix, # only present if kind == project_added\n    files: ?[]string    # only present if kind == files_changed\n)\n\ntype Outcome (\n    project_root: string\n)\n\ntype Failure (\n    kind: (io, spawn, exit, output),\n    msg: ?string,   # only present if kind in (io, spawn)\n    cmd: ?string,   # only present if kind in (spawn, exit)\n    status: ?int,   # only present if kind == exit\n    logs: ?[]string # only present if kind == exit\n)\n"
+        "# The interface `lorri daemon` exposes.\ninterface com.nixos.lorri.internal\n\n# WatchShell instructs the daemon to evaluate a Nix expression and re-evaluate\n# it when it or its dependencies change.\nmethod WatchShell(shell_nix: ShellNix) -> ()\n\n# ShellNix describes the Nix expression which evaluates to a development\n# environment.\ntype ShellNix (\n  # The absolute path of a Nix file specifying the project environment.\n  path: string\n)\n\ntype Reason (\n    kind: (project_added, ping_received, files_changed),\n    project: ?ShellNix, # only present if kind == project_added\n    files: ?[]string    # only present if kind == files_changed\n)\n\ntype Outcome (\n    project_root: string\n)\n\ntype Failure (\n    kind: (io, spawn, exit, output),\n    msg: ?string,   # only present if kind in (io, spawn)\n    cmd: ?string,   # only present if kind in (spawn, exit)\n    status: ?int,   # only present if kind == exit\n    logs: ?[]string # only present if kind == exit\n)\n"
     }
     fn get_name(&self) -> &'static str {
-        "com.target.lorri.internal"
+        "com.nixos.lorri.internal"
     }
     fn call_upgraded(
         &self,
@@ -223,7 +223,7 @@ impl varlink::Interface for VarlinkInterfaceProxy {
     fn call(&self, call: &mut varlink::Call) -> varlink::Result<()> {
         let req = call.request.unwrap();
         match req.method.as_ref() {
-            "com.target.lorri.internal.WatchShell" => {
+            "com.nixos.lorri.internal.WatchShell" => {
                 if let Some(args) = req.parameters.clone() {
                     let args: WatchShell_Args = match serde_json::from_value(args) {
                         Ok(v) => v,
