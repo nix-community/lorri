@@ -1,5 +1,5 @@
 # The interface `lorri daemon` exposes.
-interface com.target.lorri.internal
+interface com.nixos.lorri.internal
 
 # WatchShell instructs the daemon to evaluate a Nix expression and re-evaluate
 # it when it or its dependencies change.

@@ -38,7 +38,7 @@ pub enum PathsInitError {
 impl Paths {
     /// Set up project paths, creating directories if necessary.
     pub fn initialize() -> Result<Paths, PathsInitError> {
-        let pd = ProjectDirs::from("com.github.target.lorri", "lorri", "lorri")
+        let pd = ProjectDirs::from("com.github.nix-community.lorri", "lorri", "lorri")
             .expect("Could not determine lorri project/cache directories, please set $HOME");
         let create_dir = |dir: PathBuf| -> std::io::Result<PathBuf> {
             std::fs::create_dir_all(&dir).and(Ok(dir))
