@@ -67,8 +67,8 @@ To cut a new release:
    commit.
 6. Tag the merge commit using `git tag --sign <version> <merge commit hash>`.
    Here, `<version>` is used as the name of the tag. It should adhere to the
-   `MAJOR.MINOR` format without prefix or suffix, for example `1.0` (and not
-   `v1.0`).
+`MAJOR.MINOR.PATCH` format without prefix or suffix, for example `1.0.0` (and not
+   `v1.0.0`).
 7. Push the tag using `git push origin <version>`.
 8. Go to https://github.com/nix-community/lorri/releases/new and use the pushed
    Tag to create a new release.
