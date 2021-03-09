@@ -4,7 +4,7 @@
 use crate::daemon::Daemon;
 use crate::nix::options::NixOptions;
 use crate::ops::error::{ok, OpResult};
-use crate::socket::SocketPath;
+use crate::socket::path::SocketPath;
 use slog_scope::info;
 
 /// See the documentation for lorri::cli::Command::Daemon for details.

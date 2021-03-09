@@ -7,7 +7,7 @@ use crate::error;
 use crate::internal_proto;
 use crate::ops::error::ExitError;
 use crate::proto;
-use crate::socket::{BindLock, SocketPath};
+use crate::socket::path::{BindLock, SocketPath};
 use crate::{AbsPathBuf, NixFile};
 
 use crossbeam_channel as chan;
