@@ -4,7 +4,7 @@ use crate::build_loop::{BuildLoop, Event};
 use crate::internal_proto;
 use crate::nix::options::NixOptions;
 use crate::ops::error::ExitError;
-use crate::socket::SocketPath;
+use crate::socket::path::SocketPath;
 use crate::{AbsPathBuf, NixFile};
 use crossbeam_channel as chan;
 use slog_scope::debug;

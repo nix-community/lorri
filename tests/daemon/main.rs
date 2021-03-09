@@ -2,7 +2,7 @@ use lorri::build_loop;
 use lorri::cas::ContentAddressable;
 use lorri::daemon::{Daemon, LoopHandlerEvent};
 use lorri::nix::options::NixOptions;
-use lorri::socket::SocketPath;
+use lorri::socket::path::SocketPath;
 use lorri::AbsPathBuf;
 use std::io::{Error, ErrorKind};
 use std::thread;
