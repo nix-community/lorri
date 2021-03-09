@@ -78,6 +78,7 @@ watch_file "$EVALUATION_ROOT"
         root_paths.shell_gc_root,
         crate::ops::get_paths()?
             .daemon_socket_file()
+            .as_absolute_path()
             .to_str()
             .expect("Socket path is not UTF-8 clean!"),
         include_str!("envrc.bash")

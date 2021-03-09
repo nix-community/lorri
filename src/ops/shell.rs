@@ -9,7 +9,6 @@ use crate::project::{roots::Roots, Project};
 use slog_scope::debug;
 use std::io;
 use std::io::Write;
-use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -63,7 +62,7 @@ pub fn main(project: Project, opts: ShellOptions) -> OpResult {
             &shell,
             project
                 .nix_file
-                .as_path()
+                .as_absolute_path()
                 .to_str()
                 .expect("Nix file path not UTF-8 clean"),
         ])
@@ -137,14 +136,13 @@ fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
         })?
         .result;
 
-    Ok(Path::new(
-        Roots::from_project(&project)
-            .create_roots(run_result)
-            .map_err(|e| ExitError::temporary(format!("rooting the environment failed: {}", e)))?
-            .shell_gc_root
-            .as_os_str(),
-    )
-    .to_owned())
+    Ok(Roots::from_project(&project)
+        .create_roots(run_result)
+        .map_err(|e| ExitError::temporary(format!("rooting the environment failed: {}", e)))?
+        .shell_gc_root
+        .0
+        .as_absolute_path()
+        .to_owned())
 }
 
 fn cached_root(project: &Project) -> Result<PathBuf, ExitError> {
@@ -154,7 +152,7 @@ fn cached_root(project: &Project) -> Result<PathBuf, ExitError> {
             "project has not previously been built successfully",
         ))
     } else {
-        Ok(Path::new(root_paths.shell_gc_root.as_os_str()).to_owned())
+        Ok(root_paths.shell_gc_root.0.as_absolute_path().to_owned())
     }
 }
 
@@ -180,6 +178,7 @@ EVALUATION_ROOT="{}"
     cmd.env(
         "BASH_ENV",
         init_file
+            .as_absolute_path()
             .to_str()
             .expect("script file path not UTF-8 clean"),
     );

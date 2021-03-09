@@ -3,9 +3,8 @@
 pub mod roots;
 
 use crate::cas::ContentAddressable;
-use crate::NixFile;
+use crate::{AbsPathBuf, NixFile};
 use std::os::unix::ffi::OsStrExt;
-use std::path::{Path, PathBuf};
 
 /// A “project” knows how to handle the lorri state
 /// for a given nix file.
@@ -16,7 +15,7 @@ pub struct Project {
 
     /// Directory in which this project’s
     /// garbage collection roots are stored.
-    gc_root_path: PathBuf,
+    gc_root_path: AbsPathBuf,
 
     /// Hash of the nix file’s absolute path.
     hash: String,
@@ -31,12 +30,12 @@ impl Project {
     /// (as returned by `Paths.gc_root_dir()`),
     pub fn new(
         nix_file: NixFile,
-        gc_root_dir: &Path,
+        gc_root_dir: &AbsPathBuf,
         cas: ContentAddressable,
     ) -> std::io::Result<Project> {
         let hash = format!(
             "{:x}",
-            md5::compute(nix_file.as_path().as_os_str().as_bytes())
+            md5::compute(nix_file.as_absolute_path().as_os_str().as_bytes())
         );
         let project_gc_root = gc_root_dir.join(&hash).join("gc_root");
 

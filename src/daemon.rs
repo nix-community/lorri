@@ -4,11 +4,10 @@ use crate::build_loop::{BuildLoop, Event};
 use crate::nix::options::NixOptions;
 use crate::ops::error::ExitError;
 use crate::socket::SocketPath;
-use crate::NixFile;
+use crate::{AbsPathBuf, NixFile};
 use crossbeam_channel as chan;
 use slog_scope::debug;
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 mod internal_proto;
 
@@ -75,7 +74,7 @@ impl Daemon {
     pub fn serve(
         &mut self,
         socket_path: SocketPath,
-        gc_root_dir: PathBuf,
+        gc_root_dir: &AbsPathBuf,
         cas: crate::cas::ContentAddressable,
     ) -> Result<(), ExitError> {
         let (activity_tx, activity_rx): (
@@ -90,7 +89,7 @@ impl Daemon {
             .map_err(|e| {
                 ExitError::temporary(format!(
                     "unable to bind to the server socket at {}: {:?}",
-                    socket_path.0.display(),
+                    socket_path.as_absolute_path().display(),
                     e
                 ))
             })?;
@@ -105,12 +104,13 @@ impl Daemon {
 
         let build_events_tx = self.build_events_tx.clone();
         let extra_nix_options = self.extra_nix_options.clone();
-        pool.spawn("foo", || {
+        let gc_root_dir = gc_root_dir.clone();
+        pool.spawn("foo", move || {
             Self::build_instruction_handler(
                 build_events_tx,
                 extra_nix_options,
                 activity_rx,
-                gc_root_dir,
+                &gc_root_dir,
                 cas,
             )
         })?;
@@ -172,7 +172,7 @@ impl Daemon {
         build_events_tx: chan::Sender<LoopHandlerEvent>,
         extra_nix_options: NixOptions,
         activity_rx: chan::Receiver<IndicateActivity>,
-        gc_root_dir: PathBuf,
+        gc_root_dir: &AbsPathBuf,
         cas: crate::cas::ContentAddressable,
     ) {
         // A thread for each `BuildLoop`, keyed by the nix files listened on.
@@ -182,7 +182,7 @@ impl Daemon {
         // to the watch list.
         for start_build in activity_rx {
             let project =
-                crate::project::Project::new(start_build.nix_file, &gc_root_dir, cas.clone())
+                crate::project::Project::new(start_build.nix_file, gc_root_dir, cas.clone())
                     // TODO: the project needs to create its gc root dir
                     .unwrap();
 

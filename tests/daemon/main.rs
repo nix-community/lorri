@@ -3,6 +3,7 @@ use lorri::cas::ContentAddressable;
 use lorri::daemon::{Daemon, LoopHandlerEvent};
 use lorri::nix::options::NixOptions;
 use lorri::socket::SocketPath;
+use lorri::AbsPathBuf;
 use std::io::{Error, ErrorKind};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -22,22 +23,33 @@ pub fn start_job_with_ping() -> std::io::Result<()> {
     let shell_nix = tempdir.as_ref().join("shell.nix");
     std::fs::File::create(&shell_nix)?;
 
-    let socket_path = SocketPath::from(&tempdir.path().join("socket"));
+    let socket_path = SocketPath::from(
+        AbsPathBuf::new(tempdir.path().to_owned())
+            .unwrap()
+            .join("socket"),
+    );
     let address = socket_path.address();
-    let cas = ContentAddressable::new(tempdir.path().join("cas")).unwrap();
-    let gc_root_dir = tempdir.path().join("gc_root").to_path_buf();
+    let cas =
+        ContentAddressable::new(AbsPathBuf::new(tempdir.path().join("cas")).unwrap()).unwrap();
+    let gc_root_dir = lorri::AbsPathBuf::new(tempdir.path().to_owned())
+        .unwrap()
+        .join("gc_root");
 
     // The daemon knows how to build stuff
     let (mut daemon, build_rx) = Daemon::new(NixOptions::empty());
     let accept_handle = thread::spawn(move || {
         daemon
-            .serve(socket_path, gc_root_dir, cas)
+            .serve(socket_path, &gc_root_dir, cas)
             .expect("failed to serve daemon endpoint");
     });
 
     connect(&address, Duration::from_millis(1000));
 
-    lorri::ops::ping::main(lorri::NixFile::from(shell_nix), Some(address)).unwrap();
+    lorri::ops::ping::main(
+        lorri::NixFile::from(lorri::AbsPathBuf::new(shell_nix).unwrap()),
+        Some(address),
+    )
+    .unwrap();
 
     // Read the first build event, which should be a `Started` message
     match build_rx.recv_timeout(Duration::from_millis(1000)).unwrap() {

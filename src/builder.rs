@@ -81,11 +81,11 @@ fn instrumented_instantiation(
         // the source file
         OsStr::new("--argstr"),
     ]);
-    cmd.args(&[OsStr::new("src"), nix_file.as_path().as_os_str()]);
+    cmd.args(&[OsStr::new("src"), nix_file.as_absolute_path().as_os_str()]);
     cmd.args(&[
         // instrumented by `./logged-evaluation.nix`
         OsStr::new("--"),
-        &logged_evaluation_nix.as_os_str(),
+        &logged_evaluation_nix.as_absolute_path().as_os_str(),
     ])
     .stdin(Stdio::null())
     .stdout(Stdio::piped())
@@ -298,6 +298,7 @@ mod tests {
     use super::*;
     use crate::cas::ContentAddressable;
     use crate::nix::options::NixOptions;
+    use crate::AbsPathBuf;
     use std::path::PathBuf;
 
     /// Parsing of `LogDatum`.
@@ -356,7 +357,7 @@ derivation {{
     #[test]
     fn non_utf8_nix_output() -> std::io::Result<()> {
         let tmp = tempfile::tempdir()?;
-        let cas = ContentAddressable::new(tmp.path().to_owned())?;
+        let cas = ContentAddressable::new(crate::AbsPathBuf::new(tmp.path().to_owned()).unwrap())?;
 
         let inner_drv = drv(
             "dep",
@@ -384,7 +385,7 @@ in {}
 
         // build, because instantiate doesn’t return the build output (obviously …)
         run(
-            &crate::NixFile(cas.file_from_string(&nix_drv)?),
+            &crate::NixFile::from(cas.file_from_string(&nix_drv)?),
             &cas,
             &NixOptions::empty(),
         )
@@ -396,9 +397,9 @@ in {}
     #[test]
     fn gracefully_handle_failing_build() -> std::io::Result<()> {
         let tmp = tempfile::tempdir()?;
-        let cas = ContentAddressable::new(tmp.path().to_owned())?;
+        let cas = ContentAddressable::new(crate::AbsPathBuf::new(tmp.path().to_owned()).unwrap())?;
 
-        let d = crate::NixFile(cas.file_from_string(&drv(
+        let d = crate::NixFile::from(cas.file_from_string(&drv(
             "shell",
             &format!("dep = {};", drv("dep", r##"args = [ "-c" "exit 1" ];"##)),
         ))?);
@@ -458,10 +459,15 @@ dir-as-source = ./dir;
         let foo_baz = &foo.join("baz");
         std::fs::write(&foo_baz, "\"This file should be watched\"")?;
 
-        let cas = ContentAddressable::new(cas_tmp.path().join("cas"))?;
+        let cas =
+            ContentAddressable::new(crate::AbsPathBuf::new(cas_tmp.path().join("cas")).unwrap())?;
 
-        let inst_info =
-            instrumented_instantiation(&NixFile(shell), &cas, &NixOptions::empty()).unwrap();
+        let inst_info = instrumented_instantiation(
+            &NixFile::from(AbsPathBuf::new(shell).unwrap()),
+            &cas,
+            &NixOptions::empty(),
+        )
+        .unwrap();
         let ends_with = |end| inst_info.referenced_paths.iter().any(|p| p.ends_with(end));
         assert!(
             ends_with("foo/default.nix"),

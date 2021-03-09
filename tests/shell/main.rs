@@ -4,12 +4,12 @@ use lorri::{
     nix::options::NixOptions,
     ops::shell,
     project::{roots::Roots, Project},
-    NixFile,
+    AbsPathBuf, NixFile,
 };
 use std::env;
 use std::fs;
 use std::iter::FromIterator;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 fn cargo_bin(name: &str) -> PathBuf {
@@ -28,14 +28,22 @@ fn cargo_bin(name: &str) -> PathBuf {
 #[test]
 fn loads_env() {
     let tempdir = tempfile::tempdir().expect("tempfile::tempdir() failed us!");
-    let project = project("loads_env", tempdir.path());
+    let project = project(
+        "loads_env",
+        &lorri::AbsPathBuf::new(tempdir.path().to_owned()).unwrap(),
+    );
 
     // Launch as a real user
     let res = Command::new(cargo_bin("lorri"))
         .args(&[
             "shell",
             "--shell-file",
-            project.nix_file.as_path().as_os_str().to_str().unwrap(),
+            project
+                .nix_file
+                .as_absolute_path()
+                .as_os_str()
+                .to_str()
+                .unwrap(),
         ])
         .current_dir(&tempdir)
         .output()
@@ -56,29 +64,34 @@ fn loads_env() {
     );
 }
 
-fn project(name: &str, cache_dir: &Path) -> Project {
-    let test_root = PathBuf::from_iter(&[env!("CARGO_MANIFEST_DIR"), "tests", "shell", name]);
+fn project(name: &str, cache_dir: &AbsPathBuf) -> Project {
+    let test_root = AbsPathBuf::new(PathBuf::from_iter(&[
+        env!("CARGO_MANIFEST_DIR"),
+        "tests",
+        "shell",
+        name,
+    ]))
+    .expect("CARGO_MANIFEST_DIR was not absolute");
     let cas_dir = cache_dir.join("cas").to_owned();
     fs::create_dir_all(&cas_dir).expect("failed to create CAS directory");
     Project::new(
         NixFile::from(test_root.join("shell.nix")),
-        &cache_dir.join("gc_roots").to_owned(),
+        &cache_dir.join("gc_roots"),
         ContentAddressable::new(cas_dir).unwrap(),
     )
     .unwrap()
 }
 
 fn build(project: &Project) -> PathBuf {
-    Path::new(
-        Roots::from_project(&project)
-            .create_roots(
-                builder::run(&project.nix_file, &project.cas, &NixOptions::empty())
-                    .unwrap()
-                    .result,
-            )
-            .unwrap()
-            .shell_gc_root
-            .as_os_str(),
-    )
-    .to_owned()
+    Roots::from_project(&project)
+        .create_roots(
+            builder::run(&project.nix_file, &project.cas, &NixOptions::empty())
+                .unwrap()
+                .result,
+        )
+        .unwrap()
+        .shell_gc_root
+        .0
+        .as_absolute_path()
+        .to_owned()
 }
