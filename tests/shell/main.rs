@@ -4,13 +4,12 @@ use lorri::{
     nix::options::NixOptions,
     ops::shell,
     project::{roots::Roots, Project},
-    NixFile,
-    AbsPathBuf
+    AbsPathBuf, NixFile,
 };
 use std::env;
 use std::fs;
 use std::iter::FromIterator;
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 fn cargo_bin(name: &str) -> PathBuf {
@@ -29,7 +28,10 @@ fn cargo_bin(name: &str) -> PathBuf {
 #[test]
 fn loads_env() {
     let tempdir = tempfile::tempdir().expect("tempfile::tempdir() failed us!");
-    let project = project("loads_env", &lorri::AbsPathBuf::new(tempdir.path().to_owned()).unwrap());
+    let project = project(
+        "loads_env",
+        &lorri::AbsPathBuf::new(tempdir.path().to_owned()).unwrap(),
+    );
 
     // Launch as a real user
     let res = Command::new(cargo_bin("lorri"))
@@ -63,7 +65,13 @@ fn loads_env() {
 }
 
 fn project(name: &str, cache_dir: &AbsPathBuf) -> Project {
-    let test_root = AbsPathBuf::new(PathBuf::from_iter(&[env!("CARGO_MANIFEST_DIR"), "tests", "shell", name])).expect("CARGO_MANIFEST_DIR was not absolute");
+    let test_root = AbsPathBuf::new(PathBuf::from_iter(&[
+        env!("CARGO_MANIFEST_DIR"),
+        "tests",
+        "shell",
+        name,
+    ]))
+    .expect("CARGO_MANIFEST_DIR was not absolute");
     let cas_dir = cache_dir.join("cas").to_owned();
     fs::create_dir_all(&cas_dir).expect("failed to create CAS directory");
     Project::new(
@@ -86,5 +94,4 @@ fn build(project: &Project) -> PathBuf {
         .0
         .as_absolute_path()
         .to_owned()
-
 }

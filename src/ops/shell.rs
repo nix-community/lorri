@@ -137,11 +137,12 @@ fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
         .result;
 
     Ok(Roots::from_project(&project)
-            .create_roots(run_result)
-            .map_err(|e| ExitError::temporary(format!("rooting the environment failed: {}", e)))?
-            .shell_gc_root
-            .0.as_absolute_path()
-    .to_owned())
+        .create_roots(run_result)
+        .map_err(|e| ExitError::temporary(format!("rooting the environment failed: {}", e)))?
+        .shell_gc_root
+        .0
+        .as_absolute_path()
+        .to_owned())
 }
 
 fn cached_root(project: &Project) -> Result<PathBuf, ExitError> {

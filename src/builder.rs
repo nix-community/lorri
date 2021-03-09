@@ -298,8 +298,8 @@ mod tests {
     use super::*;
     use crate::cas::ContentAddressable;
     use crate::nix::options::NixOptions;
-    use std::path::PathBuf;
     use crate::AbsPathBuf;
+    use std::path::PathBuf;
 
     /// Parsing of `LogDatum`.
     #[test]
@@ -385,8 +385,7 @@ in {}
 
         // build, because instantiate doesn’t return the build output (obviously …)
         run(
-            &crate::NixFile::from(cas.file_from_string(&nix_drv)?
-            ),
+            &crate::NixFile::from(cas.file_from_string(&nix_drv)?),
             &cas,
             &NixOptions::empty(),
         )

@@ -1,10 +1,10 @@
 //! Handling of nix GC roots
 //!
 //! TODO: inline this module into `::project`
-use crate::{AbsPathBuf};
 use crate::builder::{OutputPaths, RootedPath};
 use crate::nix::StorePath;
 use crate::project::Project;
+use crate::AbsPathBuf;
 use slog_scope::debug;
 use std::env;
 use std::fmt;
@@ -76,9 +76,11 @@ where {
         let path = self.gc_root_path.join(name);
 
         debug!("adding root"; "from" => store_path.as_path().to_str(), "to" => path.display());
-        std::fs::remove_file(&path).or_else(|e| AddRootError::remove(e, &path.as_absolute_path()))?;
+        std::fs::remove_file(&path)
+            .or_else(|e| AddRootError::remove(e, &path.as_absolute_path()))?;
 
-        std::fs::remove_file(&path).or_else(|e| AddRootError::remove(e, &path.as_absolute_path()))?;
+        std::fs::remove_file(&path)
+            .or_else(|e| AddRootError::remove(e, &path.as_absolute_path()))?;
 
         // the forward GC root that points from the store path to our cache gc_roots dir
         std::os::unix::fs::symlink(store_path.as_path(), &path)

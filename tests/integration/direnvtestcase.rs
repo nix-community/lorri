@@ -3,7 +3,7 @@
 
 use lorri::{
     build_loop::BuildLoop, builder, cas::ContentAddressable, error::BuildError,
-    nix::options::NixOptions, ops::direnv, project::roots, project::Project, NixFile, AbsPathBuf
+    nix::options::NixOptions, ops::direnv, project::roots, project::Project, AbsPathBuf, NixFile,
 };
 use std::collections::hash_map::Keys;
 use std::collections::HashMap;
@@ -27,24 +27,13 @@ impl DirenvTestCase {
         let cachedir_tmp = tempdir().expect("tempfile::tempdir() failed us!");
         let cachedir = AbsPathBuf::new(cachedir_tmp.path().to_owned()).unwrap();
 
-
         let test_root =
             PathBuf::from_iter(&[env!("CARGO_MANIFEST_DIR"), "tests", "integration", name]);
 
         let shell_file = NixFile::from(AbsPathBuf::new(test_root.join("shell.nix")).unwrap());
 
-        let cas = ContentAddressable::new(
-            cachedir
-                .join("cas")
-                .to_owned(),
-        )
-        .unwrap();
-        let project = Project::new(
-            shell_file.clone(),
-            &cachedir.join("gc_roots"),
-            cas,
-        )
-        .unwrap();
+        let cas = ContentAddressable::new(cachedir.join("cas").to_owned()).unwrap();
+        let project = Project::new(shell_file.clone(), &cachedir.join("gc_roots"), cas).unwrap();
 
         DirenvTestCase {
             projectdir,

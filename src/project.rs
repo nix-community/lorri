@@ -3,7 +3,7 @@
 pub mod roots;
 
 use crate::cas::ContentAddressable;
-use crate::{NixFile, AbsPathBuf};
+use crate::{AbsPathBuf, NixFile};
 use std::os::unix::ffi::OsStrExt;
 
 /// A “project” knows how to handle the lorri state

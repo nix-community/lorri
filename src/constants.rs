@@ -1,8 +1,8 @@
 //! Global project constants.
 
 use crate::cas::ContentAddressable;
-use directories::ProjectDirs;
 use crate::AbsPathBuf;
+use directories::ProjectDirs;
 
 /// Path constants like the GC root directory.
 pub struct Paths {

@@ -8,7 +8,7 @@ use crate::internal_proto;
 use crate::ops::error::ExitError;
 use crate::proto;
 use crate::socket::{BindLock, SocketPath};
-use crate::{NixFile, AbsPathBuf};
+use crate::{AbsPathBuf, NixFile};
 
 use crossbeam_channel as chan;
 use slog_scope::debug;
@@ -297,7 +297,9 @@ impl TryFrom<proto::Outcome> for build_loop::Event {
         Ok(build_loop::Event::Completed {
             nix_file: NixFile::from(AbsPathBuf::new_unchecked(PathBuf::from(o.nix_file))),
             rooted_output_paths: builder::OutputPaths {
-                shell_gc_root: roots::RootPath(AbsPathBuf::new_unchecked(PathBuf::from(o.project_root))),
+                shell_gc_root: roots::RootPath(AbsPathBuf::new_unchecked(PathBuf::from(
+                    o.project_root,
+                ))),
             },
         })
     }

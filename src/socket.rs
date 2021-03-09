@@ -1,8 +1,8 @@
 //! `bind()`ing & `connect()`ing to sockets.
 
+use crate::AbsPathBuf;
 use std::os::unix::io::AsRawFd;
-use std::path::{Path};
-use crate::{AbsPathBuf};
+use std::path::Path;
 
 /// Small wrapper that makes sure lorri sockets are handled correctly.
 #[derive(Clone)]
