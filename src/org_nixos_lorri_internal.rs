@@ -140,6 +140,11 @@ pub struct r#Reason {
     pub r#files: Option<Vec<String>>,
 }
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub enum r#Rebuild {
+    r#OnlyIfNotBuilding,
+    r#Always,
+}
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct r#ShellNix {
     pub r#path: String,
 }
@@ -149,6 +154,7 @@ impl varlink::VarlinkReply for WatchShell_Reply {}
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct WatchShell_Args {
     pub r#shell_nix: ShellNix,
+    pub r#rebuild: Rebuild,
 }
 pub trait Call_WatchShell: VarlinkCallError {
     fn reply(&mut self) -> varlink::Result<()> {
@@ -161,6 +167,7 @@ pub trait VarlinkInterface {
         &self,
         call: &mut dyn Call_WatchShell,
         r#shell_nix: ShellNix,
+        r#rebuild: Rebuild,
     ) -> varlink::Result<()>;
     fn call_upgraded(
         &self,
@@ -174,6 +181,7 @@ pub trait VarlinkClientInterface {
     fn watch_shell(
         &mut self,
         r#shell_nix: ShellNix,
+        r#rebuild: Rebuild,
     ) -> varlink::MethodCall<WatchShell_Args, WatchShell_Reply, Error>;
 }
 #[allow(dead_code)]
@@ -190,11 +198,15 @@ impl VarlinkClientInterface for VarlinkClient {
     fn watch_shell(
         &mut self,
         r#shell_nix: ShellNix,
+        r#rebuild: Rebuild,
     ) -> varlink::MethodCall<WatchShell_Args, WatchShell_Reply, Error> {
         varlink::MethodCall::<WatchShell_Args, WatchShell_Reply, Error>::new(
             self.connection.clone(),
             "com.nixos.lorri.internal.WatchShell",
-            WatchShell_Args { r#shell_nix },
+            WatchShell_Args {
+                r#shell_nix,
+                r#rebuild,
+            },
         )
     }
 }
@@ -208,7 +220,7 @@ pub fn new(inner: Box<dyn VarlinkInterface + Send + Sync>) -> VarlinkInterfacePr
 }
 impl varlink::Interface for VarlinkInterfaceProxy {
     fn get_description(&self) -> &'static str {
-        "# The interface `lorri daemon` exposes.\ninterface com.nixos.lorri.internal\n\n# WatchShell instructs the daemon to evaluate a Nix expression and re-evaluate\n# it when it or its dependencies change.\nmethod WatchShell(shell_nix: ShellNix) -> ()\n\n# ShellNix describes the Nix expression which evaluates to a development\n# environment.\ntype ShellNix (\n  # The absolute path of a Nix file specifying the project environment.\n  path: string\n)\n\ntype Reason (\n    kind: (project_added, ping_received, files_changed),\n    project: ?ShellNix, # only present if kind == project_added\n    files: ?[]string    # only present if kind == files_changed\n)\n\ntype Outcome (\n    project_root: string\n)\n\ntype Failure (\n    kind: (io, spawn, exit, output),\n    msg: ?string,   # only present if kind in (io, spawn)\n    cmd: ?string,   # only present if kind in (spawn, exit)\n    status: ?int,   # only present if kind == exit\n    logs: ?[]string # only present if kind == exit\n)\n"
+        "# The interface `lorri daemon` exposes.\ninterface com.nixos.lorri.internal\n\n# WatchShell instructs the daemon to evaluate a Nix expression and re-evaluate\n# it when it or its dependencies change.\nmethod WatchShell(shell_nix: ShellNix, rebuild: Rebuild) -> ()\n\n# ShellNix describes the Nix expression which evaluates to a development\n# environment.\ntype ShellNix (\n  # The absolute path of a Nix file specifying the project environment.\n  path: string\n)\n\ntype Rebuild (\n    OnlyIfNotBuilding,\n    Always\n)\n\ntype Reason (\n    kind: (project_added, ping_received, files_changed),\n    project: ?ShellNix, # only present if kind == project_added\n    files: ?[]string    # only present if kind == files_changed\n)\n\ntype Outcome (\n    project_root: string\n)\n\ntype Failure (\n    kind: (io, spawn, exit, output),\n    msg: ?string,   # only present if kind in (io, spawn)\n    cmd: ?string,   # only present if kind in (spawn, exit)\n    status: ?int,   # only present if kind == exit\n    logs: ?[]string # only present if kind == exit\n)\n"
     }
     fn get_name(&self) -> &'static str {
         "com.nixos.lorri.internal"
@@ -235,8 +247,11 @@ impl varlink::Interface for VarlinkInterfaceProxy {
                             );
                         }
                     };
-                    self.inner
-                        .watch_shell(call as &mut dyn Call_WatchShell, args.r#shell_nix)
+                    self.inner.watch_shell(
+                        call as &mut dyn Call_WatchShell,
+                        args.r#shell_nix,
+                        args.r#rebuild,
+                    )
                 } else {
                     call.reply_invalid_parameter("parameters".into())
                 }

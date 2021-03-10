@@ -17,7 +17,7 @@ pub fn main(nix_file: NixFile, addr: Option<String>) -> OpResult {
     internal_proto::VarlinkClient::new(
         varlink::Connection::with_address(&address).expect("failed to connect to daemon server"),
     )
-    .watch_shell(shell_nix)
+    .watch_shell(shell_nix, internal_proto::Rebuild::Always)
     .call()
     .expect("call to daemon server failed");
     ok()
