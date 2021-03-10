@@ -71,12 +71,14 @@ impl internal_proto::VarlinkInterface for Server {
         &self,
         call: &mut dyn internal_proto::Call_WatchShell,
         shell_nix: internal_proto::ShellNix,
+        rebuild: internal_proto::Rebuild,
     ) -> varlink::Result<()> {
         let p = PathBuf::from(&shell_nix.path);
         if p.is_file() {
             self.activity_tx
                 .send(IndicateActivity {
                     nix_file: NixFile::from(AbsPathBuf::new_unchecked(p)),
+                    rebuild,
                 })
                 .expect("failed to indicate activity via channel");
             call.reply()

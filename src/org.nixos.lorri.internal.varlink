@@ -3,13 +3,18 @@ interface com.nixos.lorri.internal
 
 # WatchShell instructs the daemon to evaluate a Nix expression and re-evaluate
 # it when it or its dependencies change.
-method WatchShell(shell_nix: ShellNix) -> ()
+method WatchShell(shell_nix: ShellNix, rebuild: Rebuild) -> ()
 
 # ShellNix describes the Nix expression which evaluates to a development
 # environment.
 type ShellNix (
   # The absolute path of a Nix file specifying the project environment.
   path: string
+)
+
+type Rebuild (
+    OnlyIfNotBuilding,
+    Always
 )
 
 type Reason (

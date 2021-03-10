@@ -25,7 +25,7 @@ pub fn main<W: std::io::Write>(project: Project, mut shell_output: W) -> OpResul
     let ping_sent = if let Ok(connection) = varlink::Connection::with_address(&address) {
         use internal_proto::VarlinkClientInterface;
         internal_proto::VarlinkClient::new(connection)
-            .watch_shell(shell_nix)
+            .watch_shell(shell_nix, internal_proto::Rebuild::Always)
             .call()
             .is_ok()
     } else {

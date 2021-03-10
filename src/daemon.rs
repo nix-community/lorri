@@ -1,6 +1,7 @@
 //! The lorri daemon, watches multiple projects in the background.
 
 use crate::build_loop::{BuildLoop, Event};
+use crate::internal_proto;
 use crate::nix::options::NixOptions;
 use crate::ops::error::ExitError;
 use crate::socket::SocketPath;
@@ -25,28 +26,25 @@ pub enum LoopHandlerEvent {
 /// so the user editor would send this message when a file
 /// in the project is opened, through `lorri direnv` for example.
 ///
-/// `lorri internal ping` is the internal command which triggers this signal.
-///
-/// Note especially that we don’t want to fix the server reaction to
-/// this signal yet, sending `IndicateActivity` does not necessarily
-/// start a build immediately (or at all, if for example we implement
-/// a “pause/stop” functionality). The semantics will be specified
-/// at a later time.
+/// `lorri internal ping` is the internal command which triggers this signal
+/// and forces a rebuild.
 pub struct IndicateActivity {
     /// This nix file should be build/watched by the daemon.
     pub nix_file: NixFile,
+    /// Determines when this activity will cause a rebuild.
+    pub rebuild: internal_proto::Rebuild,
 }
 
 struct Handler {
-    tx: chan::Sender<()>,
+    tx_ping: chan::Sender<internal_proto::Rebuild>,
 }
 
 /// Keeps all state of the running `lorri daemon` service, watches nix files and runs builds.
 pub struct Daemon {
     /// Sending end that we pass to every `BuildLoop` the daemon controls.
     // TODO: this needs to transmit information to identify the builder with
-    build_events_tx: chan::Sender<LoopHandlerEvent>,
-    build_events_rx: chan::Receiver<LoopHandlerEvent>,
+    tx_build_events: chan::Sender<LoopHandlerEvent>,
+    rx_build_events: chan::Receiver<LoopHandlerEvent>,
     mon_tx: chan::Sender<LoopHandlerEvent>,
     /// Extra options to pass to each nix invocation
     extra_nix_options: NixOptions,
@@ -57,12 +55,12 @@ impl Daemon {
     /// receives `LoopHandlerEvent`s for all builders this daemon
     /// supervises.
     pub fn new(extra_nix_options: NixOptions) -> (Daemon, chan::Receiver<LoopHandlerEvent>) {
-        let (build_events_tx, build_events_rx) = chan::unbounded();
+        let (tx_build_events, rx_build_events) = chan::unbounded();
         let (mon_tx, mon_rx) = chan::unbounded();
         (
             Daemon {
-                build_events_tx,
-                build_events_rx,
+                tx_build_events,
+                rx_build_events,
                 mon_tx,
                 extra_nix_options,
             },
@@ -77,15 +75,15 @@ impl Daemon {
         gc_root_dir: &AbsPathBuf,
         cas: crate::cas::ContentAddressable,
     ) -> Result<(), ExitError> {
-        let (activity_tx, activity_rx): (
+        let (tx_activity, rx_activity): (
             chan::Sender<IndicateActivity>,
             chan::Receiver<IndicateActivity>,
         ) = chan::unbounded();
 
         let mut pool = crate::thread::Pool::new();
-        let build_events_tx = self.build_events_tx.clone();
+        let tx_build_events = self.tx_build_events.clone();
 
-        let server = server::Server::new(socket_path.clone(), activity_tx, build_events_tx)
+        let server = server::Server::new(socket_path.clone(), tx_activity, tx_build_events)
             .map_err(|e| {
                 ExitError::temporary(format!(
                     "unable to bind to the server socket at {}: {:?}",
@@ -98,18 +96,18 @@ impl Daemon {
             server.serve().expect("varlink error");
         })?;
 
-        let build_events_rx = self.build_events_rx.clone();
+        let rx_build_events = self.rx_build_events.clone();
         let mon_tx = self.mon_tx.clone();
-        pool.spawn("build-loop", || Self::build_loop(build_events_rx, mon_tx))?;
+        pool.spawn("build-loop", || Self::build_loop(rx_build_events, mon_tx))?;
 
-        let build_events_tx = self.build_events_tx.clone();
+        let tx_build_events = self.tx_build_events.clone();
         let extra_nix_options = self.extra_nix_options.clone();
         let gc_root_dir = gc_root_dir.clone();
         pool.spawn("foo", move || {
             Self::build_instruction_handler(
-                build_events_tx,
+                tx_build_events,
                 extra_nix_options,
-                activity_rx,
+                rx_activity,
                 &gc_root_dir,
                 cas,
             )
@@ -121,13 +119,13 @@ impl Daemon {
     }
 
     fn build_loop(
-        build_events_rx: chan::Receiver<LoopHandlerEvent>,
+        rx_build_events: chan::Receiver<LoopHandlerEvent>,
         mon_tx: chan::Sender<LoopHandlerEvent>,
     ) {
         let mut project_states: HashMap<NixFile, Event> = HashMap::new();
         let mut event_listeners: Vec<chan::Sender<Event>> = Vec::new();
 
-        for msg in build_events_rx {
+        for msg in rx_build_events {
             mon_tx
                 .send(msg.clone())
                 .expect("listener still to be there");
@@ -169,9 +167,9 @@ impl Daemon {
     fn build_instruction_handler(
         // TODO: use the pool here
         // pool: &mut crate::thread::Pool,
-        build_events_tx: chan::Sender<LoopHandlerEvent>,
+        tx_build_events: chan::Sender<LoopHandlerEvent>,
         extra_nix_options: NixOptions,
-        activity_rx: chan::Receiver<IndicateActivity>,
+        rx_activity: chan::Receiver<IndicateActivity>,
         gc_root_dir: &AbsPathBuf,
         cas: crate::cas::ContentAddressable,
     ) {
@@ -180,21 +178,21 @@ impl Daemon {
 
         // For each build instruction, add the corresponding file
         // to the watch list.
-        for start_build in activity_rx {
-            let project =
-                crate::project::Project::new(start_build.nix_file, gc_root_dir, cas.clone())
-                    // TODO: the project needs to create its gc root dir
-                    .unwrap();
+        for IndicateActivity { nix_file, rebuild } in rx_activity {
+            let project = crate::project::Project::new(nix_file, gc_root_dir, cas.clone())
+                // TODO: the project needs to create its gc root dir
+                .unwrap();
 
             // Add nix file to the set of files this daemon watches
             // & build if they change.
-            let (tx, rx) = chan::unbounded();
+            let (tx_ping, rx_ping) = chan::unbounded();
             // cloning the tx means the daemon’s rx gets all
             // messages from all builders.
-            let build_events_tx = build_events_tx.clone();
+            let tx_build_events = tx_build_events.clone();
             let extra_nix_options = extra_nix_options.clone();
 
             handler_threads
+                // only add if there is no no build_loop for this file yet.
                 .entry(project.nix_file.clone())
                 .or_insert_with(|| {
                     // TODO: how to use the pool here?
@@ -208,13 +206,13 @@ impl Daemon {
                     let _ = std::thread::spawn(move || {
                         let mut build_loop = BuildLoop::new(&project, extra_nix_options);
 
-                        build_loop.forever(build_events_tx, rx);
+                        build_loop.forever(tx_build_events, rx_ping);
                     });
-                    Handler { tx }
+                    Handler { tx_ping }
                 })
                 // Notify the handler, whether or not it was newly added
-                .tx
-                .send(())
+                .tx_ping
+                .send(rebuild)
                 .unwrap();
         }
     }
