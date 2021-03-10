@@ -9,7 +9,7 @@ use crossbeam_channel as chan;
 use slog_scope::debug;
 use std::collections::HashMap;
 
-mod internal_proto;
+mod server;
 
 #[derive(Debug, Clone)]
 /// Union of build_loop::Event and NewListener for internal use.
@@ -85,7 +85,7 @@ impl Daemon {
         let mut pool = crate::thread::Pool::new();
         let build_events_tx = self.build_events_tx.clone();
 
-        let server = internal_proto::Server::new(socket_path.clone(), activity_tx, build_events_tx)
+        let server = server::Server::new(socket_path.clone(), activity_tx, build_events_tx)
             .map_err(|e| {
                 ExitError::temporary(format!(
                     "unable to bind to the server socket at {}: {:?}",
