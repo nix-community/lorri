@@ -181,7 +181,7 @@ pub struct Ping_ {
 pub struct StreamEvents_ {
     #[structopt(long, default_value = "all")]
     /// The kind of events to report
-    pub kind: crate::ops::stream_events::EventKind,
+    pub kind: crate::ops::EventKind,
 }
 
 /// A stub struct to represent how what we want to upgrade to.
