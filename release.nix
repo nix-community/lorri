@@ -6,6 +6,23 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
+        version = 723;
+        changes = ''
+          Fix `lorri direnv` triggering an unconditional rebuild every time it is run.
+
+          After fixing up the build loop people suddenly started noticing that
+          lorri was evaluating every time something ran `lorri direnv`, which
+          could potentially be every time the user switched between buffers in
+          the editor.
+
+          This is not the intended behaviour, since we should run an
+          unconditional build only the first time the project is added to the
+          watcher, and after rely on the watcher to notify us of any file
+          changes (or the user running `lorri internal ping` to force a
+          rebuild).
+        '';
+      }
+      {
         version = 702;
         changes = ''
           Fix the build loop.

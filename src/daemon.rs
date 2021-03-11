@@ -35,10 +35,6 @@ pub struct IndicateActivity {
     pub rebuild: internal_proto::Rebuild,
 }
 
-struct Handler {
-    tx_ping: chan::Sender<internal_proto::Rebuild>,
-}
-
 /// Keeps all state of the running `lorri daemon` service, watches nix files and runs builds.
 pub struct Daemon {
     /// Sending end that we pass to every `BuildLoop` the daemon controls.
@@ -174,7 +170,7 @@ impl Daemon {
         cas: crate::cas::ContentAddressable,
     ) {
         // A thread for each `BuildLoop`, keyed by the nix files listened on.
-        let mut handler_threads: HashMap<NixFile, Handler> = HashMap::new();
+        let mut handler_threads: HashMap<NixFile, chan::Sender<()>> = HashMap::new();
 
         // For each build instruction, add the corresponding file
         // to the watch list.
@@ -183,18 +179,28 @@ impl Daemon {
                 // TODO: the project needs to create its gc root dir
                 .unwrap();
 
-            // Add nix file to the set of files this daemon watches
-            // & build if they change.
-            let (tx_ping, rx_ping) = chan::unbounded();
-            // cloning the tx means the daemon’s rx gets all
-            // messages from all builders.
-            let tx_build_events = tx_build_events.clone();
-            let extra_nix_options = extra_nix_options.clone();
+            let key = project.nix_file.clone();
+            let project_is_watched = handler_threads.get(&key);
 
-            handler_threads
+            let send_ping =
+                |to: &chan::Sender<()>| to.send(()).expect("could not ping the build loop");
+
+            match (project_is_watched, rebuild) {
+                (Some(builder), internal_proto::Rebuild::Always) => {
+                    debug!("triggering rebuild"; "project" => key, "cause" => "unconditional ping");
+                    send_ping(builder)
+                }
+                (Some(_), internal_proto::Rebuild::OnlyIfNotYetWatching) => {
+                    debug!("skipping rebuild"; "project" => key, "cause" => "already watching");
+                }
                 // only add if there is no no build_loop for this file yet.
-                .entry(project.nix_file.clone())
-                .or_insert_with(|| {
+                (None, _) => {
+                    let (tx_ping, rx_ping) = chan::unbounded();
+                    // cloning the tx means the daemon’s rx gets all
+                    // messages from all builders.
+                    let tx_build_events = tx_build_events.clone();
+                    let extra_nix_options = extra_nix_options.clone();
+
                     // TODO: how to use the pool here?
                     // We cannot just spawn new threads once messages come in,
                     // because then then pool objects is stuck in this loop
@@ -208,12 +214,18 @@ impl Daemon {
 
                         build_loop.forever(tx_build_events, rx_ping);
                     });
-                    Handler { tx_ping }
-                })
-                // Notify the handler, whether or not it was newly added
-                .tx_ping
-                .send(rebuild)
-                .unwrap();
+
+                    let e = handler_threads.insert(key.clone(), tx_ping.clone());
+                    match e {
+                        None => {}
+                        Some(_) => {
+                            panic!("handler_threads had the key, but we already checked before")
+                        }
+                    }
+                    debug!("triggering rebuild"; "project" => key, "cause" => "new project");
+                    send_ping(&tx_ping);
+                }
+            }
         }
     }
 }

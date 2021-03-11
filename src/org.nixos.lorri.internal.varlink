@@ -13,7 +13,7 @@ type ShellNix (
 )
 
 type Rebuild (
-    OnlyIfNotBuilding,
+    OnlyIfNotYetWatching,
     Always
 )
 

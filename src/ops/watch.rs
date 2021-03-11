@@ -3,7 +3,6 @@
 
 use crate::build_loop::BuildLoop;
 use crate::cli::WatchOptions;
-use crate::internal_proto;
 use crate::nix::options::NixOptions;
 use crate::ops::error::{ok, ExitError, OpResult};
 use crate::project::Project;
@@ -53,9 +52,7 @@ fn main_run_forever(project: Project) -> OpResult {
     };
 
     // We ping the build loop once, to make it run the first build immediately
-    tx_ping
-        .send(internal_proto::Rebuild::Always)
-        .expect("could not send ping to build_loop");
+    tx_ping.send(()).expect("could not send ping to build_loop");
 
     for msg in rx_build_results {
         print_build_message(msg);
