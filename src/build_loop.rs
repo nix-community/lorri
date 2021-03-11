@@ -4,7 +4,6 @@
 use crate::builder;
 use crate::daemon::LoopHandlerEvent;
 use crate::error::BuildError;
-use crate::internal_proto;
 use crate::nix::options::NixOptions;
 use crate::pathreduction::reduce_paths;
 use crate::project::roots;
@@ -119,11 +118,7 @@ impl<'a> BuildLoop<'a> {
     /// When new filesystem changes are detected while a build is
     /// still running, it is finished first before starting a new build.
     #[allow(clippy::drop_copy, clippy::zero_ptr)] // triggered by `select!`
-    pub fn forever(
-        &mut self,
-        tx: chan::Sender<LoopHandlerEvent>,
-        rx_ping: chan::Receiver<internal_proto::Rebuild>,
-    ) {
+    pub fn forever(&mut self, tx: chan::Sender<LoopHandlerEvent>, rx_ping: chan::Receiver<()>) {
         let mut current_build = BuildState::NotRunning;
         let rx_watcher = self.watch.rx.clone();
 
@@ -190,26 +185,13 @@ impl<'a> BuildLoop<'a> {
 
                 // we were pinged
                 recv(rx_ping) -> msg => match msg {
-                    Ok(internal_proto::Rebuild::Always) => {
+                    Ok(()) => {
                         // TODO: this is not a started, this is just a scheduled!
                         send(Event::Started{
                             nix_file: self.project.nix_file.clone(),
                             reason: Reason::PingReceived
                         });
                         self.schedule_build(&mut current_build)
-                    },
-                    Ok(internal_proto::Rebuild::OnlyIfNotBuilding) => {
-                        match current_build {
-                            BuildState::NotRunning => (),
-                            _ => {
-                                // TODO: this is not a started, this is just a scheduled!
-                                send(Event::Started{
-                                    nix_file: self.project.nix_file.clone(),
-                                    reason: Reason::PingReceived
-                                });
-                                self.schedule_build(&mut current_build)
-                            },
-                        }
                     },
                     Err(chan::RecvError) =>
                         debug!("ping chan was disconnected"; "project" => &self.project.nix_file)
