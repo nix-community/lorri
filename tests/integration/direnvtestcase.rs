@@ -3,7 +3,7 @@
 
 use lorri::{
     build_loop::BuildLoop, builder, cas::ContentAddressable, error::BuildError,
-    nix::options::NixOptions, ops::direnv, project::roots, project::Project, AbsPathBuf, NixFile,
+    nix::options::NixOptions, ops, project::roots, project::Project, AbsPathBuf, NixFile,
 };
 use std::collections::hash_map::Keys;
 use std::collections::HashMap;
@@ -51,7 +51,7 @@ impl DirenvTestCase {
     /// the environment DirEnv would produce.
     pub fn get_direnv_variables(&self) -> DirenvEnv {
         let envrc = File::create(self.projectdir.path().join(".envrc")).unwrap();
-        direnv::main(self.project.clone(), envrc).unwrap();
+        ops::direnv(self.project.clone(), envrc).unwrap();
 
         {
             let mut allow = self.direnv_cmd();

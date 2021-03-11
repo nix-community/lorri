@@ -2,10 +2,8 @@ use lorri::cli::{Arguments, Command, Internal_};
 use lorri::constants;
 use lorri::locate_file;
 use lorri::logging;
+use lorri::ops;
 use lorri::ops::error::{ExitError, OpResult};
-use lorri::ops::{
-    daemon, direnv, info, init, ping, shell, start_user_shell, stream_events, upgrade, watch,
-};
 use lorri::project::Project;
 use lorri::NixFile;
 use slog::{debug, error, o};
@@ -99,47 +97,47 @@ fn run_command(log: slog::Logger, opts: Arguments) -> OpResult {
     match opts.command {
         Command::Info(opts) => {
             let (project, _guard) = with_project(&opts.nix_file)?;
-            info::main(project)
+            ops::info(project)
         }
         Command::Direnv(opts) => {
             let (project, _guard) = with_project(&opts.nix_file)?;
-            direnv::main(project, /* shell_output */ std::io::stdout())
+            ops::direnv(project, /* shell_output */ std::io::stdout())
         }
         Command::Shell(opts) => {
             let (project, _guard) = with_project(&opts.nix_file)?;
-            shell::main(project, opts)
+            ops::shell(project, opts)
         }
 
         Command::Watch(opts) => {
             let (project, _guard) = with_project(&opts.nix_file)?;
-            watch::main(project, opts)
+            ops::watch(project, opts)
         }
         Command::Daemon(opts) => {
             install_signal_handler();
             let _guard = without_project();
-            daemon::main(opts)
+            ops::daemon(opts)
         }
         Command::Upgrade(opts) => {
             let _guard = without_project();
-            upgrade::main(opts, paths.cas_store())
+            ops::upgrade(opts, paths.cas_store())
         }
         Command::Init => {
             let _guard = without_project();
-            init::main(TRIVIAL_SHELL_SRC, DEFAULT_ENVRC)
+            ops::init(TRIVIAL_SHELL_SRC, DEFAULT_ENVRC)
         }
 
         Command::Internal { command } => match command {
             Internal_::Ping_(opts) => {
                 let _guard = without_project();
-                find_nix_file(&opts.nix_file).and_then(|nf| ping::main(nf, opts.socket_address))
+                find_nix_file(&opts.nix_file).and_then(|nf| ops::ping(nf, opts.socket_address))
             }
             Internal_::StartUserShell_(opts) => {
                 let (project, _guard) = with_project(&opts.nix_file)?;
-                start_user_shell::main(project, opts)
+                ops::start_user_shell(project, opts)
             }
             Internal_::StreamEvents_(se) => {
                 let _guard = without_project();
-                stream_events::main(se.kind)
+                ops::stream_events(se.kind)
             }
         },
     }

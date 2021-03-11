@@ -1,126 +1,76 @@
-//! Emit shell script intended to be evaluated as part of direnv's .envrc
+use std::str::FromStr;
 
-mod version;
+#[derive(PartialEq, Eq, Debug)]
+pub struct DirenvVersion(usize, usize, usize);
 
-use self::version::{DirenvVersion, MIN_DIRENV_VERSION};
-use crate::internal_proto;
-use crate::ops::error::{ok, ExitError, OpResult};
-use crate::project::roots::Roots;
-use crate::project::Project;
-use slog_scope::{info, warn};
-use std::convert::TryFrom;
-use std::process::Command;
+pub const MIN_DIRENV_VERSION: DirenvVersion = DirenvVersion(2, 19, 2);
 
-/// See the documentation for lorri::cli::Command::Direnv for more
-/// details.
-pub fn main<W: std::io::Write>(project: Project, mut shell_output: W) -> OpResult {
-    check_direnv_version()?;
-
-    let root_paths = Roots::from_project(&project).paths();
-    let paths_are_cached: bool = root_paths.all_exist();
-    let address = crate::ops::get_paths()?.daemon_socket_address();
-    let shell_nix =
-        internal_proto::ShellNix::try_from(&project.nix_file).map_err(ExitError::temporary)?;
-
-    let ping_sent = if let Ok(connection) = varlink::Connection::with_address(&address) {
-        use internal_proto::VarlinkClientInterface;
-        internal_proto::VarlinkClient::new(connection)
-            .watch_shell(shell_nix, internal_proto::Rebuild::OnlyIfNotYetWatching)
-            .call()
-            .is_ok()
-    } else {
-        false
-    };
-
-    match (ping_sent, paths_are_cached) {
-        (true, true) => {}
-
-        // Ping sent & paths aren't cached: once the environment is created
-        // the direnv environment will be updated automatically.
-        (true, false) =>
-            info!(
-                "lorri has not completed an evaluation for this project yet"
-            ),
-
-        // Ping not sent and paths are cached: we can load a stale environment
-        // When the daemon is started, we'll send a fresh ping.
-        (false, true) =>
-            info!(
-                "lorri daemon is not running, loading a cached environment"
-            ),
-
-        // Ping not sent and paths are not cached: we can't load anything,
-        // but when the daemon in started we'll send a ping and eventually
-        // load a fresh environment.
-        (false, false) =>
-            warn!("lorri daemon is not running and this project has not yet been evaluated, please run `lorri daemon`"),
+/// `"a.b.c"`, e.g. `"2.19.2"`.
+impl FromStr for DirenvVersion {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let ss = s.split('.').collect::<Vec<&str>>();
+        let parse = |s: &str| s.parse::<usize>().map_err(|_| ());
+        match *ss {
+            [major, minor, patch] => Ok(DirenvVersion(parse(major)?, parse(minor)?, parse(patch)?)),
+            _ => Err(()),
+        }
     }
-
-    if std::env::var("DIRENV_IN_ENVRC") != Ok(String::from("1")) {
-        warn!("`lorri direnv` should be executed by direnv from within an `.envrc` file")
-    }
-
-    // direnv interprets stdout as a script that it evaluates. That is why (1) the logger for
-    // `lorri direnv` outputs to stderr by default (to avoid corrupting the script) and (2) we
-    // can't use the stderr logger here.
-    // In production code, `shell_output` will be stdout so direnv can interpret the output.
-    // `shell_output` is an argument so that testing code can inject a different `std::io::Write`
-    // in order to inspect the output.
-    writeln!(
-        shell_output,
-        r#"
-EVALUATION_ROOT="{}"
-
-watch_file "{}"
-watch_file "$EVALUATION_ROOT"
-
-{}"#,
-        root_paths.shell_gc_root,
-        crate::ops::get_paths()?
-            .daemon_socket_file()
-            .as_absolute_path()
-            .to_str()
-            .expect("Socket path is not UTF-8 clean!"),
-        include_str!("./direnv/envrc.bash")
-    )
-    .expect("failed to write shell output");
-
-    ok()
 }
 
-/// Checks `direnv version` against the minimal version lorri requires.
-fn check_direnv_version() -> OpResult {
-    let out = with_command("direnv", |mut cmd| cmd.arg("version").output())?;
-    let version = std::str::from_utf8(&out.stdout)
-        .map_err(|_| ())
-        .and_then(|utf| utf.trim_end().parse::<DirenvVersion>())
-        .map_err(|()| {
-            ExitError::environment_problem(
-                "Could not figure out the current `direnv` version (parse error)".to_string(),
+impl std::fmt::Display for DirenvVersion {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(fmt, "{}.{}.{}", self.0, self.1, self.2)
+    }
+}
+
+/// Essentially just semver, first field, then second, then third.
+impl Ord for DirenvVersion {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0
+            .cmp(&other.0)
+            .then(self.1.cmp(&other.1))
+            .then(self.2.cmp(&other.2))
+    }
+}
+
+impl PartialOrd for DirenvVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::{prop_assert_eq, proptest};
+    use std::cmp::Ordering;
+
+    /// A few trivial orderings
+    #[test]
+    fn version_ord() {
+        fn eq(t1: (usize, usize, usize), t2: (usize, usize, usize), ord: Ordering) {
+            assert_eq!(
+                DirenvVersion(t1.0, t1.1, t1.2).cmp(&DirenvVersion(t2.0, t2.1, t2.2)),
+                ord
             )
-        })?;
-    if version < MIN_DIRENV_VERSION {
-        Err(ExitError::environment_problem(format!(
-            "`direnv` is version {}, but >= {} is required for lorri to function",
-            version, MIN_DIRENV_VERSION
-        )))
-    } else {
-        ok()
+        }
+        eq((0, 0, 0), (0, 0, 0), Ordering::Equal);
+        eq((0, 0, 1), (0, 0, 2), Ordering::Less);
+        eq((1, 1, 0), (0, 0, 1), Ordering::Greater);
+        eq((0, 0, 1), (1, 0, 0), Ordering::Less);
+        eq((5, 0, 1), (1, 0, 0), Ordering::Greater);
     }
-}
 
-/// constructs a `Command` out of `executable`
-/// Recognizes the case in which the executable is missing,
-/// and converts it to a corresponding `ExitError`.
-fn with_command<T, F>(executable: &str, cmd: F) -> Result<T, ExitError>
-where
-    F: FnOnce(Command) -> std::io::Result<T>,
-{
-    let res = cmd(Command::new(executable));
-    res.map_err(|a| {
-        ExitError::missing_executable(match a.kind() {
-            std::io::ErrorKind::NotFound => format!("`{}`: executable not found", executable),
-            _ => format!("Could not start `{}`: {}", executable, a),
-        })
-    })
+    proptest! {
+        /// Parsing roundtrip
+        #[test]
+        fn random_number_parse(maj in 1usize..100, min in 1usize..100, patch in 1usize..100) {
+            prop_assert_eq!(
+                DirenvVersion::from_str(format!("{}.{}.{}", maj, min, patch).as_str()),
+                Ok(DirenvVersion(maj, min, patch))
+            )
+        }
+
+    }
 }

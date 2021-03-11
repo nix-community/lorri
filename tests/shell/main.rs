@@ -2,7 +2,7 @@ use lorri::{
     builder,
     cas::ContentAddressable,
     nix::options::NixOptions,
-    ops::shell,
+    ops,
     project::{roots::Roots, Project},
     AbsPathBuf, NixFile,
 };
@@ -50,7 +50,7 @@ fn loads_env() {
         .expect("fail to run lorri shell");
     assert!(res.status.success(), "lorri shell command failed");
 
-    let output = shell::bash_cmd(build(&project), &project.cas)
+    let output = ops::bash_cmd(build(&project), &project.cas)
         .unwrap()
         .args(&["-c", "echo $MY_ENV_VAR"])
         .output()
