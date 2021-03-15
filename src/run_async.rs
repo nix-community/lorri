@@ -25,14 +25,14 @@ impl<Res: Send + 'static> Async<Res> {
     /// You can read the result either by blocking
     /// or by using the `chan` method to get a channel that receives exactly
     /// one result as soon as the the function is done.
-    pub fn run<F>(f: F) -> Self
+    pub fn run<F>(logger: slog::Logger, f: F) -> Self
     where
         F: FnOnce() -> Res,
         F: std::panic::UnwindSafe,
         F: Send + 'static,
     {
         let (tx, rx) = chan::bounded(1);
-        let mut thread = Pool::new();
+        let mut thread = Pool::new(logger);
 
         thread.spawn("async thread", move || {
             let res = f();
@@ -81,7 +81,7 @@ mod tests {
     fn test_chan_drop_order() {
         // we make the async just block on a channel which we can control from outside
         let (tx, rx) = chan::bounded(1);
-        let a = Async::run(move || rx.recv());
+        let a = Async::run(crate::logging::test_logger(), move || rx.recv());
         let c = a.chan();
         // nothing has been sent to the thread yet, so timeout
         assert_eq!(
@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn test_chan_block_still_works() {
         // check that even after getting a channel the blocking still works
-        let a = Async::run(move || 42);
+        let a = Async::run(crate::logging::test_logger(), move || 42);
         let c = a.chan();
         assert_eq!(a.block(), 42);
         // would be disconnected, because the result was already retrieved by the block

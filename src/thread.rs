@@ -8,6 +8,7 @@
 //! already.
 
 use crossbeam_channel as chan;
+use slog::debug;
 use std::any::Any;
 use std::collections::HashMap;
 use std::thread;
@@ -34,17 +35,7 @@ pub struct Pool {
     threads: HashMap<ThreadId, Thread>,
     tx: chan::Sender<Dead>,
     rx: chan::Receiver<Dead>,
-}
-
-impl Default for Pool {
-    fn default() -> Self {
-        let (tx, rx) = chan::unbounded();
-        Pool {
-            threads: HashMap::new(),
-            tx,
-            rx,
-        }
-    }
+    logger: slog::Logger,
 }
 
 impl Pool {
@@ -56,8 +47,14 @@ impl Pool {
     /// pool.spawn("example-1", || panic!("Whoops!"));
     /// pool.join_all_or_panic();
     /// ```
-    pub fn new() -> Pool {
-        Self::default()
+    pub fn new(logger: slog::Logger) -> Pool {
+        let (tx, rx) = chan::unbounded();
+        Pool {
+            threads: HashMap::new(),
+            tx,
+            rx,
+            logger,
+        }
     }
 
     /// Spawn a sub-thread which is joined at the same time as all the
@@ -69,7 +66,9 @@ impl Pool {
         F: Send + 'static,
     {
         let name = name.into();
+        let name2 = name.clone();
         let builder = thread::Builder::new().name(name.clone());
+        let logger = self.logger.clone();
 
         let tx = self.tx.clone();
         let handle = builder.spawn(move || {
@@ -78,8 +77,12 @@ impl Pool {
                 Ok(()) => Cause::Natural,
                 Err(panic) => Cause::Paniced(panic),
             };
-            tx.send(Dead { thread_id, cause })
-                .expect("failed to send thread shut-down message!")
+            match tx.send(Dead { thread_id, cause }) {
+                Ok(()) => {}
+                Err(chan::SendError(_)) => {
+                    debug!(logger, "thread died, but pool paniced"; "thread_name" => &name2)
+                }
+            }
         })?;
 
         self.threads.insert(

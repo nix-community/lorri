@@ -76,7 +76,7 @@ impl Daemon {
             chan::Receiver<IndicateActivity>,
         ) = chan::unbounded();
 
-        let mut pool = crate::thread::Pool::new();
+        let mut pool = crate::thread::Pool::new(slog_scope::logger());
         let tx_build_events = self.tx_build_events.clone();
 
         let server = server::Server::new(socket_path.clone(), tx_activity, tx_build_events)

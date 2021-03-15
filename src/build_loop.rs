@@ -223,7 +223,9 @@ impl<'a> BuildLoop<'a> {
         let nix_file = self.project.nix_file.clone();
         let cas = self.project.cas.clone();
         let extra_nix_options = self.extra_nix_options.clone();
-        crate::run_async::Async::run(move || builder::run(&nix_file, &cas, &extra_nix_options))
+        crate::run_async::Async::run(slog_scope::logger(), move || {
+            builder::run(&nix_file, &cas, &extra_nix_options)
+        })
     }
 
     /// Execute a single build of the environment.
@@ -235,8 +237,10 @@ impl<'a> BuildLoop<'a> {
         let cas = self.project.cas.clone();
         let extra_nix_options = self.extra_nix_options.clone();
         self.handle_run_result(
-            crate::run_async::Async::run(move || builder::run(&nix_file, &cas, &extra_nix_options))
-                .block(),
+            crate::run_async::Async::run(slog_scope::logger(), move || {
+                builder::run(&nix_file, &cas, &extra_nix_options)
+            })
+            .block(),
         )
     }
 
