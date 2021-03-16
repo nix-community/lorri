@@ -277,31 +277,23 @@ fn create_if_missing(path: &Path, contents: &str, msg: &str) -> Result<(), io::E
 ///
 /// Can be used together with `direnv`.
 /// See the documentation for lorri::cli::Command::Ping_ for details.
-pub fn ping(nix_file: NixFile, addr: Option<String>) -> OpResult {
-    let shell_nix = internal_proto::ShellNix::try_from(&nix_file).unwrap();
-
+pub fn ping(nix_file: NixFile) -> OpResult {
     match tmp_get_backend_mode()? {
         InternalProto::Varlink => {
-            let address = match addr {
-                Some(a) => a,
-                None => crate::ops::get_paths()?.daemon_socket_address(),
-            };
+            let nix_file = internal_proto::ShellNix::try_from(&nix_file).unwrap();
+            let address = crate::ops::get_paths()?.daemon_socket_address();
             use internal_proto::VarlinkClientInterface;
             internal_proto::VarlinkClient::new(
                 varlink::Connection::with_address(&address)
                     .expect("failed to connect to daemon server"),
             )
-            .watch_shell(shell_nix, internal_proto::Rebuild::Always)
+            .watch_shell(nix_file, internal_proto::Rebuild::Always)
             .call()
             .expect("call to daemon server failed");
             ok()
         }
         InternalProto::Native => {
-            let address = match addr {
-                Some(a) => crate::AbsPathBuf::new(PathBuf::from(a)).unwrap(),
-                // None => crate::ops::get_paths()?.daemon_socket_address(),
-                None => crate::ops::get_paths()?.daemon_socket_file().clone(),
-            };
+            let address = crate::ops::get_paths()?.daemon_socket_file().clone();
             info!("connecting to socket"; "socket" => address.as_absolute_path().display());
             communicate::client::new::<communicate::Ping>(
                 crate::socket::read_writer::Timeout::from_millis(500),
@@ -309,9 +301,7 @@ pub fn ping(nix_file: NixFile, addr: Option<String>) -> OpResult {
             .connect(&SocketPath::from(address))
             .unwrap()
             .write(&communicate::Ping {
-                nix_file: NixFile::from(
-                    crate::AbsPathBuf::new(PathBuf::from(shell_nix.path)).unwrap(),
-                ),
+                nix_file,
                 rebuild: communicate::Rebuild::Always,
             })
             .unwrap();
