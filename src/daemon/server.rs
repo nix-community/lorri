@@ -7,41 +7,74 @@ use crate::error;
 use crate::internal_proto;
 use crate::ops::error::ExitError;
 use crate::proto;
-use crate::socket::path::{BindLock, SocketPath};
+use crate::socket;
+use crate::socket::path::SocketPath;
 use crate::{AbsPathBuf, NixFile};
 
 use crossbeam_channel as chan;
-use slog_scope::debug;
+use slog_scope::{debug, info};
 use std::convert::{TryFrom, TryInto};
 use std::path::PathBuf;
 
 /// The daemon server.
 pub struct Server {
+    internal_proto: InternalProto,
     activity_tx: chan::Sender<IndicateActivity>,
     build_tx: chan::Sender<LoopHandlerEvent>,
     socket_path: SocketPath,
-    _lock: BindLock,
+}
+
+/// Selects whether we use the varlink or our native protocol over the socket.
+pub enum InternalProto {
+    /// Varlink-interface-based
+    Varlink,
+    /// Native, serde-bincode based and typesafe
+    Native,
 }
 
 impl Server {
-    /// Create a new Server. Locks the Unix socket path, so there can be only one Server instance
-    /// per socket path at any time.
+    /// Create a new Server.
     pub fn new(
+        internal_proto: InternalProto,
         socket_path: SocketPath,
         activity_tx: chan::Sender<IndicateActivity>,
         build_tx: chan::Sender<LoopHandlerEvent>,
-    ) -> Result<Server, ExitError> {
-        let lock = socket_path.lock()?;
-        Ok(Server {
+    ) -> Server {
+        Server {
+            internal_proto,
             socket_path,
             activity_tx,
             build_tx,
-            _lock: lock,
-        })
+        }
     }
 
-    /// Serve the daemon endpoint.
+    // TODO: don’t return ExitError
+    /// Run the server, switch between Varlink and Native protocols depending on the setting.
     pub fn serve(self) -> Result<(), ExitError> {
+        match self.internal_proto {
+            InternalProto::Varlink => self.serve_varlink(),
+            InternalProto::Native => self.serve_native(),
+        }
+    }
+
+    /// Serve the native server
+    fn serve_native(self) -> Result<(), ExitError> {
+        info!("Using native server protocol");
+        socket::Server::new(self.activity_tx.clone())
+            .listen(&self.socket_path)
+            .map(|n| n.never())
+    }
+
+    /// Serve the varlink daemon endpoint.
+    fn serve_varlink(self) -> Result<(), ExitError> {
+        let lock = self.socket_path.lock().map_err(|e| {
+            ExitError::temporary(format!(
+                "unable to bind to the server socket at {}: {:?}",
+                self.socket_path.as_absolute_path().display(),
+                e
+            ))
+        })?;
+        info!("Using varlink server protocol");
         let address = &self.socket_path.address();
         let service = varlink::VarlinkService::new(
             /* vendor */ "org.nixos",
@@ -53,14 +86,16 @@ impl Server {
         let initial_worker_threads = 1;
         let max_worker_threads = 10;
         let idle_timeout = 0;
-        varlink::listen(
+        let res = varlink::listen(
             service,
             address,
             initial_worker_threads,
             max_worker_threads,
             idle_timeout,
         )
-        .map_err(|e| ExitError::temporary(format!("{}", e)))
+        .map_err(|e| ExitError::temporary(format!("{}", e)));
+        drop(lock);
+        res
     }
 }
 

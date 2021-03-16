@@ -19,13 +19,19 @@ struct Thread {
     join_handle: thread::JoinHandle<()>,
 }
 
-struct Dead {
-    thread_id: ThreadId,
-    cause: Cause,
+/// This thread died, and why.
+pub struct Dead {
+    /// id of the thread
+    pub thread_id: ThreadId,
+    /// cause of death
+    pub cause: Cause,
 }
 
-enum Cause {
+/// Cause of death
+pub enum Cause {
+    /// Natural causes
     Natural,
+    /// Thread paniced and then died
     Paniced(Box<dyn Any + Send>),
 }
 

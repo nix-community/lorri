@@ -13,6 +13,7 @@ use crate::cli;
 use crate::cli::ShellOptions;
 use crate::cli::StartUserShellOptions_;
 use crate::cli::WatchOptions;
+use crate::daemon::server::InternalProto;
 use crate::daemon::Daemon;
 use crate::internal_proto;
 use crate::nix;
@@ -22,6 +23,7 @@ use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
 use crate::ops::error::{ok, ExitError, OpResult};
 use crate::project::{roots::Roots, Project};
 use crate::proto;
+use crate::socket::communicate;
 use crate::socket::path::SocketPath;
 use crate::NixFile;
 use crate::VERSION_BUILD_REV;
@@ -54,11 +56,23 @@ pub fn get_paths() -> Result<crate::constants::Paths, error::ExitError> {
     })
 }
 
+fn tmp_get_backend_mode() -> Result<InternalProto, ExitError> {
+    match std::env::var("LORRI_BACKEND").as_ref().map(|s| s.as_str()) {
+        Ok("native") => Ok(InternalProto::Native),
+        Ok("varlink") => Ok(InternalProto::Varlink),
+        Err(_err) => Ok(InternalProto::Varlink),
+        _ => Err(ExitError::environment_problem(
+            "env var LORRI_BACKEND has to be either `native` or `varlink`",
+        )),
+    }
+}
+
 /// Run a BuildLoop for `shell.nix`, watching for input file changes.
 /// Can be used together with `direnv`.
 
 /// See the documentation for lorri::cli::Command::Daemon for details.
 pub fn daemon(opts: crate::cli::DaemonOptions) -> OpResult {
+    let internal_proto = tmp_get_backend_mode()?;
     let extra_nix_options = match opts.extra_nix_options {
         None => NixOptions::empty(),
         Some(v) => NixOptions {
@@ -78,6 +92,7 @@ pub fn daemon(opts: crate::cli::DaemonOptions) -> OpResult {
     let paths = crate::ops::get_paths()?;
     daemon.serve(
         SocketPath::from(paths.daemon_socket_file().clone()),
+        internal_proto,
         paths.gc_root_dir(),
         paths.cas_store().clone(),
     )?;
@@ -100,6 +115,7 @@ pub fn direnv<W: std::io::Write>(project: Project, mut shell_output: W) -> OpRes
     let shell_nix =
         internal_proto::ShellNix::try_from(&project.nix_file).map_err(ExitError::temporary)?;
 
+    debug!("lorri direnv: sending initial ping");
     let ping_sent = if let Ok(connection) = varlink::Connection::with_address(&address) {
         use internal_proto::VarlinkClientInterface;
         internal_proto::VarlinkClient::new(connection)
@@ -262,20 +278,46 @@ fn create_if_missing(path: &Path, contents: &str, msg: &str) -> Result<(), io::E
 /// Can be used together with `direnv`.
 /// See the documentation for lorri::cli::Command::Ping_ for details.
 pub fn ping(nix_file: NixFile, addr: Option<String>) -> OpResult {
-    let address = match addr {
-        Some(a) => a,
-        None => crate::ops::get_paths()?.daemon_socket_address(),
-    };
     let shell_nix = internal_proto::ShellNix::try_from(&nix_file).unwrap();
 
-    use internal_proto::VarlinkClientInterface;
-    internal_proto::VarlinkClient::new(
-        varlink::Connection::with_address(&address).expect("failed to connect to daemon server"),
-    )
-    .watch_shell(shell_nix, internal_proto::Rebuild::Always)
-    .call()
-    .expect("call to daemon server failed");
-    ok()
+    match tmp_get_backend_mode()? {
+        InternalProto::Varlink => {
+            let address = match addr {
+                Some(a) => a,
+                None => crate::ops::get_paths()?.daemon_socket_address(),
+            };
+            use internal_proto::VarlinkClientInterface;
+            internal_proto::VarlinkClient::new(
+                varlink::Connection::with_address(&address)
+                    .expect("failed to connect to daemon server"),
+            )
+            .watch_shell(shell_nix, internal_proto::Rebuild::Always)
+            .call()
+            .expect("call to daemon server failed");
+            ok()
+        }
+        InternalProto::Native => {
+            let address = match addr {
+                Some(a) => crate::AbsPathBuf::new(PathBuf::from(a)).unwrap(),
+                // None => crate::ops::get_paths()?.daemon_socket_address(),
+                None => crate::ops::get_paths()?.daemon_socket_file().clone(),
+            };
+            info!("connecting to socket"; "socket" => address.as_absolute_path().display());
+            communicate::client::new::<communicate::Ping>(
+                crate::socket::read_writer::Timeout::from_millis(500),
+            )
+            .connect(&SocketPath::from(address))
+            .unwrap()
+            .write(&communicate::Ping {
+                nix_file: NixFile::from(
+                    crate::AbsPathBuf::new(PathBuf::from(shell_nix.path)).unwrap(),
+                ),
+                rebuild: communicate::Rebuild::Always,
+            })
+            .unwrap();
+            Ok(())
+        }
+    }
 }
 
 /// Open up a project shell

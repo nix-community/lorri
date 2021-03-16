@@ -39,7 +39,12 @@ pub fn start_job_with_ping() -> std::io::Result<()> {
     let (mut daemon, build_rx) = Daemon::new(NixOptions::empty());
     let accept_handle = thread::spawn(move || {
         daemon
-            .serve(socket_path, &gc_root_dir, cas)
+            .serve(
+                socket_path,
+                lorri::daemon::server::InternalProto::Varlink,
+                &gc_root_dir,
+                cas,
+            )
             .expect("failed to serve daemon endpoint");
     });
 

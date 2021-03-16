@@ -121,7 +121,7 @@ impl AsRef<Path> for AbsPathBuf {
 /// A .nix file.
 ///
 /// Is guaranteed to have an absolute path by construction.
-#[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize)]
+#[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct NixFile(AbsPathBuf);
 
@@ -170,5 +170,16 @@ impl DrvFile {
 impl From<PathBuf> for DrvFile {
     fn from(p: PathBuf) -> DrvFile {
         DrvFile(p)
+    }
+}
+
+/// Struct that will never be constructed (no elements).
+/// In newer rustc, this corresponds to the (compiler supported) `!` type.
+pub struct Never {}
+
+impl Never {
+    /// This will never be called, so we can return anything.
+    pub fn never<T>(&self) -> T {
+        panic!("can never be called");
     }
 }

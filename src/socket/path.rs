@@ -20,12 +20,6 @@ pub enum BindError {
     Unix(nix::Error),
 }
 
-impl From<BindError> for crate::ops::error::ExitError {
-    fn from(e: BindError) -> crate::ops::error::ExitError {
-        crate::ops::error::ExitError::temporary(format!("Bind error: {:?}", e))
-    }
-}
-
 impl From<std::io::Error> for BindError {
     fn from(e: std::io::Error) -> BindError {
         BindError::Io(e)
@@ -73,12 +67,9 @@ impl SocketPath {
         // - try to lock lockfile (open and flock exclusive nonblocking)
         let lock = self.lock()?;
         // - remove socket file if it exists
-        std::fs::remove_file(self.as_absolute_path()).or_else(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                Ok(())
-            } else {
-                Err(e)
-            }
+        std::fs::remove_file(self.as_absolute_path()).or_else(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => Ok(()),
+            _ => Err(e),
         })?;
         // - bind to socket
         let l = UnixListener::bind(self.as_absolute_path())?;

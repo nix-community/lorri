@@ -12,6 +12,7 @@
 /// - 111 if they encounter a temporary error, such as resource exhaustion
 /// - 126 if there is a problem with the environment in which lorri is run
 /// - 127 if they're trying to execute into a program and cannot find it
+
 #[derive(Debug, Clone)]
 pub struct ExitError {
     /// Exit code of the process, should be non-zero

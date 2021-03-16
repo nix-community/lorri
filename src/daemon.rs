@@ -10,7 +10,7 @@ use crossbeam_channel as chan;
 use slog_scope::debug;
 use std::collections::HashMap;
 
-mod server;
+pub mod server;
 
 #[derive(Debug, Clone)]
 /// Union of build_loop::Event and NewListener for internal use.
@@ -68,6 +68,7 @@ impl Daemon {
     pub fn serve(
         &mut self,
         socket_path: SocketPath,
+        internal_proto: server::InternalProto,
         gc_root_dir: &AbsPathBuf,
         cas: crate::cas::ContentAddressable,
     ) -> Result<(), ExitError> {
@@ -79,17 +80,16 @@ impl Daemon {
         let mut pool = crate::thread::Pool::new(slog_scope::logger());
         let tx_build_events = self.tx_build_events.clone();
 
-        let server = server::Server::new(socket_path.clone(), tx_activity, tx_build_events)
-            .map_err(|e| {
-                ExitError::temporary(format!(
-                    "unable to bind to the server socket at {}: {:?}",
-                    socket_path.as_absolute_path().display(),
-                    e
-                ))
-            })?;
+        let server = server::Server::new(
+            internal_proto,
+            socket_path.clone(),
+            tx_activity,
+            tx_build_events,
+        );
 
         pool.spawn("accept-loop", || {
-            server.serve().expect("varlink error");
+            // TODO: get rid of this expect, actually propagate a stack trace
+            server.serve().expect("server error");
         })?;
 
         let rx_build_events = self.rx_build_events.clone();
