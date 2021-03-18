@@ -111,19 +111,40 @@ pub fn direnv<W: std::io::Write>(project: Project, mut shell_output: W) -> OpRes
 
     let root_paths = Roots::from_project(&project).paths();
     let paths_are_cached: bool = root_paths.all_exist();
-    let address = crate::ops::get_paths()?.daemon_socket_address();
-    let shell_nix =
-        internal_proto::ShellNix::try_from(&project.nix_file).map_err(ExitError::temporary)?;
 
-    debug!("lorri direnv: sending initial ping");
-    let ping_sent = if let Ok(connection) = varlink::Connection::with_address(&address) {
-        use internal_proto::VarlinkClientInterface;
-        internal_proto::VarlinkClient::new(connection)
-            .watch_shell(shell_nix, internal_proto::Rebuild::OnlyIfNotYetWatching)
-            .call()
+    let ping_sent = match tmp_get_backend_mode()? {
+        InternalProto::Varlink => {
+            let address = crate::ops::get_paths()?.daemon_socket_address();
+            let nix_file = internal_proto::ShellNix::try_from(&project.nix_file)
+                .map_err(ExitError::temporary)?;
+
+            debug!("lorri direnv: sending initial ping");
+            if let Ok(connection) = varlink::Connection::with_address(&address) {
+                use internal_proto::VarlinkClientInterface;
+                internal_proto::VarlinkClient::new(connection)
+                    .watch_shell(nix_file, internal_proto::Rebuild::OnlyIfNotYetWatching)
+                    .call()
+                    .is_ok()
+            } else {
+                false
+            }
+        }
+        InternalProto::Native => {
+            let address = crate::ops::get_paths()?.daemon_socket_file().clone();
+            info!("connecting to socket"; "socket" => address.as_absolute_path().display());
+            communicate::client::new::<communicate::Ping>(
+                crate::socket::read_writer::Timeout::from_millis(500),
+            )
+            .connect(&SocketPath::from(address))
+            // TODO
+            .expect("could not connect to lorri socket")
+            .write(&communicate::Ping {
+                nix_file: project.nix_file,
+                rebuild: communicate::Rebuild::OnlyIfNotYetWatching,
+            })
+            // TODO: maybe ping should indeed return something so we can at least check whether it parses the message and the version is right. Right now this collapses all of that into a bool …
             .is_ok()
-    } else {
-        false
+        }
     };
 
     match (ping_sent, paths_are_cached) {
