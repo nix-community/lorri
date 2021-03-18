@@ -3,13 +3,13 @@ pub mod communicate;
 pub mod path;
 pub mod read_writer;
 
-use crate::daemon::IndicateActivity;
+use crate::daemon::{IndicateActivity, LoopHandlerEvent};
 use crate::internal_proto;
 use crate::ops::error::ExitError;
 use crate::run_async::Async;
 use crate::socket::path::SocketPath;
 use crate::Never;
-use communicate::{CommunicationType, Ping};
+use communicate::{CommunicationType, Ping, StreamEvents};
 use crossbeam_channel as chan;
 use slog_scope::{debug, info};
 use std::collections::HashMap;
@@ -18,16 +18,23 @@ use std::thread;
 /// Native backend Server
 pub struct Server {
     tx_activity: chan::Sender<IndicateActivity>,
+    tx_build: chan::Sender<LoopHandlerEvent>,
 }
 
 impl Server {
     /// Create a new server.
-    pub fn new(tx_activity: chan::Sender<IndicateActivity>) -> Self {
-        Server { tx_activity }
+    pub fn new(
+        tx_activity: chan::Sender<IndicateActivity>,
+        tx_build: chan::Sender<LoopHandlerEvent>,
+    ) -> Self {
+        Server {
+            tx_activity,
+            tx_build,
+        }
     }
 
     /// Listen for incoming clients. Goes into an accept() loop, thus blocks.
-    pub fn listen(&self, socket_path: &SocketPath) -> Result<Never, ExitError> {
+    pub fn listen<'a>(&'a self, socket_path: &SocketPath) -> Result<Never, ExitError> {
         let listener = communicate::listener::Listener::new(socket_path)
             // TODO: this is bad, but mirroring what the varlink code does for now. this code should not return exit errors
             .map_err(|e| ExitError::temporary(format!("{:?}", e)))?;
@@ -43,14 +50,12 @@ impl Server {
         loop {
             let tx_done_thread = tx_done_thread.clone();
             let tx_activity = self.tx_activity.clone();
+            let tx_build = self.tx_build.clone();
             // We can’t display thread ids, so let’s generate a short random string to identify a thread
             let display_id: String = std::iter::repeat_with(|| fastrand::alphanumeric())
                 .take(4)
                 .collect();
             let display_id_copy = display_id.clone();
-
-            // We can wait
-            let inf = read_writer::Timeout::Infinite;
 
             let accept = listener.accept(
                 move |communication_type, handlers| {
@@ -70,7 +75,7 @@ impl Server {
                         // TODO: it would be good if we didn’t have to match on the communication type here, but I don’t see a way to do that.
                         match communication_type {
                             CommunicationType::Ping => {
-                                match handlers.ping().read(inf) {
+                                match handlers.ping().read(communicate::DEFAULT_READ_TIMEOUT) {
                                     Ok(Ping { nix_file, rebuild }) => {
                                         tx_activity.send(IndicateActivity {
                                             nix_file,
@@ -79,6 +84,24 @@ impl Server {
                                                 communicate::Rebuild::Always => internal_proto::Rebuild::Always,
                                             }
                                         }).expect("Unable to send a ping from listener")
+                                    },
+                                    Err(e) => err(communication_type, e)
+                                }
+                            },
+                            CommunicationType::StreamEvents => {
+                                let mut rw = handlers.stream_events();
+                                match rw.read(communicate::DEFAULT_READ_TIMEOUT) {
+                                    Ok(StreamEvents {}) => {
+                                        let (tx_event, rx_event) = chan::unbounded();
+                                        tx_build
+                                            .send(LoopHandlerEvent::NewListener(tx_event))
+                                            .expect("Unable to send a new listener to the build_loop");
+                                        for event in rx_event {
+                                            match rw.write(communicate::DEFAULT_READ_TIMEOUT, &event) {
+                                                Ok(()) => {},
+                                                Err(err) => debug!("client vanished"; "communication_type" => format!("{:?}", communication_type), "error" => format!("{:?}", err))
+                                            }
+                                        }
                                     },
                                     Err(e) => err(communication_type, e)
                                 }

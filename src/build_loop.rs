@@ -17,7 +17,7 @@ use slog_scope::debug;
 use std::path::PathBuf;
 
 /// Builder events sent back over `BuildLoop.tx`.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Event {
     /// Demarks a stream of events from recent history becoming live
@@ -46,7 +46,7 @@ pub enum Event {
 }
 
 /// Description of the project change that triggered a build.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Reason {
     /// When a project is presented to Lorri to track, it's built for this reason.

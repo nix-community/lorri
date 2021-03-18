@@ -29,7 +29,6 @@ use crate::NixFile;
 use crate::VERSION_BUILD_REV;
 
 use std::convert::TryFrom;
-use std::convert::TryInto;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::Write;
@@ -613,7 +612,6 @@ impl FromStr for EventKind {
 #[derive(Debug)]
 enum Error {
     Varlink(proto::Error),
-    Compat(String),
 }
 
 /// Run to output a stream of build events in a machine-parseable form.
@@ -621,35 +619,68 @@ enum Error {
 /// See the documentation for lorri::cli::Command::StreamEvents_ for more
 /// details.
 pub fn stream_events(kind: EventKind) -> OpResult {
-    let address = get_paths()?.daemon_socket_address();
+    let (tx_event, rx_event) = unbounded();
 
-    use proto::VarlinkClientInterface;
-    let mut client = proto::VarlinkClient::new(
-        varlink::Connection::with_address(&address).expect("failed to connect to daemon server"),
-    );
+    let thread = match tmp_get_backend_mode()? {
+        InternalProto::Varlink => {
+            let address = get_paths()?.daemon_socket_address();
+            use proto::VarlinkClientInterface;
+            let mut client = proto::VarlinkClient::new(
+                varlink::Connection::with_address(&address)
+                    .expect("failed to connect to daemon server"),
+            );
 
-    let mut snapshot_done = false;
-    let (tx, rx) = unbounded();
-    let recycle = tx.clone();
+            let tx_event2 = tx_event.clone();
 
-    let th = thread::spawn(move || {
-        for res in client.monitor().more().expect("couldn't connect to server") {
-            tx.send(res).expect("local channel couldn't send")
+            thread::spawn(move || {
+                for res in client.monitor().more().expect("couldn't connect to server") {
+                    tx_event2
+                        .send(
+                            res.map_err(Error::Varlink)
+                                .map_err(|err| ExitError::temporary(format!("{:?}", err)))
+                                .and_then(|ev| Event::try_from(ev).map_err(ExitError::temporary)),
+                        )
+                        .expect("local channel couldn't send")
+                }
+            })
         }
-    });
+        InternalProto::Native => {
+            let address = crate::ops::get_paths()?.daemon_socket_file().clone();
+            info!("connecting to socket"; "socket" => address.as_absolute_path().display());
+
+            let tx_event = tx_event.clone();
+            // TODO: use Async
+            thread::spawn(move || {
+                let client = communicate::client::new::<communicate::StreamEvents>(
+                    crate::socket::read_writer::Timeout::Infinite,
+                )
+                .connect(&SocketPath::from(address))
+                .unwrap();
+
+                client.write(&communicate::StreamEvents {}).unwrap();
+                loop {
+                    let res = client.read();
+                    tx_event
+                        .send(
+                            // TODO: error
+                            res.map_err(|err| ExitError::temporary(format!("{:?}", err))),
+                        )
+                        .unwrap();
+                }
+            })
+        }
+    };
 
     select! {
-        recv(rx) -> event => recycle.send(event.expect("local channel couldn't receive")).expect("local channel couldn't resend"),
+        recv(rx_event) -> event => tx_event.send(event.expect("local channel couldn't receive")).expect("local channel couldn't resend"),
         default(Duration::from_millis(250)) => return Err(ExitError::temporary("server timeout"))
     }
 
-    for event in rx.iter() {
+    let mut snapshot_done = false;
+    for event in rx_event.iter() {
         debug!("Received"; "event" => format!("{:#?}", &event));
-        match event
-            .map_err(Error::Varlink)
-            .and_then(|ev| ev.try_into().map_err(Error::Compat))
-            .map_err(|err| ExitError::temporary(format!("{:?}", err)))?
-        {
+        // TODO: this is horrible
+        match event? {
             Event::SectionEnd => {
                 debug!("SectionEnd");
                 if let EventKind::Snapshot = kind {
@@ -670,7 +701,7 @@ pub fn stream_events(kind: EventKind) -> OpResult {
         }
     }
 
-    drop(th);
+    drop(thread);
     ok()
 }
 

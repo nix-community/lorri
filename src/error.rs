@@ -7,7 +7,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::process::{Command, ExitStatus};
 
 /// An error that can occur during a build.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BuildError {
     /// A system-level IO error occurred during the build.
@@ -53,24 +53,9 @@ pub enum BuildError {
     },
 }
 
-use serde::{Serialize, Serializer};
-
 /// A line from stderr log output.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogLine(pub OsString);
-
-/// Implement Serialize in a way that prints file names as strings.
-/// TODO: this won’t return the actual filenames if they are not valid utf8.
-/// so scripts won’t be able to read them. Maybe print a warning in that case?
-impl Serialize for LogLine {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let LogLine(oss) = self;
-        serializer.serialize_str(&*oss.to_string_lossy())
-    }
-}
 
 impl From<OsString> for LogLine {
     fn from(oss: OsString) -> Self {

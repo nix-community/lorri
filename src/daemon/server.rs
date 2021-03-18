@@ -60,7 +60,7 @@ impl Server {
     /// Serve the native server
     fn serve_native(self) -> Result<(), ExitError> {
         info!("Using native server protocol");
-        socket::Server::new(self.activity_tx.clone())
+        socket::Server::new(self.activity_tx.clone(), self.build_tx.clone())
             .listen(&self.socket_path)
             .map(|n| n.never())
     }

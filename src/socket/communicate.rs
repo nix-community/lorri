@@ -12,6 +12,7 @@
 use std::os::unix::net::UnixStream;
 use std::thread;
 
+use crate::build_loop;
 use crate::socket::path::{BindError, BindLock, SocketPath};
 use crate::socket::read_writer::{ReadWriteError, ReadWriter, Timeout};
 use crate::NixFile;
@@ -20,14 +21,29 @@ use crate::NixFile;
 /// for the other side to send something.
 pub const DEFAULT_READ_TIMEOUT: Timeout = Timeout::from_millis(1000);
 
+/// Binds a client request type to a server response.
+///
+/// For example, the handler for `Ping` has the response type `NoMessage`,
+/// because the server does not reply to pings.
+pub trait Handler {
+    /// The response returned to the client for the given request type.
+    type Resp;
+    /// The `CommunicationType` that corresponds to these types.
+    fn communication_type() -> CommunicationType;
+}
+
 /// Enum of all communication modes the lorri daemon supports.
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum CommunicationType {
     /// Ping the daemon from a project to tell it to watch & evaluate
-    // TODO: rename to IndicateActivity (along with all other `ping` things)
-    // issue: https://github.com/target/lorri/issues/101
     Ping,
+    /// Stream events that happen in the daemon to the client, as they happen.
+    StreamEvents,
 }
+
+/// No message can be sent through this socket end (empty type).
+#[derive(Serialize, Deserialize)]
+pub enum NoMessage {}
 
 /// Message sent by the client to ask the server to start
 /// watching `nix_file`. See `CommunicationType::Ping`.
@@ -48,26 +64,28 @@ pub enum Rebuild {
     Always,
 }
 
-/// No message can be sent through this socket end (empty type).
-#[derive(Serialize, Deserialize)]
-pub enum NoMessage {}
-
-/// Binds a client request type to a server response.
-///
-/// For example, the handler for `Ping` has the response type `NoMessage`,
-/// because the server does not reply to pings.
-pub trait Handler {
-    /// The response returned to the client for the given request type.
-    type Resp;
-    /// The `CommunicationType` that corresponds to these types.
-    fn communication_type() -> CommunicationType;
-}
-
 impl Handler for Ping {
     type Resp = NoMessage;
 
     fn communication_type() -> CommunicationType {
         CommunicationType::Ping
+    }
+}
+
+/// Stream events to the client, as they happen.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct StreamEvents {}
+
+// #[derive(Serialize, Deserialize, Debug)]
+// pub struct Event {
+//     pub event: Event,
+// }
+
+impl Handler for StreamEvents {
+    type Resp = build_loop::Event;
+
+    fn communication_type() -> CommunicationType {
+        CommunicationType::StreamEvents
     }
 }
 
@@ -173,6 +191,11 @@ pub mod listener {
         pub fn ping(&self) -> ReadWriter<Ping, <Ping as Handler>::Resp> {
             ReadWriter::new(&self.socket)
         }
+
+        /// Stream events to the client as they happen
+        pub fn stream_events(&self) -> ReadWriter<StreamEvents, <StreamEvents as Handler>::Resp> {
+            ReadWriter::new(&self.socket)
+        }
     }
 }
 
@@ -265,22 +288,22 @@ pub mod client {
         }
 
         /// Read a message returned by the connected `Listener`.
-        pub fn read(self) -> Result<R, Error>
+        pub fn read(&self) -> Result<R, Error>
         where
             R: serde::de::DeserializeOwned,
         {
-            let sock = &self.socket.ok_or(Error::NotConnected)?;
+            let sock = self.socket.as_ref().ok_or(Error::NotConnected)?;
             let rw: ReadWriter<R, W> = ReadWriter::new(sock);
             rw.read(self.timeout)
                 .map_err(|e| Error::Message(ReadWriteError::R(e)))
         }
 
         /// Write a message to the connected `Listener`.
-        pub fn write(self, mes: &W) -> Result<(), Error>
+        pub fn write(&self, mes: &W) -> Result<(), Error>
         where
             W: serde::Serialize,
         {
-            let sock = &self.socket.ok_or(Error::NotConnected)?;
+            let sock = self.socket.as_ref().ok_or(Error::NotConnected)?;
             let mut rw: ReadWriter<R, W> = ReadWriter::new(sock);
             rw.write(self.timeout, mes)
                 .map_err(|e| Error::Message(ReadWriteError::W(e)))
