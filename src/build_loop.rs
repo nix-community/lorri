@@ -34,7 +34,7 @@ pub enum Event {
         /// The shell.nix file for the building project
         nix_file: NixFile,
         /// the output paths of the build
-        rooted_output_paths: builder::OutputPaths<roots::RootPath>,
+        rooted_output_paths: builder::OutputPath<roots::RootPath>,
     },
     /// A build command returned a failing exit status
     Failure {
@@ -232,7 +232,7 @@ impl<'a> BuildLoop<'a> {
     ///
     /// This will create GC roots and expand the file watch list for
     /// the evaluation.
-    pub fn once(&mut self) -> Result<builder::OutputPaths<roots::RootPath>, BuildError> {
+    pub fn once(&mut self) -> Result<builder::OutputPath<roots::RootPath>, BuildError> {
         let nix_file = self.project.nix_file.clone();
         let cas = self.project.cas.clone();
         let extra_nix_options = self.extra_nix_options.clone();
@@ -247,7 +247,7 @@ impl<'a> BuildLoop<'a> {
     fn handle_run_result(
         &mut self,
         run_result: Result<builder::RunResult, BuildError>,
-    ) -> Result<builder::OutputPaths<roots::RootPath>, BuildError> {
+    ) -> Result<builder::OutputPath<roots::RootPath>, BuildError> {
         let run_result = run_result?;
         self.register_paths(&run_result.referenced_paths)?;
         self.root_result(run_result.result)
@@ -267,7 +267,7 @@ impl<'a> BuildLoop<'a> {
     fn root_result(
         &mut self,
         build: builder::RootedPath,
-    ) -> Result<builder::OutputPaths<roots::RootPath>, BuildError> {
+    ) -> Result<builder::OutputPath<roots::RootPath>, BuildError> {
         let roots = Roots::from_project(&self.project);
         roots.create_roots(build).map_err(BuildError::io)
     }

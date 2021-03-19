@@ -6,7 +6,7 @@ pub mod error;
 use crate::build_loop::BuildLoop;
 use crate::build_loop::Event;
 use crate::builder;
-use crate::builder::OutputPaths;
+use crate::builder::OutputPath;
 use crate::cas::ContentAddressable;
 use crate::changelog;
 use crate::cli;
@@ -211,7 +211,7 @@ where
 pub fn info(project: Project) -> OpResult {
     println!("lorri version: {}", crate::LORRI_VERSION);
     let root_paths = Roots::from_project(&project).paths();
-    let OutputPaths { shell_gc_root } = &root_paths;
+    let OutputPath { shell_gc_root } = &root_paths;
     if root_paths.all_exist() {
         println!(
             "GC roots exist, shell_gc_root: {}",

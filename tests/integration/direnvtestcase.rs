@@ -43,7 +43,7 @@ impl DirenvTestCase {
     }
 
     /// Execute the build loop one time
-    pub fn evaluate(&mut self) -> Result<builder::OutputPaths<roots::RootPath>, BuildError> {
+    pub fn evaluate(&mut self) -> Result<builder::OutputPath<roots::RootPath>, BuildError> {
         BuildLoop::new(&self.project, NixOptions::empty()).once()
     }
 
