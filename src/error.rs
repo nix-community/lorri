@@ -82,36 +82,6 @@ impl<'a> fmt::Display for LogLinesDisplay<'a> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json;
-
-    fn build_exit() -> BuildError {
-        BuildError::Exit {
-            cmd: "ebs".to_string(),
-            status: Some(1),
-            logs: vec![
-                OsString::from("this is a test of the emergency broadcast system").into(),
-                OsString::from("you will hear a tone").into(),
-                OsString::from("remember, this is only a test").into(),
-            ],
-        }
-    }
-
-    #[test]
-    fn logline_json_readable() -> Result<(), serde_json::Error> {
-        assert!(serde_json::to_string(&build_exit())?.contains("emergency"));
-        Ok(())
-    }
-
-    #[test]
-    fn logline_json_roundtrip() -> Result<(), serde_json::Error> {
-        serde_json::from_str::<serde_json::Value>(&serde_json::to_string(&build_exit())?)
-            .map(|_| ())
-    }
-}
-
 impl From<IoError> for BuildError {
     fn from(e: IoError) -> BuildError {
         BuildError::io(e)

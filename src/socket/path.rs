@@ -86,11 +86,6 @@ impl SocketPath {
         self.0.as_ref()
     }
 
-    /// The Unix socket address of this socket.
-    pub fn address(&self) -> String {
-        format!("unix:{}", self.0.display())
-    }
-
     fn lockfile(&self) -> AbsPathBuf {
         self.0.with_file_name({
             let mut s = self

@@ -46,13 +46,6 @@ pub struct Pool {
 
 impl Pool {
     /// Construct a new thread pool.
-    /// ```should_panic
-    /// extern crate lorri;
-    /// use lorri::thread::Pool;
-    /// let mut pool = Pool::new();
-    /// pool.spawn("example-1", || panic!("Whoops!"));
-    /// pool.join_all_or_panic();
-    /// ```
     pub fn new(logger: slog::Logger) -> Pool {
         let (tx, rx) = chan::unbounded();
         Pool {

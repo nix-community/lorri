@@ -13,22 +13,18 @@ use crate::cli;
 use crate::cli::ShellOptions;
 use crate::cli::StartUserShellOptions_;
 use crate::cli::WatchOptions;
-use crate::daemon::server::InternalProto;
 use crate::daemon::Daemon;
-use crate::internal_proto;
 use crate::nix;
 use crate::nix::options::NixOptions;
 use crate::nix::CallOpts;
 use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
 use crate::ops::error::{ok, ExitError, OpResult};
 use crate::project::{roots::Roots, Project};
-use crate::proto;
 use crate::socket::communicate;
 use crate::socket::path::SocketPath;
 use crate::NixFile;
 use crate::VERSION_BUILD_REV;
 
-use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::Write;
@@ -55,23 +51,11 @@ pub fn get_paths() -> Result<crate::constants::Paths, error::ExitError> {
     })
 }
 
-fn tmp_get_backend_mode() -> Result<InternalProto, ExitError> {
-    match std::env::var("LORRI_BACKEND").as_ref().map(|s| s.as_str()) {
-        Ok("native") => Ok(InternalProto::Native),
-        Ok("varlink") => Ok(InternalProto::Varlink),
-        Err(_err) => Ok(InternalProto::Varlink),
-        _ => Err(ExitError::environment_problem(
-            "env var LORRI_BACKEND has to be either `native` or `varlink`",
-        )),
-    }
-}
-
 /// Run a BuildLoop for `shell.nix`, watching for input file changes.
 /// Can be used together with `direnv`.
 
 /// See the documentation for lorri::cli::Command::Daemon for details.
 pub fn daemon(opts: crate::cli::DaemonOptions) -> OpResult {
-    let internal_proto = tmp_get_backend_mode()?;
     let extra_nix_options = match opts.extra_nix_options {
         None => NixOptions::empty(),
         Some(v) => NixOptions {
@@ -90,8 +74,7 @@ pub fn daemon(opts: crate::cli::DaemonOptions) -> OpResult {
 
     let paths = crate::ops::get_paths()?;
     daemon.serve(
-        SocketPath::from(paths.daemon_socket_file().clone()),
-        internal_proto,
+        &SocketPath::from(paths.daemon_socket_file().clone()),
         paths.gc_root_dir(),
         paths.cas_store().clone(),
     )?;
@@ -111,39 +94,21 @@ pub fn direnv<W: std::io::Write>(project: Project, mut shell_output: W) -> OpRes
     let root_paths = Roots::from_project(&project).paths();
     let paths_are_cached: bool = root_paths.all_exist();
 
-    let ping_sent = match tmp_get_backend_mode()? {
-        InternalProto::Varlink => {
-            let address = crate::ops::get_paths()?.daemon_socket_address();
-            let nix_file = internal_proto::ShellNix::try_from(&project.nix_file)
-                .map_err(ExitError::temporary)?;
-
-            debug!("lorri direnv: sending initial ping");
-            if let Ok(connection) = varlink::Connection::with_address(&address) {
-                use internal_proto::VarlinkClientInterface;
-                internal_proto::VarlinkClient::new(connection)
-                    .watch_shell(nix_file, internal_proto::Rebuild::OnlyIfNotYetWatching)
-                    .call()
-                    .is_ok()
-            } else {
-                false
-            }
-        }
-        InternalProto::Native => {
-            let address = crate::ops::get_paths()?.daemon_socket_file().clone();
-            info!("connecting to socket"; "socket" => address.as_absolute_path().display());
-            communicate::client::new::<communicate::Ping>(
-                crate::socket::read_writer::Timeout::from_millis(500),
-            )
-            .connect(&SocketPath::from(address))
-            // TODO
-            .expect("could not connect to lorri socket")
-            .write(&communicate::Ping {
-                nix_file: project.nix_file,
-                rebuild: communicate::Rebuild::OnlyIfNotYetWatching,
-            })
-            // TODO: maybe ping should indeed return something so we can at least check whether it parses the message and the version is right. Right now this collapses all of that into a bool …
-            .is_ok()
-        }
+    let ping_sent = {
+        let address = crate::ops::get_paths()?.daemon_socket_file().clone();
+        info!("connecting to socket"; "socket" => address.as_absolute_path().display());
+        communicate::client::new::<communicate::Ping>(
+            crate::socket::read_writer::Timeout::from_millis(500),
+        )
+        .connect(&SocketPath::from(address))
+        // TODO
+        .expect("could not connect to lorri socket")
+        .write(&communicate::Ping {
+            nix_file: project.nix_file,
+            rebuild: communicate::Rebuild::OnlyIfNotYetWatching,
+        })
+        // TODO: maybe ping should indeed return something so we can at least check whether it parses the message and the version is right. Right now this collapses all of that into a bool …
+        .is_ok()
     };
 
     match (ping_sent, paths_are_cached) {
@@ -298,36 +263,19 @@ fn create_if_missing(path: &Path, contents: &str, msg: &str) -> Result<(), io::E
 /// Can be used together with `direnv`.
 /// See the documentation for lorri::cli::Command::Ping_ for details.
 pub fn ping(nix_file: NixFile) -> OpResult {
-    match tmp_get_backend_mode()? {
-        InternalProto::Varlink => {
-            let nix_file = internal_proto::ShellNix::try_from(&nix_file).unwrap();
-            let address = crate::ops::get_paths()?.daemon_socket_address();
-            use internal_proto::VarlinkClientInterface;
-            internal_proto::VarlinkClient::new(
-                varlink::Connection::with_address(&address)
-                    .expect("failed to connect to daemon server"),
-            )
-            .watch_shell(nix_file, internal_proto::Rebuild::Always)
-            .call()
-            .expect("call to daemon server failed");
-            ok()
-        }
-        InternalProto::Native => {
-            let address = crate::ops::get_paths()?.daemon_socket_file().clone();
-            info!("connecting to socket"; "socket" => address.as_absolute_path().display());
-            communicate::client::new::<communicate::Ping>(
-                crate::socket::read_writer::Timeout::from_millis(500),
-            )
-            .connect(&SocketPath::from(address))
-            .unwrap()
-            .write(&communicate::Ping {
-                nix_file,
-                rebuild: communicate::Rebuild::Always,
-            })
-            .unwrap();
-            Ok(())
-        }
-    }
+    let address = crate::ops::get_paths()?.daemon_socket_file().clone();
+    info!("connecting to socket"; "socket" => address.as_absolute_path().display());
+    communicate::client::new::<communicate::Ping>(
+        crate::socket::read_writer::Timeout::from_millis(500),
+    )
+    .connect(&SocketPath::from(address))
+    .unwrap()
+    .write(&communicate::Ping {
+        nix_file,
+        rebuild: communicate::Rebuild::Always,
+    })
+    .unwrap();
+    Ok(())
 }
 
 /// Open up a project shell
@@ -609,11 +557,6 @@ impl FromStr for EventKind {
     }
 }
 
-#[derive(Debug)]
-enum Error {
-    Varlink(proto::Error),
-}
-
 /// Run to output a stream of build events in a machine-parseable form.
 ///
 /// See the documentation for lorri::cli::Command::StreamEvents_ for more
@@ -621,54 +564,30 @@ enum Error {
 pub fn stream_events(kind: EventKind) -> OpResult {
     let (tx_event, rx_event) = unbounded();
 
-    let thread = match tmp_get_backend_mode()? {
-        InternalProto::Varlink => {
-            let address = get_paths()?.daemon_socket_address();
-            use proto::VarlinkClientInterface;
-            let mut client = proto::VarlinkClient::new(
-                varlink::Connection::with_address(&address)
-                    .expect("failed to connect to daemon server"),
-            );
+    let thread = {
+        let address = crate::ops::get_paths()?.daemon_socket_file().clone();
+        info!("connecting to socket"; "socket" => address.as_absolute_path().display());
 
-            let tx_event2 = tx_event.clone();
+        let tx_event = tx_event.clone();
+        // TODO: use Async
+        thread::spawn(move || {
+            let client = communicate::client::new::<communicate::StreamEvents>(
+                crate::socket::read_writer::Timeout::Infinite,
+            )
+            .connect(&SocketPath::from(address))
+            .unwrap();
 
-            thread::spawn(move || {
-                for res in client.monitor().more().expect("couldn't connect to server") {
-                    tx_event2
-                        .send(
-                            res.map_err(Error::Varlink)
-                                .map_err(|err| ExitError::temporary(format!("{:?}", err)))
-                                .and_then(|ev| Event::try_from(ev).map_err(ExitError::temporary)),
-                        )
-                        .expect("local channel couldn't send")
-                }
-            })
-        }
-        InternalProto::Native => {
-            let address = crate::ops::get_paths()?.daemon_socket_file().clone();
-            info!("connecting to socket"; "socket" => address.as_absolute_path().display());
-
-            let tx_event = tx_event.clone();
-            // TODO: use Async
-            thread::spawn(move || {
-                let client = communicate::client::new::<communicate::StreamEvents>(
-                    crate::socket::read_writer::Timeout::Infinite,
-                )
-                .connect(&SocketPath::from(address))
-                .unwrap();
-
-                client.write(&communicate::StreamEvents {}).unwrap();
-                loop {
-                    let res = client.read();
-                    tx_event
-                        .send(
-                            // TODO: error
-                            res.map_err(|err| ExitError::temporary(format!("{:?}", err))),
-                        )
-                        .unwrap();
-                }
-            })
-        }
+            client.write(&communicate::StreamEvents {}).unwrap();
+            loop {
+                let res = client.read();
+                tx_event
+                    .send(
+                        // TODO: error
+                        res.map_err(|err| ExitError::temporary(format!("{:?}", err))),
+                    )
+                    .unwrap();
+            }
+        })
     };
 
     select! {

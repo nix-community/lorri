@@ -33,30 +33,6 @@ pub mod socket;
 pub mod thread;
 pub mod watch;
 
-// This and the following module declaration together publicly export the
-// contents of the generated module "org_nixos_lorri" as "proto", which is a
-// much nicer module name.
-#[allow(missing_docs, clippy::all, unused_imports)]
-mod org_nixos_lorri;
-
-#[allow(missing_docs)]
-pub mod proto {
-    // Code generated from org.nixos.lorri.varlink
-    pub use super::org_nixos_lorri::*;
-}
-
-// This and the following module declaration together publicly export the
-// contents of the generated module "org_nixos_lorri_internal" as
-// "internal_proto", which is a much nicer module name.
-#[allow(missing_docs, clippy::all, unused_imports)]
-mod org_nixos_lorri_internal;
-
-#[allow(missing_docs)]
-pub(crate) mod internal_proto {
-    // Code generated from org.nixos.lorri.internal.varlink
-    pub use super::org_nixos_lorri_internal::*;
-}
-
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 

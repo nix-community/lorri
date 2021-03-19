@@ -45,7 +45,7 @@ let
     pkgs.git
     pkgs.direnv
     pkgs.shellcheck
-    (pkgs.carnix.overrideAttrs (old: { patches = old.patches or [] ++ [./nix/carnix.patch]; }))
+    (pkgs.carnix.overrideAttrs (old: { patches = old.patches or [] ++ [ ./nix/carnix.patch ]; }))
     pkgs.nix-prefetch-git
     pkgs.nixpkgs-fmt
 

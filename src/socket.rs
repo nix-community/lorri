@@ -4,7 +4,6 @@ pub mod path;
 pub mod read_writer;
 
 use crate::daemon::{IndicateActivity, LoopHandlerEvent};
-use crate::internal_proto;
 use crate::ops::error::ExitError;
 use crate::run_async::Async;
 use crate::socket::path::SocketPath;
@@ -79,10 +78,7 @@ impl Server {
                                     Ok(Ping { nix_file, rebuild }) => {
                                         tx_activity.send(IndicateActivity {
                                             nix_file,
-                                            rebuild: match rebuild {
-                                                communicate::Rebuild::OnlyIfNotYetWatching => internal_proto::Rebuild::OnlyIfNotYetWatching,
-                                                communicate::Rebuild::Always => internal_proto::Rebuild::Always,
-                                            }
+                                            rebuild
                                         }).expect("Unable to send a ping from listener")
                                     },
                                     Err(e) => err(communication_type, e)

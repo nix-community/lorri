@@ -1,9 +1,9 @@
 //! The lorri daemon, watches multiple projects in the background.
 
 use crate::build_loop::{BuildLoop, Event};
-use crate::internal_proto;
 use crate::nix::options::NixOptions;
 use crate::ops::error::ExitError;
+use crate::socket::communicate;
 use crate::socket::path::SocketPath;
 use crate::{AbsPathBuf, NixFile};
 use crossbeam_channel as chan;
@@ -32,7 +32,7 @@ pub struct IndicateActivity {
     /// This nix file should be build/watched by the daemon.
     pub nix_file: NixFile,
     /// Determines when this activity will cause a rebuild.
-    pub rebuild: internal_proto::Rebuild,
+    pub rebuild: communicate::Rebuild,
 }
 
 /// Keeps all state of the running `lorri daemon` service, watches nix files and runs builds.
@@ -67,8 +67,7 @@ impl Daemon {
     /// Serve the daemon's RPC endpoint.
     pub fn serve(
         &mut self,
-        socket_path: SocketPath,
-        internal_proto: server::InternalProto,
+        socket_path: &SocketPath,
         gc_root_dir: &AbsPathBuf,
         cas: crate::cas::ContentAddressable,
     ) -> Result<(), ExitError> {
@@ -80,12 +79,7 @@ impl Daemon {
         let mut pool = crate::thread::Pool::new(slog_scope::logger());
         let tx_build_events = self.tx_build_events.clone();
 
-        let server = server::Server::new(
-            internal_proto,
-            socket_path.clone(),
-            tx_activity,
-            tx_build_events,
-        );
+        let server = server::Server::new(socket_path.clone(), tx_activity, tx_build_events);
 
         pool.spawn("accept-loop", || {
             // TODO: get rid of this expect, actually propagate a stack trace
@@ -186,11 +180,11 @@ impl Daemon {
                 |to: &chan::Sender<()>| to.send(()).expect("could not ping the build loop");
 
             match (project_is_watched, rebuild) {
-                (Some(builder), internal_proto::Rebuild::Always) => {
+                (Some(builder), communicate::Rebuild::Always) => {
                     debug!("triggering rebuild"; "project" => key, "cause" => "unconditional ping");
                     send_ping(builder)
                 }
-                (Some(_), internal_proto::Rebuild::OnlyIfNotYetWatching) => {
+                (Some(_), communicate::Rebuild::OnlyIfNotYetWatching) => {
                     debug!("skipping rebuild"; "project" => key, "cause" => "already watching");
                 }
                 // only add if there is no no build_loop for this file yet.
