@@ -66,6 +66,29 @@ rec {
 
 
 # end
+# anyhow-1.0.38
+
+  crates.anyhow."1.0.38" = deps: { features?(features_.anyhow."1.0.38" deps {}) }: buildRustCrate {
+    crateName = "anyhow";
+    version = "1.0.38";
+    description = "Flexible concrete Error type built on std::error::Error";
+    authors = [ "David Tolnay <dtolnay@gmail.com>" ];
+    edition = "2018";
+    sha256 = "0q3m3swj42403wq1y5djbi9804i3bk7z42mp2khdp2mxi9agc7rn";
+    features = mkFeatures (features."anyhow"."1.0.38" or {});
+  };
+  features_.anyhow."1.0.38" = deps: f: updateFeatures f (rec {
+    anyhow = fold recursiveUpdate {} [
+      { "1.0.38"."std" =
+        (f.anyhow."1.0.38"."std" or false) ||
+        (f.anyhow."1.0.38".default or false) ||
+        (anyhow."1.0.38"."default" or false); }
+      { "1.0.38".default = (f.anyhow."1.0.38".default or true); }
+    ];
+  }) [];
+
+
+# end
 # anymap-0.12.1
 
   crates.anymap."0.12.1" = deps: { features?(features_.anymap."0.12.1" deps {}) }: buildRustCrate {
@@ -2253,31 +2276,31 @@ rec {
 
 
 # end
-# proc-macro2-1.0.18
+# proc-macro2-1.0.24
 
-  crates.proc_macro2."1.0.18" = deps: { features?(features_.proc_macro2."1.0.18" deps {}) }: buildRustCrate {
+  crates.proc_macro2."1.0.24" = deps: { features?(features_.proc_macro2."1.0.24" deps {}) }: buildRustCrate {
     crateName = "proc-macro2";
-    version = "1.0.18";
+    version = "1.0.24";
     description = "A substitute implementation of the compiler's `proc_macro` API to decouple\ntoken-based libraries from the procedural macro use case.\n";
     authors = [ "Alex Crichton <alex@alexcrichton.com>" "David Tolnay <dtolnay@gmail.com>" ];
     edition = "2018";
-    sha256 = "0hrajl05zc25z6v9gj902jzwlrczrsgpfkrdsblams7sjbvgdp63";
+    sha256 = "0fds8lvic0qy9dknwnr6zbqr3ri18jx66cy7sdkdm4yw2kipy0yd";
     dependencies = mapFeatures features ([
-      (crates."unicode_xid"."${deps."proc_macro2"."1.0.18"."unicode_xid"}" deps)
+      (crates."unicode_xid"."${deps."proc_macro2"."1.0.24"."unicode_xid"}" deps)
     ]);
-    features = mkFeatures (features."proc_macro2"."1.0.18" or {});
+    features = mkFeatures (features."proc_macro2"."1.0.24" or {});
   };
-  features_.proc_macro2."1.0.18" = deps: f: updateFeatures f (rec {
+  features_.proc_macro2."1.0.24" = deps: f: updateFeatures f (rec {
     proc_macro2 = fold recursiveUpdate {} [
-      { "1.0.18"."proc-macro" =
-        (f.proc_macro2."1.0.18"."proc-macro" or false) ||
-        (f.proc_macro2."1.0.18".default or false) ||
-        (proc_macro2."1.0.18"."default" or false); }
-      { "1.0.18".default = (f.proc_macro2."1.0.18".default or true); }
+      { "1.0.24"."proc-macro" =
+        (f.proc_macro2."1.0.24"."proc-macro" or false) ||
+        (f.proc_macro2."1.0.24".default or false) ||
+        (proc_macro2."1.0.24"."default" or false); }
+      { "1.0.24".default = (f.proc_macro2."1.0.24".default or true); }
     ];
-    unicode_xid."${deps.proc_macro2."1.0.18".unicode_xid}".default = true;
+    unicode_xid."${deps.proc_macro2."1.0.24".unicode_xid}".default = true;
   }) [
-    (features_.unicode_xid."${deps."proc_macro2"."1.0.18"."unicode_xid"}" deps)
+    (features_.unicode_xid."${deps."proc_macro2"."1.0.24"."unicode_xid"}" deps)
   ];
 
 
@@ -3720,69 +3743,69 @@ rec {
 
 
 # end
-# syn-1.0.33
+# syn-1.0.64
 
-  crates.syn."1.0.33" = deps: { features?(features_.syn."1.0.33" deps {}) }: buildRustCrate {
+  crates.syn."1.0.64" = deps: { features?(features_.syn."1.0.64" deps {}) }: buildRustCrate {
     crateName = "syn";
-    version = "1.0.33";
+    version = "1.0.64";
     description = "Parser for Rust source code";
     authors = [ "David Tolnay <dtolnay@gmail.com>" ];
     edition = "2018";
-    sha256 = "07pjc1qr1vwxl28x3j5n6fa22pkhqvld7r6khkfm8gsq6j7arxfz";
+    sha256 = "0m1k4jnwa4cb1f8ryy35fbs7knisah7s1bn7zva2s35r8bnhh7rf";
     dependencies = mapFeatures features ([
-      (crates."proc_macro2"."${deps."syn"."1.0.33"."proc_macro2"}" deps)
-      (crates."unicode_xid"."${deps."syn"."1.0.33"."unicode_xid"}" deps)
+      (crates."proc_macro2"."${deps."syn"."1.0.64"."proc_macro2"}" deps)
+      (crates."unicode_xid"."${deps."syn"."1.0.64"."unicode_xid"}" deps)
     ]
-      ++ (if features.syn."1.0.33".quote or false then [ (crates.quote."${deps."syn"."1.0.33".quote}" deps) ] else []));
-    features = mkFeatures (features."syn"."1.0.33" or {});
+      ++ (if features.syn."1.0.64".quote or false then [ (crates.quote."${deps."syn"."1.0.64".quote}" deps) ] else []));
+    features = mkFeatures (features."syn"."1.0.64" or {});
   };
-  features_.syn."1.0.33" = deps: f: updateFeatures f (rec {
+  features_.syn."1.0.64" = deps: f: updateFeatures f (rec {
     proc_macro2 = fold recursiveUpdate {} [
-      { "${deps.syn."1.0.33".proc_macro2}"."proc-macro" =
-        (f.proc_macro2."${deps.syn."1.0.33".proc_macro2}"."proc-macro" or false) ||
-        (syn."1.0.33"."proc-macro" or false) ||
-        (f."syn"."1.0.33"."proc-macro" or false); }
-      { "${deps.syn."1.0.33".proc_macro2}".default = (f.proc_macro2."${deps.syn."1.0.33".proc_macro2}".default or false); }
+      { "${deps.syn."1.0.64".proc_macro2}"."proc-macro" =
+        (f.proc_macro2."${deps.syn."1.0.64".proc_macro2}"."proc-macro" or false) ||
+        (syn."1.0.64"."proc-macro" or false) ||
+        (f."syn"."1.0.64"."proc-macro" or false); }
+      { "${deps.syn."1.0.64".proc_macro2}".default = (f.proc_macro2."${deps.syn."1.0.64".proc_macro2}".default or false); }
     ];
     quote = fold recursiveUpdate {} [
-      { "${deps.syn."1.0.33".quote}"."proc-macro" =
-        (f.quote."${deps.syn."1.0.33".quote}"."proc-macro" or false) ||
-        (syn."1.0.33"."proc-macro" or false) ||
-        (f."syn"."1.0.33"."proc-macro" or false); }
-      { "${deps.syn."1.0.33".quote}".default = (f.quote."${deps.syn."1.0.33".quote}".default or false); }
+      { "${deps.syn."1.0.64".quote}"."proc-macro" =
+        (f.quote."${deps.syn."1.0.64".quote}"."proc-macro" or false) ||
+        (syn."1.0.64"."proc-macro" or false) ||
+        (f."syn"."1.0.64"."proc-macro" or false); }
+      { "${deps.syn."1.0.64".quote}".default = (f.quote."${deps.syn."1.0.64".quote}".default or false); }
     ];
     syn = fold recursiveUpdate {} [
-      { "1.0.33"."clone-impls" =
-        (f.syn."1.0.33"."clone-impls" or false) ||
-        (f.syn."1.0.33".default or false) ||
-        (syn."1.0.33"."default" or false); }
-      { "1.0.33"."derive" =
-        (f.syn."1.0.33"."derive" or false) ||
-        (f.syn."1.0.33".default or false) ||
-        (syn."1.0.33"."default" or false); }
-      { "1.0.33"."parsing" =
-        (f.syn."1.0.33"."parsing" or false) ||
-        (f.syn."1.0.33".default or false) ||
-        (syn."1.0.33"."default" or false); }
-      { "1.0.33"."printing" =
-        (f.syn."1.0.33"."printing" or false) ||
-        (f.syn."1.0.33".default or false) ||
-        (syn."1.0.33"."default" or false); }
-      { "1.0.33"."proc-macro" =
-        (f.syn."1.0.33"."proc-macro" or false) ||
-        (f.syn."1.0.33".default or false) ||
-        (syn."1.0.33"."default" or false); }
-      { "1.0.33"."quote" =
-        (f.syn."1.0.33"."quote" or false) ||
-        (f.syn."1.0.33".printing or false) ||
-        (syn."1.0.33"."printing" or false); }
-      { "1.0.33".default = (f.syn."1.0.33".default or true); }
+      { "1.0.64"."clone-impls" =
+        (f.syn."1.0.64"."clone-impls" or false) ||
+        (f.syn."1.0.64".default or false) ||
+        (syn."1.0.64"."default" or false); }
+      { "1.0.64"."derive" =
+        (f.syn."1.0.64"."derive" or false) ||
+        (f.syn."1.0.64".default or false) ||
+        (syn."1.0.64"."default" or false); }
+      { "1.0.64"."parsing" =
+        (f.syn."1.0.64"."parsing" or false) ||
+        (f.syn."1.0.64".default or false) ||
+        (syn."1.0.64"."default" or false); }
+      { "1.0.64"."printing" =
+        (f.syn."1.0.64"."printing" or false) ||
+        (f.syn."1.0.64".default or false) ||
+        (syn."1.0.64"."default" or false); }
+      { "1.0.64"."proc-macro" =
+        (f.syn."1.0.64"."proc-macro" or false) ||
+        (f.syn."1.0.64".default or false) ||
+        (syn."1.0.64"."default" or false); }
+      { "1.0.64"."quote" =
+        (f.syn."1.0.64"."quote" or false) ||
+        (f.syn."1.0.64".printing or false) ||
+        (syn."1.0.64"."printing" or false); }
+      { "1.0.64".default = (f.syn."1.0.64".default or true); }
     ];
-    unicode_xid."${deps.syn."1.0.33".unicode_xid}".default = true;
+    unicode_xid."${deps.syn."1.0.64".unicode_xid}".default = true;
   }) [
-    (features_.proc_macro2."${deps."syn"."1.0.33"."proc_macro2"}" deps)
-    (features_.quote."${deps."syn"."1.0.33"."quote"}" deps)
-    (features_.unicode_xid."${deps."syn"."1.0.33"."unicode_xid"}" deps)
+    (features_.proc_macro2."${deps."syn"."1.0.64"."proc_macro2"}" deps)
+    (features_.quote."${deps."syn"."1.0.64"."quote"}" deps)
+    (features_.unicode_xid."${deps."syn"."1.0.64"."unicode_xid"}" deps)
   ];
 
 
@@ -3931,6 +3954,57 @@ rec {
     unicode_width."${deps.textwrap."0.11.0".unicode_width}".default = true;
   }) [
     (features_.unicode_width."${deps."textwrap"."0.11.0"."unicode_width"}" deps)
+  ];
+
+
+# end
+# thiserror-1.0.24
+
+  crates.thiserror."1.0.24" = deps: { features?(features_.thiserror."1.0.24" deps {}) }: buildRustCrate {
+    crateName = "thiserror";
+    version = "1.0.24";
+    description = "derive(Error)";
+    authors = [ "David Tolnay <dtolnay@gmail.com>" ];
+    edition = "2018";
+    sha256 = "06r6wml3y1n8vsh1i5v1mq25rn9ii2lj0fkhgay82czshrjl35w1";
+    dependencies = mapFeatures features ([
+      (crates."thiserror_impl"."${deps."thiserror"."1.0.24"."thiserror_impl"}" deps)
+    ]);
+  };
+  features_.thiserror."1.0.24" = deps: f: updateFeatures f (rec {
+    thiserror."1.0.24".default = (f.thiserror."1.0.24".default or true);
+    thiserror_impl."${deps.thiserror."1.0.24".thiserror_impl}".default = true;
+  }) [
+    (features_.thiserror_impl."${deps."thiserror"."1.0.24"."thiserror_impl"}" deps)
+  ];
+
+
+# end
+# thiserror-impl-1.0.24
+
+  crates.thiserror_impl."1.0.24" = deps: { features?(features_.thiserror_impl."1.0.24" deps {}) }: buildRustCrate {
+    crateName = "thiserror-impl";
+    version = "1.0.24";
+    description = "Implementation detail of the `thiserror` crate";
+    authors = [ "David Tolnay <dtolnay@gmail.com>" ];
+    edition = "2018";
+    sha256 = "1cn96jkmmy7bb76777r3yb0zqa7b1k3glsyvk78y2x8r92h71vwn";
+    procMacro = true;
+    dependencies = mapFeatures features ([
+      (crates."proc_macro2"."${deps."thiserror_impl"."1.0.24"."proc_macro2"}" deps)
+      (crates."quote"."${deps."thiserror_impl"."1.0.24"."quote"}" deps)
+      (crates."syn"."${deps."thiserror_impl"."1.0.24"."syn"}" deps)
+    ]);
+  };
+  features_.thiserror_impl."1.0.24" = deps: f: updateFeatures f (rec {
+    proc_macro2."${deps.thiserror_impl."1.0.24".proc_macro2}".default = true;
+    quote."${deps.thiserror_impl."1.0.24".quote}".default = true;
+    syn."${deps.thiserror_impl."1.0.24".syn}".default = true;
+    thiserror_impl."1.0.24".default = (f.thiserror_impl."1.0.24".default or true);
+  }) [
+    (features_.proc_macro2."${deps."thiserror_impl"."1.0.24"."proc_macro2"}" deps)
+    (features_.quote."${deps."thiserror_impl"."1.0.24"."quote"}" deps)
+    (features_.syn."${deps."thiserror_impl"."1.0.24"."syn"}" deps)
   ];
 
 

@@ -15,6 +15,7 @@ rec {
       edition = "2018";
       src = exclude [ ".git" "target" ] ./.;
       dependencies = mapFeatures features ([
+        (cratesIO.crates."anyhow"."${deps."lorri"."1.3.1"."anyhow"}" deps)
         (cratesIO.crates."atomicwrites"."${deps."lorri"."1.3.1"."atomicwrites"}" deps)
         (cratesIO.crates."bincode"."${deps."lorri"."1.3.1"."bincode"}" deps)
         (cratesIO.crates."crossbeam_channel"."${deps."lorri"."1.3.1"."crossbeam_channel"}" deps)
@@ -35,10 +36,12 @@ rec {
         (cratesIO.crates."slog_term"."${deps."lorri"."1.3.1"."slog_term"}" deps)
         (cratesIO.crates."structopt"."${deps."lorri"."1.3.1"."structopt"}" deps)
         (cratesIO.crates."tempfile"."${deps."lorri"."1.3.1"."tempfile"}" deps)
+        (cratesIO.crates."thiserror"."${deps."lorri"."1.3.1"."thiserror"}" deps)
         (cratesIO.crates."vec1"."${deps."lorri"."1.3.1"."vec1"}" deps)
       ]);
     };
     features_.lorri."1.3.1" = deps: f: updateFeatures f (rec {
+      anyhow."${deps.lorri."1.3.1".anyhow}".default = true;
       atomicwrites."${deps.lorri."1.3.1".atomicwrites}".default = true;
       bincode."${deps.lorri."1.3.1".bincode}".default = true;
       crossbeam_channel."${deps.lorri."1.3.1".crossbeam_channel}".default = true;
@@ -68,8 +71,10 @@ rec {
         { "${deps.lorri."1.3.1".structopt}".default = (f.structopt."${deps.lorri."1.3.1".structopt}".default or false); }
       ];
       tempfile."${deps.lorri."1.3.1".tempfile}".default = true;
+      thiserror."${deps.lorri."1.3.1".thiserror}".default = true;
       vec1."${deps.lorri."1.3.1".vec1}".default = true;
     }) [
+      (cratesIO.features_.anyhow."${deps."lorri"."1.3.1"."anyhow"}" deps)
       (cratesIO.features_.atomicwrites."${deps."lorri"."1.3.1"."atomicwrites"}" deps)
       (cratesIO.features_.bincode."${deps."lorri"."1.3.1"."bincode"}" deps)
       (cratesIO.features_.crossbeam_channel."${deps."lorri"."1.3.1"."crossbeam_channel"}" deps)
@@ -90,6 +95,7 @@ rec {
       (cratesIO.features_.slog_term."${deps."lorri"."1.3.1"."slog_term"}" deps)
       (cratesIO.features_.structopt."${deps."lorri"."1.3.1"."structopt"}" deps)
       (cratesIO.features_.tempfile."${deps."lorri"."1.3.1"."tempfile"}" deps)
+      (cratesIO.features_.thiserror."${deps."lorri"."1.3.1"."thiserror"}" deps)
       (cratesIO.features_.vec1."${deps."lorri"."1.3.1"."vec1"}" deps)
     ];
 
@@ -106,6 +112,7 @@ rec {
   deps.ansi_term."0.11.0" = {
     winapi = "0.3.9";
   };
+  deps.anyhow."1.0.38" = {};
   deps.anymap."0.12.1" = {};
   deps.arc_swap."0.4.7" = {};
   deps.arrayref."0.3.6" = {};
@@ -260,6 +267,7 @@ rec {
     cfg_if = "0.1.10";
   };
   deps.lorri."1.3.1" = {
+    anyhow = "1.0.38";
     atomicwrites = "0.2.5";
     bincode = "1.3.2";
     crossbeam_channel = "0.3.9";
@@ -280,6 +288,7 @@ rec {
     slog_term = "2.6.0";
     structopt = "0.2.18";
     tempfile = "3.1.0";
+    thiserror = "1.0.24";
     vec1 = "1.5.0";
   };
   deps.maybe_uninit."2.0.0" = {};
@@ -369,7 +378,7 @@ rec {
   deps.proc_macro2."0.4.30" = {
     unicode_xid = "0.1.0";
   };
-  deps.proc_macro2."1.0.18" = {
+  deps.proc_macro2."1.0.24" = {
     unicode_xid = "0.2.0";
   };
   deps.proptest."0.10.1" = {
@@ -388,7 +397,7 @@ rec {
     proc_macro2 = "0.4.30";
   };
   deps.quote."1.0.7" = {
-    proc_macro2 = "1.0.18";
+    proc_macro2 = "1.0.24";
   };
   deps.rand."0.4.6" = {
     rand_core = "0.3.1";
@@ -452,9 +461,9 @@ rec {
   };
   deps.serde."1.0.114" = {};
   deps.serde_derive."1.0.114" = {
-    proc_macro2 = "1.0.18";
+    proc_macro2 = "1.0.24";
     quote = "1.0.7";
-    syn = "1.0.33";
+    syn = "1.0.64";
   };
   deps.serde_json."1.0.55" = {
     itoa = "0.4.6";
@@ -495,8 +504,8 @@ rec {
     quote = "0.6.13";
     unicode_xid = "0.1.0";
   };
-  deps.syn."1.0.33" = {
-    proc_macro2 = "1.0.18";
+  deps.syn."1.0.64" = {
+    proc_macro2 = "1.0.24";
     quote = "1.0.7";
     unicode_xid = "0.2.0";
   };
@@ -521,6 +530,14 @@ rec {
   };
   deps.textwrap."0.11.0" = {
     unicode_width = "0.1.7";
+  };
+  deps.thiserror."1.0.24" = {
+    thiserror_impl = "1.0.24";
+  };
+  deps.thiserror_impl."1.0.24" = {
+    proc_macro2 = "1.0.24";
+    quote = "1.0.7";
+    syn = "1.0.64";
   };
   deps.thread_local."1.0.1" = {
     lazy_static = "1.4.0";

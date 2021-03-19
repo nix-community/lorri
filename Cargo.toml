@@ -21,6 +21,9 @@ crossbeam-channel = "0.3.8"
 nix = "0.20.0"
 regex = "1.4.3"
 tempfile = "3.1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+
 # TODO: update to 0.3
 structopt.version = "0.2"
 structopt.default-features = false

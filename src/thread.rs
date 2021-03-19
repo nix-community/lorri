@@ -20,33 +20,33 @@ struct Thread {
 }
 
 /// This thread died, and why.
-pub struct Dead {
+pub struct Dead<Err> {
     /// id of the thread
     pub thread_id: ThreadId,
     /// cause of death
-    pub cause: Cause,
+    pub cause: Cause<Err>,
 }
 
 /// Cause of death
-pub enum Cause {
+pub enum Cause<Err> {
     /// Natural causes
-    Natural,
+    Natural(Result<(), Err>),
     /// Thread paniced and then died
     Paniced(Box<dyn Any + Send>),
 }
 
 /// A thread pool for joining many threads at once, panicking
 /// if any of the threads panicked.
-pub struct Pool {
+pub struct Pool<Err> {
     threads: HashMap<ThreadId, Thread>,
-    tx: chan::Sender<Dead>,
-    rx: chan::Receiver<Dead>,
+    tx: chan::Sender<Dead<Err>>,
+    rx: chan::Receiver<Dead<Err>>,
     logger: slog::Logger,
 }
 
-impl Pool {
+impl<Err> Pool<Err> {
     /// Construct a new thread pool.
-    pub fn new(logger: slog::Logger) -> Pool {
+    pub fn new(logger: slog::Logger) -> Pool<Err> {
         let (tx, rx) = chan::unbounded();
         Pool {
             threads: HashMap::new(),
@@ -61,8 +61,10 @@ impl Pool {
     pub fn spawn<N, F>(&mut self, name: N, f: F) -> Result<(), std::io::Error>
     where
         N: Into<String>,
-        F: FnOnce() + std::panic::UnwindSafe,
+        F: FnOnce() -> Result<(), Err>,
+        F: std::panic::UnwindSafe,
         F: Send + 'static,
+        Err: Send + 'static,
     {
         let name = name.into();
         let name2 = name.clone();
@@ -73,7 +75,7 @@ impl Pool {
         let handle = builder.spawn(move || {
             let thread_id = thread::current().id();
             let cause = match std::panic::catch_unwind(|| f()) {
-                Ok(()) => Cause::Natural,
+                Ok(res) => Cause::Natural(res),
                 Err(panic) => Cause::Paniced(panic),
             };
             match tx.send(Dead { thread_id, cause }) {
@@ -97,10 +99,10 @@ impl Pool {
 
     /// Attempt to join all threads, and if any of them panicked,
     /// also panic this thread.
-    pub fn join_all_or_panic(&mut self) {
+    pub fn join_all_or_panic(&mut self) -> Result<(), Err> {
         loop {
             if self.threads.is_empty() {
-                return;
+                return Ok(());
             }
 
             let death = self
@@ -128,7 +130,10 @@ impl Pool {
                 });
 
             match death.cause {
-                Cause::Natural => {}
+                // The thread died successfully
+                Cause::Natural(Ok(())) => {}
+                // The thread didn’t panic, it returned an error, so we return early
+                Cause::Natural(Err(err)) => return Err(err),
                 Cause::Paniced(panic) => std::panic::resume_unwind(panic),
             }
         }

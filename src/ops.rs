@@ -13,6 +13,7 @@ use crate::cli;
 use crate::cli::ShellOptions;
 use crate::cli::StartUserShellOptions_;
 use crate::cli::WatchOptions;
+use crate::daemon::client;
 use crate::daemon::Daemon;
 use crate::nix;
 use crate::nix::options::NixOptions;
@@ -20,7 +21,7 @@ use crate::nix::CallOpts;
 use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
 use crate::ops::error::{ok, ExitError, OpResult};
 use crate::project::{roots::Roots, Project};
-use crate::socket::communicate;
+use crate::run_async::Async;
 use crate::socket::path::SocketPath;
 use crate::NixFile;
 use crate::VERSION_BUILD_REV;
@@ -97,18 +98,16 @@ pub fn direnv<W: std::io::Write>(project: Project, mut shell_output: W) -> OpRes
     let ping_sent = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
         debug!("connecting to socket"; "socket" => address.as_absolute_path().display());
-        communicate::client::new::<communicate::Ping>(
-            crate::socket::read_writer::Timeout::from_millis(500),
-        )
-        .connect(&SocketPath::from(address))
-        // TODO
-        .expect("could not connect to lorri socket")
-        .write(&communicate::Ping {
-            nix_file: project.nix_file,
-            rebuild: communicate::Rebuild::OnlyIfNotYetWatching,
-        })
-        // TODO: maybe ping should indeed return something so we can at least check whether it parses the message and the version is right. Right now this collapses all of that into a bool …
-        .is_ok()
+        client::create::<client::Ping>()
+            .and_then(|c| {
+                c.write(&client::Ping {
+                    nix_file: project.nix_file,
+                    rebuild: client::Rebuild::OnlyIfNotYetWatching,
+                })?;
+                Ok(())
+            })
+            // TODO: maybe ping should indeed return something so we can at least check whether it parses the message and the version is right. Right now this collapses all of that into a bool …
+            .is_ok()
     };
 
     match (ping_sent, paths_are_cached) {
@@ -263,18 +262,10 @@ fn create_if_missing(path: &Path, contents: &str, msg: &str) -> Result<(), io::E
 /// Can be used together with `direnv`.
 /// See the documentation for lorri::cli::Command::Ping_ for details.
 pub fn ping(nix_file: NixFile) -> OpResult {
-    let address = crate::ops::get_paths()?.daemon_socket_file().clone();
-    debug!("connecting to socket"; "socket" => address.as_absolute_path().display());
-    communicate::client::new::<communicate::Ping>(
-        crate::socket::read_writer::Timeout::from_millis(500),
-    )
-    .connect(&SocketPath::from(address))
-    .unwrap()
-    .write(&communicate::Ping {
+    client::create()?.write(&client::Ping {
         nix_file,
-        rebuild: communicate::Rebuild::Always,
-    })
-    .unwrap();
+        rebuild: client::Rebuild::Always,
+    })?;
     Ok(())
 }
 
@@ -345,7 +336,7 @@ pub fn shell(project: Project, opts: ShellOptions) -> OpResult {
 fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
     let building = Arc::new(AtomicBool::new(true));
     let building_clone = building.clone();
-    let progress_thread = thread::spawn(move || {
+    let progress_thread = Async::run(slog_scope::logger(), move || {
         // Keep track of the start time to display a hint to the user that they can use `--cached`,
         // but only if a cached version of the environment exists
         let mut start = if cached { Some(Instant::now()) } else { None };
@@ -366,7 +357,7 @@ fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
 
             // Indicate progress
             eprint!(".");
-            io::stderr().flush().unwrap();
+            io::stderr().flush().expect("couldn’t flush‽");
         }
         eprintln!(". done");
     });
@@ -378,7 +369,7 @@ fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
         &crate::nix::options::NixOptions::empty(),
     );
     building.store(false, Ordering::SeqCst);
-    progress_thread.join().unwrap();
+    progress_thread.block();
 
     let run_result = run_result
         .map_err(|e| {
@@ -599,15 +590,10 @@ pub fn stream_events(kind: EventKind) -> OpResult {
         debug!("connecting to socket"; "socket" => address.as_absolute_path().display());
 
         let tx_event = tx_event.clone();
-        // TODO: use Async
-        thread::spawn(move || {
-            let client = communicate::client::new::<communicate::StreamEvents>(
-                crate::socket::read_writer::Timeout::Infinite,
-            )
-            .connect(&SocketPath::from(address))
-            .unwrap();
+        Async::<Result<(), ExitError>>::run(slog_scope::logger(), move || {
+            let client = client::create::<client::StreamEvents>()?;
 
-            client.write(&communicate::StreamEvents {}).unwrap();
+            client.write(&client::StreamEvents {})?;
             loop {
                 let res = client.read();
                 tx_event
@@ -615,55 +601,53 @@ pub fn stream_events(kind: EventKind) -> OpResult {
                         // TODO: error
                         res.map_err(|err| ExitError::temporary(format!("{:?}", err))),
                     )
-                    .unwrap();
+                    .expect("tx_event hung up!");
             }
         })
     };
 
-    select! {
-        recv(rx_event) -> event => tx_event.send(event.expect("local channel couldn't receive")).expect("local channel couldn't resend"),
-        default(Duration::from_millis(250)) => return Err(ExitError::temporary("server timeout"))
-    }
-
     let mut snapshot_done = false;
-    for event in rx_event.iter() {
-        // TODO: this is horrible
-        match event? {
-            Event::SectionEnd => {
-                debug!("SectionEnd");
-                if let EventKind::Snapshot = kind {
-                    return ok();
-                } else {
-                    snapshot_done = true
-                }
-            }
-            ev => match (snapshot_done, &kind) {
-                (_, EventKind::All) | (false, EventKind::Snapshot) | (true, EventKind::Live) => {
-                    fn nix_file_string(nix_file: NixFile) -> String {
-                        nix_file.display().to_string()
+    loop {
+        select! {
+            recv(rx_event) -> event => match event.expect("rx_event hung up!")? {
+                Event::SectionEnd => {
+                    debug!("SectionEnd");
+                    if let EventKind::Snapshot = kind {
+                        return ok();
+                    } else {
+                        snapshot_done = true
                     }
-                    serde_json::to_writer(
-                        std::io::stdout(),
-                        &StreamEvent(ev.map(
-                            |nix_file| StreamNixFile(nix_file_string(nix_file)),
-                            |reason| StreamReason(reason.map(nix_file_string)),
-                            |output_path| {
-                                StreamOutputPath(output_path.map(|o| o.display().to_string()))
-                            },
-                            |build_error| StreamBuildError {
-                                message: format!("{}", build_error),
-                            },
-                        )),
-                    )
-                    .expect("couldn't serialize event")
                 }
-                _ => (),
+                ev => match (snapshot_done, &kind) {
+                    (_, EventKind::All) | (false, EventKind::Snapshot) | (true, EventKind::Live) => {
+                        fn nix_file_string(nix_file: NixFile) -> String {
+                            nix_file.display().to_string()
+                        }
+                        serde_json::to_writer(
+                            std::io::stdout(),
+                            &StreamEvent(ev.map(
+                                |nix_file| StreamNixFile(nix_file_string(nix_file)),
+                                |reason| StreamReason(reason.map(nix_file_string)),
+                                |output_path| {
+                                    StreamOutputPath(output_path.map(|o| o.display().to_string()))
+                                },
+                                |build_error| StreamBuildError {
+                                    message: format!("{}", build_error),
+                                },
+                            )),
+                        )
+                            .expect("couldn't serialize event")
+                    }
+                    _ => (),
+                },
             },
+            recv(thread.chan()) -> finished => match finished.expect("send-events hung up!") {
+                Ok(()) => panic!("send-events should never finish!"),
+                // error in the async, time to quit
+                err => err?
+            }
         }
     }
-
-    drop(thread);
-    ok()
 }
 
 /// The source to upgrade to.
@@ -855,7 +839,7 @@ fn main_run_forever(project: Project) -> OpResult {
     let (tx_build_results, rx_build_results) = chan::unbounded();
     let (tx_ping, rx_ping) = chan::unbounded();
     let build_thread = {
-        thread::spawn(move || {
+        Async::run(slog_scope::logger(), move || {
             // TODO: add the ability to pass extra_nix_options to watch
             let mut build_loop = BuildLoop::new(&project, NixOptions::empty());
 
@@ -870,7 +854,7 @@ fn main_run_forever(project: Project) -> OpResult {
         print_build_message(msg);
     }
 
-    build_thread.join().unwrap();
+    build_thread.block();
 
     ok()
 }

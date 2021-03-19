@@ -9,13 +9,15 @@ pub struct Async<Res> {
     // we use a pool with exactly one thread,
     // because our thread pool will do the resume_unwind dance for us
     // and thus not lose the stack trace like the naïve implementation would.
-    thread: Pool,
+    thread: Pool<()>,
     result_chan: chan::Receiver<Res>,
 }
 
 impl<Res> Drop for Async<Res> {
     fn drop(&mut self) {
-        self.thread.join_all_or_panic();
+        self.thread
+            .join_all_or_panic()
+            .expect("The async thread should never return an error");
     }
 }
 
@@ -37,7 +39,7 @@ impl<Res: Send + 'static> Async<Res> {
         thread.spawn("async thread", move || {
             let res = f();
             match tx.try_send(res) {
-                Ok(()) => {},
+                Ok(()) => Ok(()),
                 Err(err) => panic!("unable to send the async result, because the channel was disconnected (should never happen): {:?}", err)
             }
         }).expect("unable to spawn Async thread, should not happen");
@@ -57,7 +59,9 @@ impl<Res: Send + 'static> Async<Res> {
                 panic!("unable to receive the async result, because the channel was disconnected and empty (should never happen)")
         };
         // since the function finished, the thread (created in `run()`) will join immediatly after
-        self.thread.join_all_or_panic();
+        self.thread
+            .join_all_or_panic()
+            .expect("The async thread should never return an error");
         res
     }
 

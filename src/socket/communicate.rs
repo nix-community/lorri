@@ -11,8 +11,10 @@
 
 use std::os::unix::net::UnixStream;
 use std::thread;
+use thiserror::Error;
 
 use crate::build_loop;
+use crate::ops::error::{ExitAs, ExitErrorType};
 use crate::socket::path::{BindError, BindLock, SocketPath};
 use crate::socket::read_writer::{ReadWriteError, ReadWriter, Timeout};
 use crate::NixFile;
@@ -223,21 +225,46 @@ pub mod client {
     }
 
     /// Error when talking to the `Listener`.
-    #[derive(Debug)]
+    #[derive(Error, Debug)]
     pub enum Error {
         /// Not connected to the `Listener` socket.
+        #[error("Not connected to the daemon socket")]
         NotConnected,
         /// Read error or write error.
-        Message(ReadWriteError),
+        #[error("Unable to send a message to the daemon")]
+        Message(#[source] ReadWriteError),
+    }
+
+    impl ExitAs for Error {
+        fn exit_as(&self) -> ExitErrorType {
+            use Error::*;
+            match self {
+                // This should really never happen.
+                NotConnected => ExitErrorType::Panic,
+                Message(_) => ExitErrorType::Temporary,
+            }
+        }
     }
 
     /// Error when initializing connection with the `Listener`.
-    #[derive(Debug)]
+    #[derive(Error, Debug)]
     pub enum InitError {
         /// `connect()` syscall failed.
-        SocketConnect(std::io::Error),
+        #[error("Unable to connect to socket at {0}, is the daemon running?")]
+        SocketConnect(SocketPath, #[source] std::io::Error),
         /// Handshake failed (write `ConnectionType`, read `ConnectionAccepted`).
+        #[error("Server Handshake failed: {0}")]
         ServerHandshake(ReadWriteError),
+    }
+
+    impl ExitAs for InitError {
+        fn exit_as(&self) -> ExitErrorType {
+            use InitError::*;
+            match self {
+                SocketConnect(_, _) => ExitErrorType::Temporary,
+                ServerHandshake(_) => ExitErrorType::Temporary,
+            }
+        }
     }
 
     /// Create a Client for a given `Handler` type.
@@ -266,11 +293,14 @@ pub mod client {
         }
 
         /// Connect to the `Listener` listening on `socket_path`.
+        /// TODO: remove the split between new() and connect(), and then remove `Error::NotConnected`
         pub fn connect(self, socket_path: &SocketPath) -> Result<Client<R, W>, InitError> {
             // TODO: check if the file exists and is a socket
 
             // - connect to `socket_path`
-            let socket = socket_path.connect().map_err(InitError::SocketConnect)?;
+            let socket = socket_path
+                .connect()
+                .map_err(|e| InitError::SocketConnect(socket_path.clone(), e))?;
 
             // - send initial message with the CommunicationType
             // - wait for server to acknowledge connect

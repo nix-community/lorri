@@ -1,10 +1,9 @@
 //! Serve the lorri daemon on a unix socket.
 use crate::daemon::{IndicateActivity, LoopHandlerEvent};
-use crate::ops::error::ExitError;
 use crate::run_async::Async;
 use crate::socket::communicate;
 use crate::socket::communicate::{CommunicationType, Ping, StreamEvents};
-use crate::socket::path::SocketPath;
+use crate::socket::path::{BindError, SocketPath};
 use crate::Never;
 use crossbeam_channel as chan;
 use slog_scope::{debug, info};
@@ -30,10 +29,8 @@ impl Server {
     }
 
     /// Listen for incoming clients. Goes into an accept() loop, thus blocks.
-    pub fn listen<'a>(&'a self, socket_path: &SocketPath) -> Result<Never, ExitError> {
-        let listener = communicate::listener::Listener::new(socket_path)
-            // TODO: this is bad, but mirroring what the varlink code does for now. this code should not return exit errors
-            .map_err(|e| ExitError::temporary(format!("{:?}", e)))?;
+    pub fn listen<'a>(&'a self, socket_path: &SocketPath) -> Result<Never, BindError> {
+        let listener = communicate::listener::Listener::new(socket_path)?;
 
         // We have to continuously be joining threads,
         // otherwise they turn into zombies and we eventually run out of processes on linux.

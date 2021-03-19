@@ -1,10 +1,12 @@
 //! Talking to the `lorri` daemon / unix sockets.
 
 use std::convert::TryFrom;
+use std::fmt;
 use std::io::Write;
 use std::marker::PhantomData;
 use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
+use thiserror::Error;
 
 /// Wrapper around a socket that can send and receive structured messages.
 ///
@@ -17,7 +19,7 @@ pub struct ReadWriter<'a, R, W> {
 }
 
 /// Milliseconds accepted by a `Timeout`.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Millis(u16);
 
 impl From<Millis> for Duration {
@@ -35,7 +37,7 @@ impl TryFrom<Duration> for Millis {
 }
 
 /// A (possible) timeout.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Timeout {
     /// Do not time out.
     Infinite,
@@ -50,32 +52,36 @@ impl Timeout {
     }
 }
 
-impl std::fmt::Display for Timeout {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl fmt::Display for Timeout {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Timeout::Infinite => write!(f, "infinity"),
-            Timeout::D(Millis(ms)) => write!(f, "{}ms", ms),
+            Timeout::Infinite => write!(f, "infinite timeout"),
+            Timeout::D(Millis(m)) => write!(f, "{} ms", m),
         }
     }
 }
 
 /// Reading from a `ReadWriter<R, W>` failed.
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum ReadError {
     /// Deserializing `R` failed.
-    Deserialize(bincode::Error),
+    #[error("Unable to deserialize message: {0}")]
+    Deserialize(#[source] bincode::Error),
     /// No value available within given timeout.
-    Timeout,
+    #[error("The read timed out ({0})")]
+    Timeout(Timeout),
 }
 
 // TODO: combine with ReadError?
 /// Writing to a `ReadWriter<R, W>` failed.
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum WriteError {
     /// Serializing `W` failed.
-    Serialize(bincode::Error),
+    #[error("Unable to serialize message: {0}")]
+    Serialize(#[source] bincode::Error),
     /// No value available within given timeout.
-    Timeout,
+    #[error("The read timed out ({0})")]
+    Timeout(Timeout),
 }
 
 impl From<bincode::Error> for WriteError {
@@ -85,12 +91,14 @@ impl From<bincode::Error> for WriteError {
 }
 
 /// Reading from or writing to a `ReadWriter<R, W>` failed.
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum ReadWriteError {
     /// Reading failed.
-    R(ReadError),
+    #[error("read error: {0}")]
+    R(#[source] ReadError),
     /// Writing failed.
-    W(WriteError),
+    #[error("write error: {0}")]
+    W(#[source] WriteError),
 }
 
 impl From<ReadError> for ReadWriteError {
@@ -156,10 +164,15 @@ impl<'a, R, W> ReadWriter<'a, R, W> {
         R: serde::de::DeserializeOwned,
         W: serde::Serialize,
     {
-        let (timeout, write_res) =
-            with_timeout(timeout, |t| self.write(t, mes)).map_err(|()| WriteError::Timeout)?;
+        let orig_timeout = timeout;
+        let (timeout, write_res) = with_timeout(timeout, |t| self.write(t, mes))
+            .map_err(|()| WriteError::Timeout(orig_timeout))?;
         write_res?;
-        let e = self.read(timeout)?;
+        let e = match self.read(timeout) {
+            // in this case we want to return the original timeout, not the remaining one
+            Err(ReadError::Timeout(_t)) => Err(ReadError::Timeout(orig_timeout))?,
+            o => o?,
+        };
         Ok(e)
     }
 
@@ -173,10 +186,15 @@ impl<'a, R, W> ReadWriter<'a, R, W> {
         W: serde::Serialize,
         F: FnOnce(&R) -> W,
     {
-        let (timeout, read_res) =
-            with_timeout(timeout, |t| self.read(t)).map_err(|()| ReadError::Timeout)?;
+        let orig_timeout = timeout;
+        let (timeout, read_res) = with_timeout(timeout, |t| self.read(t))
+            .map_err(|()| ReadError::Timeout(orig_timeout))?;
         let read = read_res?;
-        self.write(timeout, &reaction(&read))?;
+        match self.write(timeout, &reaction(&read)) {
+            // in this case we want to return the original timeout, not the remaining one
+            Err(WriteError::Timeout(_t)) => Err(WriteError::Timeout(orig_timeout))?,
+            o => o?,
+        };
         Ok(read)
     }
 
@@ -202,7 +220,7 @@ impl<'a, R, W> ReadWriter<'a, R, W> {
         // what the heck does that mean.
         bincode::deserialize_from(timeout_socket).map_err(|e| {
             if Self::is_timed_out(&e) {
-                ReadError::Timeout
+                ReadError::Timeout(timeout)
             } else {
                 ReadError::Deserialize(e)
             }
@@ -218,7 +236,7 @@ impl<'a, R, W> ReadWriter<'a, R, W> {
 
         bincode::serialize_into(timeout_socket, mes).map_err(|e| {
             if Self::is_timed_out(&e) {
-                WriteError::Timeout
+                WriteError::Timeout(timeout)
             } else {
                 WriteError::Serialize(e)
             }

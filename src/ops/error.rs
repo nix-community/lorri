@@ -113,8 +113,51 @@ impl ExitError {
     }
 }
 
+/// We count plain IO errors as temporary errors.
 impl From<std::io::Error> for ExitError {
     fn from(e: std::io::Error) -> ExitError {
         ExitError::temporary(format!("{}", e))
+    }
+}
+
+/// enum that lists all the possible `ExitError`s we support.
+/// See `ExitAs` for the use.
+#[allow(missing_docs)]
+pub enum ExitErrorType {
+    ExpectedError,
+    UserError,
+    Panic,
+    Temporary,
+    EnvironmentProblem,
+    MissingExecutable,
+}
+
+/// Helper trait to implement the kind of exit code an error variant would cause.
+pub trait ExitAs {
+    /// The `ExitErrorType` the implementing error should be converted to if it happens.
+    fn exit_as(&self) -> ExitErrorType;
+}
+
+// TODO: the anyhow context is a trait not a type wrapping an error,
+// so I don’t see how we can automatically impl From for the context & ExitAs.
+
+/// For every error type which implements `ExitAs` and `Error` we can automatically convert them to an `ExitError`.
+impl<Err> From<Err> for ExitError
+where
+    Err: Sync + Send + 'static,
+    Err: std::error::Error + ExitAs,
+{
+    fn from(e: Err) -> ExitError {
+        let exit_as = e.exit_as();
+        let msg = format!("{:?}", anyhow::Error::new(e));
+        use ExitErrorType::*;
+        match exit_as {
+            ExpectedError => ExitError::expected_error(msg),
+            UserError => ExitError::user_error(msg),
+            Panic => ExitError::panic(msg),
+            Temporary => ExitError::temporary(msg),
+            EnvironmentProblem => ExitError::environment_problem(msg),
+            MissingExecutable => ExitError::missing_executable(msg),
+        }
     }
 }

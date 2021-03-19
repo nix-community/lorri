@@ -1,5 +1,8 @@
 //! The lorri daemon, watches multiple projects in the background.
 
+pub mod client;
+pub mod server;
+
 use crate::build_loop::{BuildLoop, Event};
 use crate::nix::options::NixOptions;
 use crate::ops::error::ExitError;
@@ -9,8 +12,6 @@ use crate::{AbsPathBuf, NixFile};
 use crossbeam_channel as chan;
 use slog_scope::debug;
 use std::collections::HashMap;
-
-pub mod server;
 
 #[derive(Debug, Clone)]
 /// Union of build_loop::Event and NewListener for internal use.
@@ -83,13 +84,15 @@ impl Daemon {
 
         let socket_path = socket_path.clone();
         pool.spawn("accept-loop", move || {
-            // TODO: get rid of this expect, actually propagate a stack trace
-            server.listen(&socket_path).expect("server error");
+            server.listen(&socket_path).map(|n| n.never())
         })?;
 
         let rx_build_events = self.rx_build_events.clone();
         let mon_tx = self.mon_tx.clone();
-        pool.spawn("build-loop", || Self::build_loop(rx_build_events, mon_tx))?;
+        pool.spawn("build-loop", || {
+            Self::build_loop(rx_build_events, mon_tx);
+            Ok(())
+        })?;
 
         let tx_build_events = self.tx_build_events.clone();
         let extra_nix_options = self.extra_nix_options.clone();
@@ -101,10 +104,11 @@ impl Daemon {
                 rx_activity,
                 &gc_root_dir,
                 cas,
-            )
+            );
+            Ok(())
         })?;
 
-        pool.join_all_or_panic();
+        pool.join_all_or_panic()?;
 
         Ok(())
     }
