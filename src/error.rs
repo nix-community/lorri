@@ -8,7 +8,6 @@ use std::process::{Command, ExitStatus};
 
 /// An error that can occur during a build.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum BuildError {
     /// A system-level IO error occurred during the build.
     Io {

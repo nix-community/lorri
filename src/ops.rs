@@ -4,7 +4,7 @@ mod direnv;
 pub mod error;
 
 use crate::build_loop::BuildLoop;
-use crate::build_loop::Event;
+use crate::build_loop::{Event, EventI, ReasonI};
 use crate::builder;
 use crate::builder::OutputPath;
 use crate::cas::ContentAddressable;
@@ -96,7 +96,7 @@ pub fn direnv<W: std::io::Write>(project: Project, mut shell_output: W) -> OpRes
 
     let ping_sent = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
-        info!("connecting to socket"; "socket" => address.as_absolute_path().display());
+        debug!("connecting to socket"; "socket" => address.as_absolute_path().display());
         communicate::client::new::<communicate::Ping>(
             crate::socket::read_writer::Timeout::from_millis(500),
         )
@@ -154,7 +154,7 @@ watch_file "{}"
 watch_file "$EVALUATION_ROOT"
 
 {}"#,
-        root_paths.shell_gc_root,
+        root_paths.shell_gc_root.display(),
         crate::ops::get_paths()?
             .daemon_socket_file()
             .as_absolute_path()
@@ -264,7 +264,7 @@ fn create_if_missing(path: &Path, contents: &str, msg: &str) -> Result<(), io::E
 /// See the documentation for lorri::cli::Command::Ping_ for details.
 pub fn ping(nix_file: NixFile) -> OpResult {
     let address = crate::ops::get_paths()?.daemon_socket_file().clone();
-    info!("connecting to socket"; "socket" => address.as_absolute_path().display());
+    debug!("connecting to socket"; "socket" => address.as_absolute_path().display());
     communicate::client::new::<communicate::Ping>(
         crate::socket::read_writer::Timeout::from_millis(500),
     )
@@ -557,6 +557,36 @@ impl FromStr for EventKind {
     }
 }
 
+// These types are just transparent newtype wrappers to implement a different serde class and JsonEncode
+
+/// For now use the EventI structure, in the future we might want to split it off.
+/// At least it will show us that we need to change something here if we change it
+/// and it relates to this interface.
+#[derive(Serialize)]
+#[serde(transparent)]
+struct StreamEvent(EventI<StreamNixFile, StreamReason, StreamOutputPath, StreamBuildError>);
+
+/// Nix files are encoded as strings
+#[derive(Serialize)]
+#[serde(transparent)]
+struct StreamNixFile(String);
+
+/// Same here, the reason contains a nix file which has to be converted to a string.
+#[derive(Serialize)]
+#[serde(transparent)]
+struct StreamReason(ReasonI<String>);
+
+/// And same here, OutputPaths are GcRoots and have to be converted as well.
+#[derive(Serialize)]
+#[serde(transparent)]
+struct StreamOutputPath(OutputPath<String>);
+
+/// Just expose the error message for now.
+#[derive(Serialize)]
+struct StreamBuildError {
+    message: String,
+}
+
 /// Run to output a stream of build events in a machine-parseable form.
 ///
 /// See the documentation for lorri::cli::Command::StreamEvents_ for more
@@ -566,7 +596,7 @@ pub fn stream_events(kind: EventKind) -> OpResult {
 
     let thread = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
-        info!("connecting to socket"; "socket" => address.as_absolute_path().display());
+        debug!("connecting to socket"; "socket" => address.as_absolute_path().display());
 
         let tx_event = tx_event.clone();
         // TODO: use Async
@@ -597,7 +627,6 @@ pub fn stream_events(kind: EventKind) -> OpResult {
 
     let mut snapshot_done = false;
     for event in rx_event.iter() {
-        debug!("Received"; "event" => format!("{:#?}", &event));
         // TODO: this is horrible
         match event? {
             Event::SectionEnd => {
@@ -610,10 +639,23 @@ pub fn stream_events(kind: EventKind) -> OpResult {
             }
             ev => match (snapshot_done, &kind) {
                 (_, EventKind::All) | (false, EventKind::Snapshot) | (true, EventKind::Live) => {
-                    println!(
-                        "{}",
-                        serde_json::to_string(&ev).expect("couldn't serialize event")
+                    fn nix_file_string(nix_file: NixFile) -> String {
+                        nix_file.display().to_string()
+                    }
+                    serde_json::to_writer(
+                        std::io::stdout(),
+                        &StreamEvent(ev.map(
+                            |nix_file| StreamNixFile(nix_file_string(nix_file)),
+                            |reason| StreamReason(reason.map(nix_file_string)),
+                            |output_path| {
+                                StreamOutputPath(output_path.map(|o| o.display().to_string()))
+                            },
+                            |build_error| StreamBuildError {
+                                message: format!("{}", build_error),
+                            },
+                        )),
                     )
+                    .expect("couldn't serialize event")
                 }
                 _ => (),
             },

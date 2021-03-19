@@ -98,7 +98,6 @@ impl AsRef<Path> for AbsPathBuf {
 ///
 /// Is guaranteed to have an absolute path by construction.
 #[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub struct NixFile(AbsPathBuf);
 
 impl NixFile {
@@ -108,16 +107,16 @@ impl NixFile {
     }
 }
 
-impl From<AbsPathBuf> for NixFile {
-    fn from(abs_path: AbsPathBuf) -> Self {
-        NixFile(abs_path)
+impl NixFile {
+    /// `display` the path.
+    pub fn display(&self) -> std::path::Display {
+        self.0.display()
     }
 }
 
-/// Proxy through the `Display` class for `AbsPathBuf`.
-impl std::fmt::Display for NixFile {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        self.0.display().fmt(f)
+impl From<AbsPathBuf> for NixFile {
+    fn from(abs_path: AbsPathBuf) -> Self {
+        NixFile(abs_path)
     }
 }
 

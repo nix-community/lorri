@@ -16,10 +16,10 @@ use crossbeam_channel as chan;
 use slog_scope::debug;
 use std::path::PathBuf;
 
-/// Builder events sent back over `BuildLoop.tx`.
+/// Build events that can happen.
+/// Abstracting over its internal to make different serialize instances possible.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Event {
+pub enum EventI<NixFile, Reason, OutputPath, BuildError> {
     /// Demarks a stream of events from recent history becoming live
     SectionEnd,
     /// A build has started
@@ -34,7 +34,7 @@ pub enum Event {
         /// The shell.nix file for the building project
         nix_file: NixFile,
         /// the output paths of the build
-        rooted_output_paths: builder::OutputPath<roots::RootPath>,
+        rooted_output_paths: OutputPath,
     },
     /// A build command returned a failing exit status
     Failure {
@@ -45,10 +45,49 @@ pub enum Event {
     },
 }
 
+/// Builder events sent back over `BuildLoop.tx`.
+pub type Event = EventI<NixFile, Reason, builder::OutputPath<roots::RootPath>, BuildError>;
+
+impl<NixFile, Reason, OutputPath, BuildError> EventI<NixFile, Reason, OutputPath, BuildError> {
+    /// Map over the inner types.
+    pub fn map<F, G, H, I, NixFile2, Reason2, OutputPaths2, BuildError2>(
+        self,
+        nix_file_f: F,
+        reason_f: G,
+        output_paths_f: H,
+        build_error_f: I,
+    ) -> EventI<NixFile2, Reason2, OutputPaths2, BuildError2>
+    where
+        F: Fn(NixFile) -> NixFile2,
+        G: Fn(Reason) -> Reason2,
+        H: Fn(OutputPath) -> OutputPaths2,
+        I: Fn(BuildError) -> BuildError2,
+    {
+        use EventI::*;
+        match self {
+            SectionEnd => SectionEnd,
+            Started { nix_file, reason } => Started {
+                nix_file: nix_file_f(nix_file),
+                reason: reason_f(reason),
+            },
+            Completed {
+                nix_file,
+                rooted_output_paths,
+            } => Completed {
+                nix_file: nix_file_f(nix_file),
+                rooted_output_paths: output_paths_f(rooted_output_paths),
+            },
+            Failure { nix_file, failure } => Failure {
+                nix_file: nix_file_f(nix_file),
+                failure: build_error_f(failure),
+            },
+        }
+    }
+}
+
 /// Description of the project change that triggered a build.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Reason {
+pub enum ReasonI<NixFile> {
     /// When a project is presented to Lorri to track, it's built for this reason.
     ProjectAdded(NixFile),
     /// When a ping is received.
@@ -57,6 +96,23 @@ pub enum Reason {
     /// along with a count of other filesystem events.
     FilesChanged(Vec<PathBuf>),
 }
+
+impl<NixFile> ReasonI<NixFile> {
+    /// Map over the inner types.
+    pub fn map<F, NixFile2>(self, nix_file_f: F) -> ReasonI<NixFile2>
+    where
+        F: Fn(NixFile) -> NixFile2,
+    {
+        use ReasonI::*;
+        match self {
+            ProjectAdded(nix_file) => ProjectAdded(nix_file_f(nix_file)),
+            PingReceived => PingReceived,
+            FilesChanged(vec) => FilesChanged(vec),
+        }
+    }
+}
+
+type Reason = ReasonI<NixFile>;
 
 /// The BuildLoop repeatedly builds the Nix expression in
 /// `project` each time a source file influencing

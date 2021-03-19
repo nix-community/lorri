@@ -293,6 +293,18 @@ pub struct OutputPath<T> {
     pub shell_gc_root: T,
 }
 
+impl<T> OutputPath<T> {
+    /// map over the inner type.
+    pub fn map<F, T2>(self, f: F) -> OutputPath<T2>
+    where
+        F: Fn(T) -> T2,
+    {
+        OutputPath {
+            shell_gc_root: f(self.shell_gc_root),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

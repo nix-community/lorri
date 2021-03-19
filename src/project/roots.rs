@@ -22,19 +22,19 @@ pub struct Roots {
 #[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 pub struct RootPath(pub AbsPathBuf);
 
+impl RootPath {
+    /// `display` the path.
+    pub fn display(&self) -> std::path::Display {
+        self.0.display()
+    }
+}
+
 impl OutputPath<RootPath> {
     /// Check whether all all GC roots exist.
     pub fn all_exist(&self) -> bool {
         let crate::builder::OutputPath { shell_gc_root } = self;
 
         shell_gc_root.0.as_absolute_path().exists()
-    }
-}
-
-/// Proxy through the `Display` class for `PathBuf`.
-impl std::fmt::Display for RootPath {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        self.0.display().fmt(f)
     }
 }
 

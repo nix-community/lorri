@@ -156,7 +156,12 @@ pub enum Internal_ {
     #[structopt(name = "ping")]
     Ping_(Ping_),
 
-    /// (plumbing) Ask the lorri daemon to report build events as they occur
+    /// (experimental) Ask the lorri daemon to report build events as they occur.
+    ///
+    /// This is intended for scripts. However, we don’t guarantee any stability for now,
+    /// so if you want to use it in your scripts make sure you follow our changes.
+    /// Once it stabilizes a bit more we will start mentioning changes in the changelog,
+    /// and eventually ensure backwards compat.
     #[structopt(name = "stream-events")]
     StreamEvents_(StreamEvents_),
 }
