@@ -1,0 +1,25 @@
+diff --git a/src/cfg.rs b/src/cfg.rs
+index 56f76a0..54a49b0 100644
+--- a/src/cfg.rs
++++ b/src/cfg.rs
+@@ -40,6 +40,7 @@ pub fn to_nix(w: &mut Write, target: &[Cfg]) -> Result<(), Error> {
+ 
+ fn to_nix_op(w: &mut Write, op: CfgOp, target: &[Cfg]) -> Result<(), Error> {
+     let mut is_first = true;
++    eprintln!("{:#?}", target);
+     for cfg in target {
+         if !is_first {
+             match op {
+@@ -60,7 +61,11 @@ fn to_nix_op(w: &mut Write, op: CfgOp, target: &[Cfg]) -> Result<(), Error> {
+                     "target_os" => cfg_value(w, "kernel", value)?,
+                     "target_env" => cfg_value(w, "abi", value)?,
+                     "target_arch" => cfg_value(w, "cpu", value)?,
+-                    _ => return Err(CarnixError::CouldNotTranslateTarget.into())
++                    _ => {
++                        eprintln!("target: {}", key);
++                        eprintln!("Do not understand this config op key: {}", key);
++                        write!(w, "true")?;
++                    }
+                 }
+             },
+             Cfg::Cfg(ref value) => cfg_value(w, "kernel", value)?,
