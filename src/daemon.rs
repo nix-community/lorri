@@ -79,11 +79,12 @@ impl Daemon {
         let mut pool = crate::thread::Pool::new(slog_scope::logger());
         let tx_build_events = self.tx_build_events.clone();
 
-        let server = server::Server::new(socket_path.clone(), tx_activity, tx_build_events);
+        let server = server::Server::new(tx_activity, tx_build_events);
 
-        pool.spawn("accept-loop", || {
+        let socket_path = socket_path.clone();
+        pool.spawn("accept-loop", move || {
             // TODO: get rid of this expect, actually propagate a stack trace
-            server.serve().expect("server error");
+            server.listen(&socket_path).expect("server error");
         })?;
 
         let rx_build_events = self.rx_build_events.clone();
