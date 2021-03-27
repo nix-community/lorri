@@ -284,7 +284,9 @@ let
       (pkgs.lib.concatStringsSep "\n")
       (pkgs.writeText "testsuite")
       (test-suite: writeExecline name {} [
-        bats test-suite
+        bats
+          "--tap"
+          test-suite
       ])
     ];
 
