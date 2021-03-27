@@ -35,44 +35,51 @@ let
   # Dump the environment inside a `stdenv.mkDerivation` builder
   # into an envdir (can be read in again with `s6-envdir`).
   # This captures all magic `setupHooks` and linker paths and the like.
-  stdenvDrvEnvdir = { unsetVars }: drvAttrs: pkgs.stdenv.mkDerivation ({
+  stdenvDrvEnvdir = drvAttrs: pkgs.stdenv.mkDerivation ({
     name = "dumped-env";
     phases = [ "buildPhase" ];
     buildPhase = ''
       mkdir $out
       unset HOME TMP TEMP TEMPDIR TMPDIR
       # unset user-requested variables as well
-      unset ${pkgs.lib.concatStringsSep " " unsetVars}
+      unset ${pkgs.lib.concatStringsSep " "
+        # if these are set, the non-sandboxed test build complains about
+        # linker paths outside of the nix store.
+        [ "NIX_ENFORCE_PURITY" "NIX_SSL_CERT_FILE" "SSL_CERT_FILE" ]
+      }
       ${pkgs.s6-portable-utils}/bin/s6-dumpenv $out
     '';
   } // drvAttrs);
+
+  # On linux we need to setup a viable CC environment for compilation.
+  linuxCCEnv = stdenvDrvEnvdir {};
 
   # On darwin we have to get the system libraries
   # from their setup hooks, by exporting the variables
   # from the builder.
   # Otherwise building & linking the rust binaries fails.
-  darwinImpureEnv =
-    stdenvDrvEnvdir
-      # if this is set, the non-sandboxed build complains about
-      # linker paths outside of the nix store.
-      { unsetVars = [ "NIX_ENFORCE_PURITY" "NIX_SSL_CERT_FILE" "SSL_CERT_FILE" ]; }
-      {
-        buildInputs = [
-          # TODO: duplicated in shell.nix and default.nix
-          pkgs.darwin.Security
-          pkgs.darwin.apple_sdk.frameworks.Security
-          pkgs.darwin.apple_sdk.frameworks.CoreServices
-          pkgs.darwin.apple_sdk.frameworks.CoreFoundation
-          pkgs.stdenv.cc.bintools.bintools
-        ];
-      };
+  darwinImpureEnv = stdenvDrvEnvdir {
+    buildInputs = [
+      # TODO: duplicated in shell.nix and default.nix
+      pkgs.darwin.Security
+      pkgs.darwin.apple_sdk.frameworks.Security
+      pkgs.darwin.apple_sdk.frameworks.CoreServices
+      pkgs.darwin.apple_sdk.frameworks.CoreFoundation
+      pkgs.stdenv.cc.bintools.bintools
+    ];
+  };
+
+  # import an envdir, as e.g. produced by stdenvDrvEnvdir
+  importDrvEnvdir = envdir: [
+    "importas" "OLDPATH" "PATH"
+    "${pkgs.s6}/bin/s6-envdir" envdir
+    (pathAdd "prepend") "$OLDPATH"
+  ];
 
   cargoEnvironment =
-    # on darwin, this sets the environment to a normal builder environment.
-    (pkgs.lib.optionals pkgs.stdenv.isDarwin [
-       "importas" "OLDPATH" "PATH"
-       "${pkgs.s6}/bin/s6-envdir" darwinImpureEnv
-       (pathAdd "prepend") "$OLDPATH"
+    # set the environment to a normal CC builder environment.
+    importDrvEnvdir (if pkgs.stdenv.isDarwin then darwinImpureEnv else linuxCCEnv)
+    ++ (pkgs.lib.optionals pkgs.stdenv.isDarwin [
        # TODO: duplicated in default.nix
        # Cargo wasn't able to find CF during a `cargo test` run on Darwin.
        # see https://stackoverflow.com/questions/51161225/how-can-i-make-macos-frameworks-available-to-clang-in-a-nix-environment
