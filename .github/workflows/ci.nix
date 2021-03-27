@@ -173,7 +173,7 @@ let
 
   # writes the file to the right path (toString is the absolute local path)
   writeConfig = pkgs.writers.writeDash "write-ci.yml" ''
-    cat "${yaml}" > "${toString ./ci.yml}"
+    ${pkgs.coreutils}/bin/cat "${yaml}" > "${toString ./ci.yml}"
   '';
 in
 writeConfig
