@@ -1,5 +1,5 @@
 use crate::direnvtestcase::{DirenvTestCase, DirenvValue};
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 #[test]
 fn bug97_varmap_leak() {
@@ -10,16 +10,16 @@ fn bug97_varmap_leak() {
 
     assert_eq!(env.get_env("preHook"), DirenvValue::Value("echo 'foo bar'"));
 
-    let mut found_env_keys: HashSet<String> = env.keys().cloned().collect();
-
-    vec![
+    let these_should_exist = vec![
         // Scenario-specific variables
         "preHook",
         // Nix derivation variables
         "name",
         "builder",
         "out",
+        "outputs",
         "stdenv",
+        "system",
         "PATH",
         "extraClosure",
         // Lorri dependency capture
@@ -46,11 +46,14 @@ fn bug97_varmap_leak() {
         // unsure where it comes from but it fails on CI
         // and there’s not enough documentation of commit messages on this test to make me care enough
         "XDG_CONFIG_HOME",
-    ]
-    .into_iter()
-    .for_each(|okay_var| {
-        found_env_keys.remove(okay_var);
-    });
+    ];
 
-    assert_eq!(found_env_keys, HashSet::new());
+    let these_are_left = env.retain(|k| !these_should_exist.contains(&k));
+
+    assert_eq!(
+        these_are_left,
+        HashMap::new(),
+        "The environment must be empty! But it had in it:\n{:#?}",
+        these_are_left
+    );
 }

@@ -11,6 +11,15 @@ let
   # Keep project-specific shell commands local
   HISTFILE = "${toString ./.}/.bash_history";
 
+  ci = import ./nix/ci {
+    inherit
+      pkgs
+      LORRI_ROOT
+      BUILD_REV_COUNT
+      RUN_TIME_CLOSURE
+      ;
+  };
+
   # Lorri-specific
 
   # The root directory of this project
@@ -44,8 +53,7 @@ let
     pkgs.rustfmt
     pkgs.git
     pkgs.direnv
-    pkgs.shellcheck
-    (pkgs.carnix.overrideAttrs (old: { patches = old.patches or [] ++ [ ./nix/carnix.patch ]; }))
+    pkgs.carnix
     pkgs.nix-prefetch-git
     pkgs.nixpkgs-fmt
 
@@ -85,84 +93,9 @@ pkgs.mkShell (
       # watch the output to add lorri once it's built
       export PATH="$LORRI_ROOT/target/debug:$PATH"
 
-      function ci_lint() (
-        cd "$LORRI_ROOT";
-
-        set -x
-
-        ${import ./nix/mdoc-lint.nix { inherit pkgs; } ./lorri.1}
-        manpage=$?
-
-        ./nix/fmt.sh --check
-        nix_fmt=$?
-
-        ${import ./.github/workflows/ci.nix { inherit pkgs; }}
-        ciwrite=$?
-        git diff --quiet -- ./.github/workflows/ci.yml
-        cidiff=$?
-        ciupdate=$((ciwrite + cidiff))
-
-        ./nix/update-carnix.sh
-        carnixupdate=$?
-        git diff --quiet -- Cargo.nix
-        carnixdiff=$?
-        carnixupdate=$((carnixupdate + carnixdiff))
-
-        cargo fmt -- --check
-        cargofmtexit=$?
-
-        RUSTFLAGS='-D warnings' cargo clippy
-        cargoclippyexit=$?
-
-        set +x
-        echo "./nix/fmt.sh --check: $nix_fmt"
-        echo "carnix update: $carnixupdates"
-        echo "Cargo.nix changed: $carnixdiff"
-        echo "cargo fmt: $cargofmtexit"
-        echo "cargo clippy: $cargoclippyexit"
-
-        sum=$((manpage + nix_fmt + ciupdate + carnixupdate + cargofmtexit + cargoclippyexit))
-        if [ "$sum" -gt 0 ]; then
-          return 1
-        fi
-      )
-
-      function ci_test() (
-        cd "$LORRI_ROOT";
-
-        set -x
-
-        ./script-tests/run-all.sh
-        scripttests=$?
-
-        cargo test
-        cargotestexit=$?
-
-        git diff --quiet -- src/
-        gendiff=$?
-
-        set +x
-        echo "script tests: $scripttests"
-        echo "generated files changed: $gendiff"
-        echo "cargo test: $cargotestexit"
-
-        sum=$((scripttest + cargotestexit + gendiff))
-        if [ "$sum" -gt 0 ]; then
-          return 1
-        fi
-      )
-
       function ci_check() (
-        ci_lint
-        lint=$?
-
-        ci_test
-        test=$?
-
-        sum=$((lint + test))
-        if [ "$sum" -gt 0 ]; then
-          return 1
-        fi
+        cd "$LORRI_ROOT";
+        ${ci.testsuite}
       )
 
       ${pkgs.lib.optionalString isDevelopmentShell ''
@@ -187,6 +120,12 @@ pkgs.mkShell (
         export NIX_LDFLAGS="-F${pkgs.darwin.apple_sdk.frameworks.CoreFoundation}/Library/Frameworks -framework CoreFoundation $NIX_LDFLAGS"
       ''
     );
+
+    passthru = {
+      inherit
+        ci
+        ;
+    };
 
     preferLocalBuild = true;
     allowSubstitutes = false;

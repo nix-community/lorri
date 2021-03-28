@@ -116,7 +116,7 @@ jobs:
     - name: Build w/ overlay (stable)
       run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
   rust-macos-latest:
-    name: Rust and ci_check (macos-latest)
+    name: Rust and CI tests (macos-latest)
     runs-on: macos-latest
     steps:
     - name: Checkout
@@ -139,10 +139,16 @@ jobs:
       run: printenv PATH
     - name: Rust Cache
       uses: Swatinem/rust-cache@v1.2.0
-    - name: CI check
-      run: nix-shell --arg isDevelopmentShell false --run 'ci_check'
+    - name: CI tests
+      run: |
+        nix-build \
+          --out-link ./ci-tests \
+          --arg isDevelopmentShell false \
+          -A ci.testsuite \
+          shell.nix \
+          && ./ci-tests
   rust-ubuntu-latest:
-    name: Rust and ci_check (ubuntu-latest)
+    name: Rust and CI tests (ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
@@ -165,8 +171,14 @@ jobs:
       run: printenv PATH
     - name: Rust Cache
       uses: Swatinem/rust-cache@v1.2.0
-    - name: CI check
-      run: nix-shell --arg isDevelopmentShell false --run 'ci_check'
+    - name: CI tests
+      run: |
+        nix-build \
+          --out-link ./ci-tests \
+          --arg isDevelopmentShell false \
+          -A ci.testsuite \
+          shell.nix \
+          && ./ci-tests
 name: CI
 "on":
   pull_request:

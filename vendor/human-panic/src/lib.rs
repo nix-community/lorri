@@ -195,8 +195,8 @@ pub fn handle_dump(meta: &Metadata, panic_info: &PanicInfo) -> Option<PathBuf> {
     panic_info.payload().downcast_ref::<&str>(),
     panic_info.payload().downcast_ref::<String>(),
   ) {
-    (Some(s), _) => Some(s.to_string()),
-    (_, Some(s)) => Some(s.to_string()),
+    (Some(s), _) => Some((*s).to_string()),
+    (_, Some(s)) => Some((*s).to_string()),
     (None, None) => None,
   };
 

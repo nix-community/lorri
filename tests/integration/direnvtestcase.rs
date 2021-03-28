@@ -5,7 +5,6 @@ use lorri::{
     build_loop::BuildLoop, builder, cas::ContentAddressable, error::BuildError,
     nix::options::NixOptions, ops, project::roots, project::Project, AbsPathBuf, NixFile,
 };
-use std::collections::hash_map::Keys;
 use std::collections::HashMap;
 use std::fs::File;
 use std::iter::FromIterator;
@@ -109,9 +108,14 @@ impl DirenvEnv {
         }
     }
 
-    /// Get the environment variable names defined by direnv
-    pub fn keys<'a>(&'a self) -> Keys<'a, String, Option<String>> {
-        self.0.keys()
+    /// Like HashMap.retain, but don’t mutate self.
+    pub fn retain<F>(&self, f: F) -> HashMap<String, Option<String>>
+    where
+        F: Fn(&str) -> bool,
+    {
+        let mut new = self.0.to_owned();
+        new.retain(|k, _| f(&k));
+        new
     }
 }
 
