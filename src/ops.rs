@@ -41,7 +41,6 @@ use std::time::Instant;
 use std::{env, fs, io, thread};
 
 use crossbeam_channel as chan;
-use crossbeam_channel::{select, unbounded};
 
 use slog_scope::{debug, info, warn};
 
@@ -583,13 +582,15 @@ struct StreamBuildError {
 /// See the documentation for lorri::cli::Command::StreamEvents_ for more
 /// details.
 pub fn stream_events(kind: EventKind) -> OpResult {
-    let (tx_event, rx_event) = unbounded();
+    let (tx_event, rx_event) = chan::unbounded::<Event>();
 
     let thread = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
         debug!("connecting to socket"; "socket" => address.as_absolute_path().display());
 
-        Async::<Result<(), ExitError>>::run(slog_scope::logger(), move || {
+        // This async will not block when it is dropped,
+        // since it only reads messages and don’t want to block exit in the Snapshot case.
+        Async::<Result<(), ExitError>>::run_and_linger(slog_scope::logger(), move || {
             let client = client::create::<client::StreamEvents>()?;
 
             client.write(&client::StreamEvents {})?;
@@ -598,7 +599,7 @@ pub fn stream_events(kind: EventKind) -> OpResult {
                 tx_event
                     .send(
                         // TODO: error
-                        res.map_err(|err| ExitError::temporary(format!("{:?}", err))),
+                        res.map_err(|err| ExitError::temporary(format!("{:?}", err)))?,
                     )
                     .expect("tx_event hung up!");
             }
@@ -607,14 +608,15 @@ pub fn stream_events(kind: EventKind) -> OpResult {
 
     let mut snapshot_done = false;
     loop {
-        select! {
-            recv(rx_event) -> event => match event.expect("rx_event hung up!")? {
+        chan::select! {
+            recv(rx_event) -> event => match event.expect("rx_event hung up!") {
                 Event::SectionEnd => {
                     debug!("SectionEnd");
-                    if let EventKind::Snapshot = kind {
-                        return ok();
-                    } else {
-                        snapshot_done = true
+                    match kind {
+                        // If we only want the snapshot, quit the program
+                        EventKind::Snapshot => break Ok(()),
+                        // Else we now start sending the incremental data
+                        _ => { snapshot_done = true; },
                     }
                 }
                 ev => match (snapshot_done, &kind) {
