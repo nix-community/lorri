@@ -45,7 +45,7 @@ impl Server {
             let tx_activity = self.tx_activity.clone();
             let tx_build = self.tx_build.clone();
             // We can’t display thread ids, so let’s generate a short random string to identify a thread
-            let display_id: String = std::iter::repeat_with(|| fastrand::alphanumeric())
+            let display_id: String = std::iter::repeat_with(fastrand::alphanumeric)
                 .take(4)
                 .collect();
             let display_id_copy = display_id.clone();

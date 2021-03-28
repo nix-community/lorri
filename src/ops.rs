@@ -589,7 +589,6 @@ pub fn stream_events(kind: EventKind) -> OpResult {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
         debug!("connecting to socket"; "socket" => address.as_absolute_path().display());
 
-        let tx_event = tx_event.clone();
         Async::<Result<(), ExitError>>::run(slog_scope::logger(), move || {
             let client = client::create::<client::StreamEvents>()?;
 
