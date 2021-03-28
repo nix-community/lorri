@@ -102,7 +102,6 @@ let
       "export" "RUST_BACKTRACE" "1"
       "export" "BUILD_REV_COUNT" (toString BUILD_REV_COUNT)
       "export" "RUN_TIME_CLOSURE" RUN_TIME_CLOSURE
-      "if" [ "${pkgs.coreutils}/bin/env" ]
     ];
 
   writeCargo = name: setup: args:
@@ -139,7 +138,13 @@ let
 
     cargo-clippy = {
       description = "run cargo clippy";
-      test = writeCargo "cargo-clippy" [ "export" "RUSTFLAGS" "-D warnings" ] [ "clippy" ];
+      test = writeCargo "cargo-clippy" [
+        "if" [ "env" ]
+        # print the absolute path of the cargo-clippy version used
+        "if" [ "sh" "-c" "type cargo-clippy" ]
+        "if" [ "cargo-clippy" "--version" ]
+        "export" "RUSTFLAGS" "-D warnings"
+      ] [ "clippy" ];
     };
 
     # TODO: it would be good to sandbox this (it changes files in the tree)
