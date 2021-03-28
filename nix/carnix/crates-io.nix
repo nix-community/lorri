@@ -2039,52 +2039,23 @@ rec {
 
 
 # end
-# os_info-2.0.8
+# os_type-2.2.0
 
-  crates.os_info."2.0.8" = deps: { features?(features_.os_info."2.0.8" deps {}) }: buildRustCrate {
-    crateName = "os_info";
-    version = "2.0.8";
-    description = "Detect the operating system type and version.";
-    authors = [ "Jan Schulte <hello@unexpected-co.de>" "Stanislav Tkach <stanislav.tkach@gmail.com>" ];
-    edition = "2018";
-    sha256 = "0dkfkhzzslmncb6hmp7vsc5rfiv187lc0lc0b46pgwsxrljxy6gm";
+  crates.os_type."2.2.0" = deps: { features?(features_.os_type."2.2.0" deps {}) }: buildRustCrate {
+    crateName = "os_type";
+    version = "2.2.0";
+    description = "Detect the operating system type";
+    authors = [ "Jan Schulte <hello@unexpected-co.de>" ];
+    sha256 = "100ldg1vv0pxrb9s83vb4awvczbg8iy1by6vx6zl8vpdnr8n2ghg";
     dependencies = mapFeatures features ([
-      (crates."log"."${deps."os_info"."2.0.8"."log"}" deps)
-    ]
-      ++ (if features.os_info."2.0.8".serde or false then [ (crates.serde."${deps."os_info"."2.0.8".serde}" deps) ] else []))
-      ++ (if kernel == "windows" then mapFeatures features ([
-      (crates."winapi"."${deps."os_info"."2.0.8"."winapi"}" deps)
-    ]) else []);
-    features = mkFeatures (features."os_info"."2.0.8" or {});
+      (crates."regex"."${deps."os_type"."2.2.0"."regex"}" deps)
+    ]);
   };
-  features_.os_info."2.0.8" = deps: f: updateFeatures f (rec {
-    log."${deps.os_info."2.0.8".log}".default = true;
-    os_info = fold recursiveUpdate {} [
-      { "2.0.8"."serde" =
-        (f.os_info."2.0.8"."serde" or false) ||
-        (f.os_info."2.0.8".default or false) ||
-        (os_info."2.0.8"."default" or false); }
-      { "2.0.8".default = (f.os_info."2.0.8".default or true); }
-    ];
-    serde = fold recursiveUpdate {} [
-      { "${deps.os_info."2.0.8".serde}"."derive" = true; }
-      { "${deps.os_info."2.0.8".serde}".default = true; }
-    ];
-    winapi = fold recursiveUpdate {} [
-      { "${deps.os_info."2.0.8".winapi}"."libloaderapi" = true; }
-      { "${deps.os_info."2.0.8".winapi}"."minwindef" = true; }
-      { "${deps.os_info."2.0.8".winapi}"."ntdef" = true; }
-      { "${deps.os_info."2.0.8".winapi}"."ntstatus" = true; }
-      { "${deps.os_info."2.0.8".winapi}"."processthreadsapi" = true; }
-      { "${deps.os_info."2.0.8".winapi}"."sysinfoapi" = true; }
-      { "${deps.os_info."2.0.8".winapi}"."winnt" = true; }
-      { "${deps.os_info."2.0.8".winapi}"."winuser" = true; }
-      { "${deps.os_info."2.0.8".winapi}".default = true; }
-    ];
+  features_.os_type."2.2.0" = deps: f: updateFeatures f (rec {
+    os_type."2.2.0".default = (f.os_type."2.2.0".default or true);
+    regex."${deps.os_type."2.2.0".regex}".default = true;
   }) [
-    (features_.log."${deps."os_info"."2.0.8"."log"}" deps)
-    (features_.serde."${deps."os_info"."2.0.8"."serde"}" deps)
-    (features_.winapi."${deps."os_info"."2.0.8"."winapi"}" deps)
+    (features_.regex."${deps."os_type"."2.2.0"."regex"}" deps)
   ];
 
 
@@ -3258,8 +3229,7 @@ rec {
     sha256 = "108wasih2s7d77qhfw2wjda54r309jvhr83ifvvzdp3vjahrfk8i";
     build = "build.rs";
     dependencies = mapFeatures features ([
-    ]
-      ++ (if features.serde."1.0.114".serde_derive or false then [ (crates.serde_derive."${deps."serde"."1.0.114".serde_derive}" deps) ] else []));
+]);
     features = mkFeatures (features."serde"."1.0.114" or {});
   };
   features_.serde."1.0.114" = deps: f: updateFeatures f (rec {
@@ -3274,10 +3244,7 @@ rec {
         (serde."1.0.114"."default" or false); }
       { "1.0.114".default = (f.serde."1.0.114".default or true); }
     ];
-    serde_derive."${deps.serde."1.0.114".serde_derive}".default = true;
-  }) [
-    (features_.serde_derive."${deps."serde"."1.0.114"."serde_derive"}" deps)
-  ];
+  }) [];
 
 
 # end

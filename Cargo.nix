@@ -17,7 +17,7 @@ rec {
       src = exclude [ ".git" "target" ] vendor/human-panic;
       dependencies = mapFeatures features ([
         (cratesIO.crates."backtrace"."${deps."human_panic"."1.0.4-alpha.0"."backtrace"}" deps)
-        (cratesIO.crates."os_info"."${deps."human_panic"."1.0.4-alpha.0"."os_info"}" deps)
+        (cratesIO.crates."os_type"."${deps."human_panic"."1.0.4-alpha.0"."os_type"}" deps)
         (cratesIO.crates."serde"."${deps."human_panic"."1.0.4-alpha.0"."serde"}" deps)
         (cratesIO.crates."serde_derive"."${deps."human_panic"."1.0.4-alpha.0"."serde_derive"}" deps)
         (cratesIO.crates."termcolor"."${deps."human_panic"."1.0.4-alpha.0"."termcolor"}" deps)
@@ -29,7 +29,7 @@ rec {
     features_.human_panic."1.0.4-alpha.0" = deps: f: updateFeatures f (rec {
       backtrace."${deps.human_panic."1.0.4-alpha.0".backtrace}".default = true;
       human_panic."1.0.4-alpha.0".default = (f.human_panic."1.0.4-alpha.0".default or true);
-      os_info."${deps.human_panic."1.0.4-alpha.0".os_info}".default = true;
+      os_type."${deps.human_panic."1.0.4-alpha.0".os_type}".default = true;
       serde."${deps.human_panic."1.0.4-alpha.0".serde}".default = true;
       serde_derive."${deps.human_panic."1.0.4-alpha.0".serde_derive}".default = true;
       termcolor."${deps.human_panic."1.0.4-alpha.0".termcolor}".default = true;
@@ -40,7 +40,7 @@ rec {
       ];
     }) [
       (cratesIO.features_.backtrace."${deps."human_panic"."1.0.4-alpha.0"."backtrace"}" deps)
-      (cratesIO.features_.os_info."${deps."human_panic"."1.0.4-alpha.0"."os_info"}" deps)
+      (cratesIO.features_.os_type."${deps."human_panic"."1.0.4-alpha.0"."os_type"}" deps)
       (cratesIO.features_.serde."${deps."human_panic"."1.0.4-alpha.0"."serde"}" deps)
       (cratesIO.features_.serde_derive."${deps."human_panic"."1.0.4-alpha.0"."serde_derive"}" deps)
       (cratesIO.features_.termcolor."${deps."human_panic"."1.0.4-alpha.0"."termcolor"}" deps)
@@ -278,7 +278,7 @@ rec {
   };
   deps.human_panic."1.0.4-alpha.0" = {
     backtrace = "0.3.44";
-    os_info = "2.0.8";
+    os_type = "2.2.0";
     serde = "1.0.114";
     serde_derive = "1.0.114";
     termcolor = "1.1.0";
@@ -402,10 +402,8 @@ rec {
   deps.num_traits."0.2.12" = {
     autocfg = "1.0.0";
   };
-  deps.os_info."2.0.8" = {
-    log = "0.4.8";
-    serde = "1.0.114";
-    winapi = "0.3.9";
+  deps.os_type."2.2.0" = {
+    regex = "1.4.3";
   };
   deps.owning_ref."0.3.3" = {
     stable_deref_trait = "1.1.1";
@@ -505,9 +503,7 @@ rec {
   deps.same_file."1.0.6" = {
     winapi_util = "0.1.5";
   };
-  deps.serde."1.0.114" = {
-    serde_derive = "1.0.114";
-  };
+  deps.serde."1.0.114" = {};
   deps.serde_derive."1.0.114" = {
     proc_macro2 = "1.0.24";
     quote = "1.0.7";
