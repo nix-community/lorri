@@ -97,7 +97,7 @@ pub fn direnv<W: std::io::Write>(project: Project, mut shell_output: W) -> OpRes
     let ping_sent = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
         debug!("connecting to socket"; "socket" => address.as_absolute_path().display());
-        client::create::<client::Ping>()
+        client::create::<client::Ping>(client::Timeout::from_millis(500))
             .and_then(|c| {
                 c.write(&client::Ping {
                     nix_file: project.nix_file,
@@ -261,7 +261,7 @@ fn create_if_missing(path: &Path, contents: &str, msg: &str) -> Result<(), io::E
 /// Can be used together with `direnv`.
 /// See the documentation for lorri::cli::Command::Ping_ for details.
 pub fn ping(nix_file: NixFile) -> OpResult {
-    client::create()?.write(&client::Ping {
+    client::create(client::Timeout::from_millis(500))?.write(&client::Ping {
         nix_file,
         rebuild: client::Rebuild::Always,
     })?;
@@ -591,7 +591,10 @@ pub fn stream_events(kind: EventKind) -> OpResult {
         // This async will not block when it is dropped,
         // since it only reads messages and don’t want to block exit in the Snapshot case.
         Async::<Result<(), ExitError>>::run_and_linger(slog_scope::logger(), move || {
-            let client = client::create::<client::StreamEvents>()?;
+            let client = client::create::<client::StreamEvents>(
+                // infinite timeout because we are listening indefinitely
+                client::Timeout::Infinite,
+            )?;
 
             client.write(&client::StreamEvents {})?;
             loop {
