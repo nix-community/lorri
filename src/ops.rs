@@ -635,7 +635,9 @@ pub fn stream_events(kind: EventKind) -> OpResult {
                                 },
                             )),
                         )
-                            .expect("couldn't serialize event")
+                            .expect("couldn't serialize event");
+                        write!(std::io::stdout(), "\n").expect("couldn't serialize event");
+                        std::io::stdout().flush().expect("couldn't flush serialized event");
                     }
                     _ => (),
                 },
