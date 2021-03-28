@@ -53,7 +53,7 @@ let
     pkgs.rustfmt
     pkgs.git
     pkgs.direnv
-    (pkgs.carnix.overrideAttrs (old: { patches = old.patches or [] ++ [ ./nix/carnix.patch ]; }))
+    pkgs.carnix
     pkgs.nix-prefetch-git
     pkgs.nixpkgs-fmt
 
