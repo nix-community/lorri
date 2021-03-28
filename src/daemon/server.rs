@@ -119,7 +119,10 @@ impl Server {
                         .expect("Serve::listen: new thread channel closed");
                 }
                 Err(accept_err) => {
-                    info!("Failed accepting a client connection"; "accept_error" => format!("{:?}", accept_err))
+                    info!("Failed accepting a client connection"; "accept_error" => format!("{:?}", accept_err));
+                    // If we hit an error like `too many open file descriptors`, avoid retrying
+                    // immediately and hogging the CPU in a busy loop.
+                    std::thread::sleep(std::time::Duration::from_millis(100));
                 }
             }
         }
