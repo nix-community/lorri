@@ -10,6 +10,8 @@
 #![allow(clippy::try_err)]
 // triggered by select (TODO: fixed in crossbeam_channel 0.5)
 #![allow(clippy::drop_copy, clippy::zero_ptr)]
+// Remove clippy checks for stuff that is not even in stable yet (ugh)
+#![allow(clippy::match_like_matches_macro)]
 
 #[macro_use]
 extern crate structopt;

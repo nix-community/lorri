@@ -29,7 +29,7 @@ impl Server {
     }
 
     /// Listen for incoming clients. Goes into an accept() loop, thus blocks.
-    pub fn listen<'a>(&'a self, socket_path: &SocketPath) -> Result<Never, BindError> {
+    pub fn listen(&self, socket_path: &SocketPath) -> Result<Never, BindError> {
         let listener = communicate::listener::Listener::new(socket_path)?;
 
         // We have to continuously be joining threads,

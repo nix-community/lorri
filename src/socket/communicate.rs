@@ -165,7 +165,7 @@ pub mod listener {
             // - read first message as a `CommunicationType`
             let comm_type: CommunicationType =
                 ReadWriter::<CommunicationType, ConnectionAccepted>::new(&unix_stream)
-                    .react(self.accept_timeout.clone(), |_| ConnectionAccepted())
+                    .react(self.accept_timeout, |_| ConnectionAccepted())
                     .map_err(AcceptError::Message)?;
             // spawn a thread with the accept handler
             Ok(Thread {
@@ -305,7 +305,7 @@ pub mod client {
             // - send initial message with the CommunicationType
             // - wait for server to acknowledge connect
             let _: listener::ConnectionAccepted = ReadWriter::new(&socket)
-                .communicate(self.timeout.clone(), &self.comm_type)
+                .communicate(self.timeout, &self.comm_type)
                 .map_err(InitError::ServerHandshake)?;
 
             Ok(Client {
