@@ -3871,28 +3871,6 @@ rec {
 
 
 # end
-# termcolor-1.1.0
-
-  crates.termcolor."1.1.0" = deps: { features?(features_.termcolor."1.1.0" deps {}) }: buildRustCrate {
-    crateName = "termcolor";
-    version = "1.1.0";
-    description = "A simple cross platform library for writing colored text to a terminal.\n";
-    authors = [ "Andrew Gallant <jamslam@gmail.com>" ];
-    edition = "2018";
-    sha256 = "10ckhcj1pv4xgxrvby0j1fccanfnyc4fwdlvqr9gm4k35yx0ssci";
-    dependencies = (if kernel == "windows" then mapFeatures features ([
-      (crates."winapi_util"."${deps."termcolor"."1.1.0"."winapi_util"}" deps)
-    ]) else []);
-  };
-  features_.termcolor."1.1.0" = deps: f: updateFeatures f (rec {
-    termcolor."1.1.0".default = (f.termcolor."1.1.0".default or true);
-    winapi_util."${deps.termcolor."1.1.0".winapi_util}".default = true;
-  }) [
-    (features_.winapi_util."${deps."termcolor"."1.1.0"."winapi_util"}" deps)
-  ];
-
-
-# end
 # textwrap-0.11.0
 
   crates.textwrap."0.11.0" = deps: { features?(features_.textwrap."0.11.0" deps {}) }: buildRustCrate {

@@ -20,7 +20,6 @@ rec {
         (cratesIO.crates."os_type"."${deps."human_panic"."1.0.4-alpha.0"."os_type"}" deps)
         (cratesIO.crates."serde"."${deps."human_panic"."1.0.4-alpha.0"."serde"}" deps)
         (cratesIO.crates."serde_derive"."${deps."human_panic"."1.0.4-alpha.0"."serde_derive"}" deps)
-        (cratesIO.crates."termcolor"."${deps."human_panic"."1.0.4-alpha.0"."termcolor"}" deps)
         (cratesIO.crates."toml"."${deps."human_panic"."1.0.4-alpha.0"."toml"}" deps)
         (cratesIO.crates."uuid"."${deps."human_panic"."1.0.4-alpha.0"."uuid"}" deps)
       ]);
@@ -32,7 +31,6 @@ rec {
       os_type."${deps.human_panic."1.0.4-alpha.0".os_type}".default = true;
       serde."${deps.human_panic."1.0.4-alpha.0".serde}".default = true;
       serde_derive."${deps.human_panic."1.0.4-alpha.0".serde_derive}".default = true;
-      termcolor."${deps.human_panic."1.0.4-alpha.0".termcolor}".default = true;
       toml."${deps.human_panic."1.0.4-alpha.0".toml}".default = true;
       uuid = fold recursiveUpdate {} [
         { "${deps.human_panic."1.0.4-alpha.0".uuid}"."v4" = true; }
@@ -43,7 +41,6 @@ rec {
       (cratesIO.features_.os_type."${deps."human_panic"."1.0.4-alpha.0"."os_type"}" deps)
       (cratesIO.features_.serde."${deps."human_panic"."1.0.4-alpha.0"."serde"}" deps)
       (cratesIO.features_.serde_derive."${deps."human_panic"."1.0.4-alpha.0"."serde_derive"}" deps)
-      (cratesIO.features_.termcolor."${deps."human_panic"."1.0.4-alpha.0"."termcolor"}" deps)
       (cratesIO.features_.toml."${deps."human_panic"."1.0.4-alpha.0"."toml"}" deps)
       (cratesIO.features_.uuid."${deps."human_panic"."1.0.4-alpha.0"."uuid"}" deps)
     ];
@@ -281,7 +278,6 @@ rec {
     os_type = "2.2.0";
     serde = "1.0.114";
     serde_derive = "1.0.114";
-    termcolor = "1.1.0";
     toml = "0.5.6";
     uuid = "0.8.1";
   };
@@ -568,9 +564,6 @@ rec {
   deps.term."0.6.1" = {
     dirs = "2.0.2";
     winapi = "0.3.9";
-  };
-  deps.termcolor."1.1.0" = {
-    winapi_util = "0.1.5";
   };
   deps.textwrap."0.11.0" = {
     unicode_width = "0.1.7";
