@@ -27,8 +27,6 @@
 //! ### Human-Panic Output
 //!
 //! ```txt
-//! Well, this is embarrassing.
-//!
 //! human-panic had a problem and crashed. To help us diagnose the problem you can send us a crash report.
 //!
 //! We have generated a report file at "/var/folders/zw/bpfvmq390lv2c6gn_6byyv0w0000gn/T/report-8351cad6-d2b5-4fe8-accd-1fcbf4538792.toml". Submit an issue or email with the subject of "human-panic Crash Report" and include the report as an attachment.
@@ -51,7 +49,6 @@ use std::borrow::Cow;
 use std::io::{Result as IoResult, Write};
 use std::panic::PanicInfo;
 use std::path::{Path, PathBuf};
-use termcolor::{BufferWriter, Color, ColorChoice, ColorSpec, WriteColor};
 
 /// A convenient metadata struct that describes a crate
 pub struct Metadata {
@@ -140,11 +137,7 @@ pub fn print_msg<P: AsRef<Path>>(
   let (_version, name, authors, homepage) =
     (&meta.version, &meta.name, &meta.authors, &meta.homepage);
 
-  let stderr = BufferWriter::stderr(ColorChoice::Auto);
-  let mut buffer = stderr.buffer();
-  buffer.set_color(ColorSpec::new().set_fg(Some(Color::Red)))?;
-
-  writeln!(&mut buffer, "Well, this is embarrassing.\n")?;
+  let mut buffer = std::io::stderr();
   writeln!(
     &mut buffer,
     "{} had a problem and crashed. To help us diagnose the \
@@ -177,9 +170,6 @@ pub fn print_msg<P: AsRef<Path>>(
   )?;
   writeln!(&mut buffer, "Thank you kindly!")?;
 
-  buffer.reset()?;
-
-  stderr.print(&buffer).unwrap();
   Ok(())
 }
 
