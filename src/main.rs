@@ -129,7 +129,7 @@ fn run_command(log: slog::Logger, opts: Arguments) -> OpResult {
         Command::Internal { command } => match command {
             Internal_::Ping_(opts) => {
                 let _guard = without_project();
-                find_nix_file(&opts.nix_file).and_then(|nf| ops::ping(nf, opts.socket_address))
+                find_nix_file(&opts.nix_file).and_then(ops::ping)
             }
             Internal_::StartUserShell_(opts) => {
                 let (project, _guard) = with_project(&opts.nix_file)?;

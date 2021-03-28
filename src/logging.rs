@@ -9,10 +9,30 @@ pub fn root(verbosity: u8, command: &Command) -> slog::Logger {
         0 => slog::Level::Info,
         _ => slog::Level::Debug,
     };
-    let decorator = match command {
+    let log_to = match command {
         // direnv swallows stdout, so we must log to stderr
-        Command::Direnv(_) => slog_term::TermDecorator::new().stderr().build(),
-        _ => slog_term::TermDecorator::new().stdout().build(),
+        Command::Direnv(_) => LogTo::Stderr,
+        _ => LogTo::Stdout,
+    };
+    lorri_logger(level, log_to)
+}
+
+/// Logger that can be used in tests
+#[cfg(test)]
+pub fn test_logger() -> slog::Logger {
+    lorri_logger(slog::Level::Debug, LogTo::Stderr)
+}
+
+/// output to log to
+enum LogTo {
+    Stdout,
+    Stderr,
+}
+
+fn lorri_logger(level: slog::Level, log_to: LogTo) -> slog::Logger {
+    let decorator = match log_to {
+        LogTo::Stderr => slog_term::TermDecorator::new().stderr().build(),
+        LogTo::Stdout => slog_term::TermDecorator::new().stdout().build(),
     };
     let drain = slog_term::FullFormat::new(decorator)
         .build()

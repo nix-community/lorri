@@ -8,7 +8,7 @@ fn trivial() -> std::io::Result<()> {
     assert!(
         res.all_exist(),
         "no build output (build-0) in {}.\nContents of {}\n{}",
-        res.shell_gc_root,
+        res.shell_gc_root.display(),
         testcase.cachedir.path().display(),
         std::str::from_utf8(
             &std::process::Command::new("ls")

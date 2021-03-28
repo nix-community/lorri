@@ -41,11 +41,4 @@ pub const RUN_TIME_CLOSURE: &str = "{runtime_closure}";
         .as_bytes(),
     )
     .unwrap();
-
-    for v in &[
-        "src/org.nixos.lorri.varlink",
-        "src/org.nixos.lorri.internal.varlink",
-    ] {
-        varlink_generator::cargo_build_tosource(v, /*rustfmt */ true);
-    }
 }

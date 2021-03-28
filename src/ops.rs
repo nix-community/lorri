@@ -4,30 +4,28 @@ mod direnv;
 pub mod error;
 
 use crate::build_loop::BuildLoop;
-use crate::build_loop::Event;
+use crate::build_loop::{Event, EventI, ReasonI};
 use crate::builder;
-use crate::builder::OutputPaths;
+use crate::builder::OutputPath;
 use crate::cas::ContentAddressable;
 use crate::changelog;
 use crate::cli;
 use crate::cli::ShellOptions;
 use crate::cli::StartUserShellOptions_;
 use crate::cli::WatchOptions;
+use crate::daemon::client;
 use crate::daemon::Daemon;
-use crate::internal_proto;
 use crate::nix;
 use crate::nix::options::NixOptions;
 use crate::nix::CallOpts;
 use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
 use crate::ops::error::{ok, ExitError, OpResult};
 use crate::project::{roots::Roots, Project};
-use crate::proto;
+use crate::run_async::Async;
 use crate::socket::path::SocketPath;
 use crate::NixFile;
 use crate::VERSION_BUILD_REV;
 
-use std::convert::TryFrom;
-use std::convert::TryInto;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::Write;
@@ -77,7 +75,7 @@ pub fn daemon(opts: crate::cli::DaemonOptions) -> OpResult {
 
     let paths = crate::ops::get_paths()?;
     daemon.serve(
-        SocketPath::from(paths.daemon_socket_file().clone()),
+        &SocketPath::from(paths.daemon_socket_file().clone()),
         paths.gc_root_dir(),
         paths.cas_store().clone(),
     )?;
@@ -96,18 +94,20 @@ pub fn direnv<W: std::io::Write>(project: Project, mut shell_output: W) -> OpRes
 
     let root_paths = Roots::from_project(&project).paths();
     let paths_are_cached: bool = root_paths.all_exist();
-    let address = crate::ops::get_paths()?.daemon_socket_address();
-    let shell_nix =
-        internal_proto::ShellNix::try_from(&project.nix_file).map_err(ExitError::temporary)?;
 
-    let ping_sent = if let Ok(connection) = varlink::Connection::with_address(&address) {
-        use internal_proto::VarlinkClientInterface;
-        internal_proto::VarlinkClient::new(connection)
-            .watch_shell(shell_nix, internal_proto::Rebuild::OnlyIfNotYetWatching)
-            .call()
+    let ping_sent = {
+        let address = crate::ops::get_paths()?.daemon_socket_file().clone();
+        debug!("connecting to socket"; "socket" => address.as_absolute_path().display());
+        client::create::<client::Ping>()
+            .and_then(|c| {
+                c.write(&client::Ping {
+                    nix_file: project.nix_file,
+                    rebuild: client::Rebuild::OnlyIfNotYetWatching,
+                })?;
+                Ok(())
+            })
+            // TODO: maybe ping should indeed return something so we can at least check whether it parses the message and the version is right. Right now this collapses all of that into a bool …
             .is_ok()
-    } else {
-        false
     };
 
     match (ping_sent, paths_are_cached) {
@@ -153,7 +153,7 @@ watch_file "{}"
 watch_file "$EVALUATION_ROOT"
 
 {}"#,
-        root_paths.shell_gc_root,
+        root_paths.shell_gc_root.display(),
         crate::ops::get_paths()?
             .daemon_socket_file()
             .as_absolute_path()
@@ -210,7 +210,7 @@ where
 pub fn info(project: Project) -> OpResult {
     println!("lorri version: {}", crate::LORRI_VERSION);
     let root_paths = Roots::from_project(&project).paths();
-    let OutputPaths { shell_gc_root } = &root_paths;
+    let OutputPath { shell_gc_root } = &root_paths;
     if root_paths.all_exist() {
         println!(
             "GC roots exist, shell_gc_root: {}",
@@ -261,21 +261,12 @@ fn create_if_missing(path: &Path, contents: &str, msg: &str) -> Result<(), io::E
 ///
 /// Can be used together with `direnv`.
 /// See the documentation for lorri::cli::Command::Ping_ for details.
-pub fn ping(nix_file: NixFile, addr: Option<String>) -> OpResult {
-    let address = match addr {
-        Some(a) => a,
-        None => crate::ops::get_paths()?.daemon_socket_address(),
-    };
-    let shell_nix = internal_proto::ShellNix::try_from(&nix_file).unwrap();
-
-    use internal_proto::VarlinkClientInterface;
-    internal_proto::VarlinkClient::new(
-        varlink::Connection::with_address(&address).expect("failed to connect to daemon server"),
-    )
-    .watch_shell(shell_nix, internal_proto::Rebuild::Always)
-    .call()
-    .expect("call to daemon server failed");
-    ok()
+pub fn ping(nix_file: NixFile) -> OpResult {
+    client::create()?.write(&client::Ping {
+        nix_file,
+        rebuild: client::Rebuild::Always,
+    })?;
+    Ok(())
 }
 
 /// Open up a project shell
@@ -345,7 +336,7 @@ pub fn shell(project: Project, opts: ShellOptions) -> OpResult {
 fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
     let building = Arc::new(AtomicBool::new(true));
     let building_clone = building.clone();
-    let progress_thread = thread::spawn(move || {
+    let progress_thread = Async::run(slog_scope::logger(), move || {
         // Keep track of the start time to display a hint to the user that they can use `--cached`,
         // but only if a cached version of the environment exists
         let mut start = if cached { Some(Instant::now()) } else { None };
@@ -366,7 +357,7 @@ fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
 
             // Indicate progress
             eprint!(".");
-            io::stderr().flush().unwrap();
+            io::stderr().flush().expect("couldn’t flush‽");
         }
         eprintln!(". done");
     });
@@ -378,7 +369,7 @@ fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
         &crate::nix::options::NixOptions::empty(),
     );
     building.store(false, Ordering::SeqCst);
-    progress_thread.join().unwrap();
+    progress_thread.block();
 
     let run_result = run_result
         .map_err(|e| {
@@ -557,10 +548,34 @@ impl FromStr for EventKind {
     }
 }
 
-#[derive(Debug)]
-enum Error {
-    Varlink(proto::Error),
-    Compat(String),
+// These types are just transparent newtype wrappers to implement a different serde class and JsonEncode
+
+/// For now use the EventI structure, in the future we might want to split it off.
+/// At least it will show us that we need to change something here if we change it
+/// and it relates to this interface.
+#[derive(Serialize)]
+#[serde(transparent)]
+struct StreamEvent(EventI<StreamNixFile, StreamReason, StreamOutputPath, StreamBuildError>);
+
+/// Nix files are encoded as strings
+#[derive(Serialize)]
+#[serde(transparent)]
+struct StreamNixFile(String);
+
+/// Same here, the reason contains a nix file which has to be converted to a string.
+#[derive(Serialize)]
+#[serde(transparent)]
+struct StreamReason(ReasonI<String>);
+
+/// And same here, OutputPaths are GcRoots and have to be converted as well.
+#[derive(Serialize)]
+#[serde(transparent)]
+struct StreamOutputPath(OutputPath<String>);
+
+/// Just expose the error message for now.
+#[derive(Serialize)]
+struct StreamBuildError {
+    message: String,
 }
 
 /// Run to output a stream of build events in a machine-parseable form.
@@ -568,57 +583,71 @@ enum Error {
 /// See the documentation for lorri::cli::Command::StreamEvents_ for more
 /// details.
 pub fn stream_events(kind: EventKind) -> OpResult {
-    let address = get_paths()?.daemon_socket_address();
+    let (tx_event, rx_event) = unbounded();
 
-    use proto::VarlinkClientInterface;
-    let mut client = proto::VarlinkClient::new(
-        varlink::Connection::with_address(&address).expect("failed to connect to daemon server"),
-    );
+    let thread = {
+        let address = crate::ops::get_paths()?.daemon_socket_file().clone();
+        debug!("connecting to socket"; "socket" => address.as_absolute_path().display());
+
+        let tx_event = tx_event.clone();
+        Async::<Result<(), ExitError>>::run(slog_scope::logger(), move || {
+            let client = client::create::<client::StreamEvents>()?;
+
+            client.write(&client::StreamEvents {})?;
+            loop {
+                let res = client.read();
+                tx_event
+                    .send(
+                        // TODO: error
+                        res.map_err(|err| ExitError::temporary(format!("{:?}", err))),
+                    )
+                    .expect("tx_event hung up!");
+            }
+        })
+    };
 
     let mut snapshot_done = false;
-    let (tx, rx) = unbounded();
-    let recycle = tx.clone();
-
-    let th = thread::spawn(move || {
-        for res in client.monitor().more().expect("couldn't connect to server") {
-            tx.send(res).expect("local channel couldn't send")
-        }
-    });
-
-    select! {
-        recv(rx) -> event => recycle.send(event.expect("local channel couldn't receive")).expect("local channel couldn't resend"),
-        default(Duration::from_millis(250)) => return Err(ExitError::temporary("server timeout"))
-    }
-
-    for event in rx.iter() {
-        debug!("Received"; "event" => format!("{:#?}", &event));
-        match event
-            .map_err(Error::Varlink)
-            .and_then(|ev| ev.try_into().map_err(Error::Compat))
-            .map_err(|err| ExitError::temporary(format!("{:?}", err)))?
-        {
-            Event::SectionEnd => {
-                debug!("SectionEnd");
-                if let EventKind::Snapshot = kind {
-                    return ok();
-                } else {
-                    snapshot_done = true
+    loop {
+        select! {
+            recv(rx_event) -> event => match event.expect("rx_event hung up!")? {
+                Event::SectionEnd => {
+                    debug!("SectionEnd");
+                    if let EventKind::Snapshot = kind {
+                        return ok();
+                    } else {
+                        snapshot_done = true
+                    }
                 }
-            }
-            ev => match (snapshot_done, &kind) {
-                (_, EventKind::All) | (false, EventKind::Snapshot) | (true, EventKind::Live) => {
-                    println!(
-                        "{}",
-                        serde_json::to_string(&ev).expect("couldn't serialize event")
-                    )
-                }
-                _ => (),
+                ev => match (snapshot_done, &kind) {
+                    (_, EventKind::All) | (false, EventKind::Snapshot) | (true, EventKind::Live) => {
+                        fn nix_file_string(nix_file: NixFile) -> String {
+                            nix_file.display().to_string()
+                        }
+                        serde_json::to_writer(
+                            std::io::stdout(),
+                            &StreamEvent(ev.map(
+                                |nix_file| StreamNixFile(nix_file_string(nix_file)),
+                                |reason| StreamReason(reason.map(nix_file_string)),
+                                |output_path| {
+                                    StreamOutputPath(output_path.map(|o| o.display().to_string()))
+                                },
+                                |build_error| StreamBuildError {
+                                    message: format!("{}", build_error),
+                                },
+                            )),
+                        )
+                            .expect("couldn't serialize event")
+                    }
+                    _ => (),
+                },
             },
+            recv(thread.chan()) -> finished => match finished.expect("send-events hung up!") {
+                Ok(()) => panic!("send-events should never finish!"),
+                // error in the async, time to quit
+                err => err?
+            }
         }
     }
-
-    drop(th);
-    ok()
 }
 
 /// The source to upgrade to.
@@ -810,7 +839,7 @@ fn main_run_forever(project: Project) -> OpResult {
     let (tx_build_results, rx_build_results) = chan::unbounded();
     let (tx_ping, rx_ping) = chan::unbounded();
     let build_thread = {
-        thread::spawn(move || {
+        Async::run(slog_scope::logger(), move || {
             // TODO: add the ability to pass extra_nix_options to watch
             let mut build_loop = BuildLoop::new(&project, NixOptions::empty());
 
@@ -825,7 +854,7 @@ fn main_run_forever(project: Project) -> OpResult {
         print_build_message(msg);
     }
 
-    build_thread.join().unwrap();
+    build_thread.block();
 
     ok()
 }

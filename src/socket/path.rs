@@ -1,28 +1,40 @@
 //! `bind()`ing & `connect()`ing to sockets.
 
+use crate::ops::error::{ExitAs, ExitErrorType};
 use crate::AbsPathBuf;
+use std::fmt;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
+use thiserror::Error;
 
 /// Small wrapper that makes sure lorri sockets are handled correctly.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SocketPath(AbsPathBuf);
 
 /// Binding to the socket failed.
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum BindError {
     /// Another process is listening on the socket
-    OtherProcessListening(AbsPathBuf),
+    #[error("Another process is listening on the socket ({0}), do you have another lorri daemon running?")]
+    OtherProcessListening(String),
     /// I/O error
-    Io(std::io::Error),
+    #[error("IO error binding to socket")]
+    Io(#[source] std::io::Error),
     /// nix library I/O error (like Io)
-    Unix(nix::Error),
+    #[error("Unix error binding to socket")]
+    Unix(#[source] nix::Error),
 }
 
-impl From<BindError> for crate::ops::error::ExitError {
-    fn from(e: BindError) -> crate::ops::error::ExitError {
-        crate::ops::error::ExitError::temporary(format!("Bind error: {:?}", e))
+impl ExitAs for BindError {
+    fn exit_as(&self) -> ExitErrorType {
+        use BindError::*;
+        use ExitErrorType::*;
+        match self {
+            OtherProcessListening(_) => UserError,
+            Io(_) => Temporary,
+            Unix(_) => Temporary,
+        }
     }
 }
 
@@ -52,9 +64,9 @@ impl SocketPath {
         // we try to get an exclusive lock, nonblocking
         match nix::fcntl::flock(h.as_raw_fd(), nix::fcntl::FlockArg::LockExclusiveNonblock) {
             // if the lock would block, another process is listening
-            Err(nix::Error::Sys(nix::errno::EWOULDBLOCK)) => {
-                Err(BindError::OtherProcessListening(self.lockfile()))
-            }
+            Err(nix::Error::Sys(nix::errno::EWOULDBLOCK)) => Err(BindError::OtherProcessListening(
+                self.lockfile().display().to_string(),
+            )),
             other => other.map_err(BindError::Unix),
         }?;
         Ok(BindLock(h))
@@ -73,12 +85,9 @@ impl SocketPath {
         // - try to lock lockfile (open and flock exclusive nonblocking)
         let lock = self.lock()?;
         // - remove socket file if it exists
-        std::fs::remove_file(self.as_absolute_path()).or_else(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                Ok(())
-            } else {
-                Err(e)
-            }
+        std::fs::remove_file(self.as_absolute_path()).or_else(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => Ok(()),
+            _ => Err(e),
         })?;
         // - bind to socket
         let l = UnixListener::bind(self.as_absolute_path())?;
@@ -95,9 +104,9 @@ impl SocketPath {
         self.0.as_ref()
     }
 
-    /// The Unix socket address of this socket.
-    pub fn address(&self) -> String {
-        format!("unix:{}", self.0.display())
+    /// `display` the path.
+    pub fn display(&self) -> std::path::Display {
+        self.0.display()
     }
 
     fn lockfile(&self) -> AbsPathBuf {
@@ -111,6 +120,12 @@ impl SocketPath {
             s.push(".lock");
             s
         })
+    }
+}
+
+impl fmt::Display for SocketPath {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.display())
     }
 }
 

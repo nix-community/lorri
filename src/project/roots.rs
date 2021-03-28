@@ -1,7 +1,7 @@
 //! Handling of nix GC roots
 //!
 //! TODO: inline this module into `::project`
-use crate::builder::{OutputPaths, RootedPath};
+use crate::builder::{OutputPath, RootedPath};
 use crate::nix::StorePath;
 use crate::project::Project;
 use crate::AbsPathBuf;
@@ -22,19 +22,19 @@ pub struct Roots {
 #[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 pub struct RootPath(pub AbsPathBuf);
 
-impl OutputPaths<RootPath> {
-    /// Check whether all all GC roots exist.
-    pub fn all_exist(&self) -> bool {
-        let crate::builder::OutputPaths { shell_gc_root } = self;
-
-        shell_gc_root.0.as_absolute_path().exists()
+impl RootPath {
+    /// `display` the path.
+    pub fn display(&self) -> std::path::Display {
+        self.0.display()
     }
 }
 
-/// Proxy through the `Display` class for `PathBuf`.
-impl std::fmt::Display for RootPath {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        self.0.display().fmt(f)
+impl OutputPath<RootPath> {
+    /// Check whether all all GC roots exist.
+    pub fn all_exist(&self) -> bool {
+        let crate::builder::OutputPath { shell_gc_root } = self;
+
+        shell_gc_root.0.as_absolute_path().exists()
     }
 }
 
@@ -50,8 +50,8 @@ impl Roots {
     }
 
     /// Return the filesystem paths for these roots.
-    pub fn paths(&self) -> OutputPaths<RootPath> {
-        OutputPaths {
+    pub fn paths(&self) -> OutputPath<RootPath> {
+        OutputPath {
             shell_gc_root: RootPath(self.gc_root_path.join("shell_gc_root")),
         }
     }
@@ -63,9 +63,9 @@ impl Roots {
         // roots to `StorePath`, not to `DrvFile`, because we have
         // no use case for creating GC roots for drv files.
         path: RootedPath,
-    ) -> Result<OutputPaths<RootPath>, AddRootError>
+    ) -> Result<OutputPath<RootPath>, AddRootError>
 where {
-        Ok(OutputPaths {
+        Ok(OutputPath {
             shell_gc_root: self.add("shell_gc_root", &path.path)?,
         })
     }

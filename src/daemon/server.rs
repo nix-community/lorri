@@ -1,441 +1,164 @@
-//! The daemon's RPC server.
-
-use super::IndicateActivity;
-use super::LoopHandlerEvent;
-use crate::build_loop;
-use crate::error;
-use crate::internal_proto;
-use crate::ops::error::ExitError;
-use crate::proto;
-use crate::socket::path::{BindLock, SocketPath};
-use crate::{AbsPathBuf, NixFile};
-
+//! Serve the lorri daemon on a unix socket.
+use crate::daemon::{IndicateActivity, LoopHandlerEvent};
+use crate::run_async::Async;
+use crate::socket::communicate;
+use crate::socket::communicate::{CommunicationType, Ping, StreamEvents};
+use crate::socket::path::{BindError, SocketPath};
+use crate::Never;
 use crossbeam_channel as chan;
-use slog_scope::debug;
-use std::convert::{TryFrom, TryInto};
-use std::path::PathBuf;
+use slog_scope::{debug, info};
+use std::collections::HashMap;
+use std::thread;
 
-/// The daemon server.
+/// Native backend Server
 pub struct Server {
-    activity_tx: chan::Sender<IndicateActivity>,
-    build_tx: chan::Sender<LoopHandlerEvent>,
-    socket_path: SocketPath,
-    _lock: BindLock,
+    tx_activity: chan::Sender<IndicateActivity>,
+    tx_build: chan::Sender<LoopHandlerEvent>,
 }
 
 impl Server {
-    /// Create a new Server. Locks the Unix socket path, so there can be only one Server instance
-    /// per socket path at any time.
+    /// Create a new server.
     pub fn new(
-        socket_path: SocketPath,
-        activity_tx: chan::Sender<IndicateActivity>,
-        build_tx: chan::Sender<LoopHandlerEvent>,
-    ) -> Result<Server, ExitError> {
-        let lock = socket_path.lock()?;
-        Ok(Server {
-            socket_path,
-            activity_tx,
-            build_tx,
-            _lock: lock,
-        })
-    }
-
-    /// Serve the daemon endpoint.
-    pub fn serve(self) -> Result<(), ExitError> {
-        let address = &self.socket_path.address();
-        let service = varlink::VarlinkService::new(
-            /* vendor */ "org.nixos",
-            /* product */ "lorri",
-            /* version */ "0.1",
-            /* url */ "https://github.com/nix-community/lorri",
-            vec![Box::new(internal_proto::new(Box::new(self)))],
-        );
-        let initial_worker_threads = 1;
-        let max_worker_threads = 10;
-        let idle_timeout = 0;
-        varlink::listen(
-            service,
-            address,
-            initial_worker_threads,
-            max_worker_threads,
-            idle_timeout,
-        )
-        .map_err(|e| ExitError::temporary(format!("{}", e)))
-    }
-}
-
-/// The actual varlink server implementation. See org.nixos.lorri.varlink for the interface
-/// specification.
-impl internal_proto::VarlinkInterface for Server {
-    fn watch_shell(
-        &self,
-        call: &mut dyn internal_proto::Call_WatchShell,
-        shell_nix: internal_proto::ShellNix,
-        rebuild: internal_proto::Rebuild,
-    ) -> varlink::Result<()> {
-        let p = PathBuf::from(&shell_nix.path);
-        if p.is_file() {
-            self.activity_tx
-                .send(IndicateActivity {
-                    nix_file: NixFile::from(AbsPathBuf::new_unchecked(p)),
-                    rebuild,
-                })
-                .expect("failed to indicate activity via channel");
-            call.reply()
-        } else {
-            call.reply_invalid_parameter(format!("{:?}", shell_nix))
+        tx_activity: chan::Sender<IndicateActivity>,
+        tx_build: chan::Sender<LoopHandlerEvent>,
+    ) -> Self {
+        Server {
+            tx_activity,
+            tx_build,
         }
     }
-}
 
-// TODO: remove when switching to a protocol that can do [u8]
-fn try_file_to_string(file: &std::path::Path) -> Result<String, String> {
-    match file.to_str() {
-        None => Err(format!("file {} is not a valid utf-8 string. Varlink does not support non-utf8 strings, so we cannot serialize this file name. TODO: link issue", file.display())),
-        Some(s) => Ok(s.to_owned())
-    }
-}
+    /// Listen for incoming clients. Goes into an accept() loop, thus blocks.
+    pub fn listen<'a>(&'a self, socket_path: &SocketPath) -> Result<Never, BindError> {
+        let listener = communicate::listener::Listener::new(socket_path)?;
 
-// TODO: remove when switching to a protocol that can do [u8]
-fn try_nix_file_to_string(file: &NixFile) -> Result<String, String> {
-    try_file_to_string(file.as_absolute_path())
-}
+        // We have to continuously be joining threads,
+        // otherwise they turn into zombies and we eventually run out of processes on linux.
+        let (tx_new_thread, rx_new_thread) = chan::unbounded();
+        let (tx_done_thread, rx_done_thread) = chan::unbounded();
+        let _joiner = Async::run(slog_scope::logger(), || {
+            join_continuously(rx_new_thread, rx_done_thread)
+        });
 
-// TODO: remove when switchint to a protocol that can do [u8]
-fn log_line_to_string(ll: &crate::error::LogLine) -> String {
-    ll.0.to_string_lossy().into_owned()
-}
+        loop {
+            let tx_done_thread = tx_done_thread.clone();
+            let tx_activity = self.tx_activity.clone();
+            let tx_build = self.tx_build.clone();
+            // We can’t display thread ids, so let’s generate a short random string to identify a thread
+            let display_id: String = std::iter::repeat_with(|| fastrand::alphanumeric())
+                .take(4)
+                .collect();
+            let display_id_copy = display_id.clone();
 
-impl proto::VarlinkInterface for Server {
-    fn monitor(&self, call: &mut dyn proto::Call_Monitor) -> varlink::Result<()> {
-        if !call.wants_more() {
-            return call.reply_invalid_parameter("wants_more".to_string());
-        }
+            let accept = listener.accept(
+                move |communication_type, handlers| {
+                    let id = thread::current().id();
+                    debug!("New client connection accepted"; "message_type" => format!("{:?}", communication_type), "thread_id" => &display_id);
 
-        let (tx, rx) = chan::unbounded();
-        self.build_tx
-            .send(LoopHandlerEvent::NewListener(tx))
-            .map_err(|_| varlink::error::ErrorKind::Server)?;
+                    fn err<E>(ct: CommunicationType, e: E)
+                        where E: std::fmt::Debug
+                    {
+                        debug!("Unable to communicate with client"; "communication_type" => format!("{:?}", ct), "error" => format!("{:?}", e))
+                    }
 
-        call.set_continues(true);
-        for event in rx {
-            debug!("event for varlink"; "event" => ?&event);
-            // TODO: destructure the owned event instead of a pointer to the event here
-            match event.try_into() {
-                Ok(ev) => call.reply(ev),
-                Err(e) => call.reply_invalid_parameter(e.to_string()),
-            }?;
-        }
-        Ok(())
-    }
-}
+                    // catch any panics that happen, to be able to send a done message in any case
+                    let res = std::panic::catch_unwind(|| {
 
-// TODO: replace all these TryFrom instances with one explicit transformation function.
-// This should reduce the boilerplate considerably.
+                        // handle all events
+                        // TODO: it would be good if we didn’t have to match on the communication type here, but I don’t see a way to do that.
+                        match communication_type {
+                            CommunicationType::Ping => {
+                                match handlers.ping().read(communicate::DEFAULT_READ_TIMEOUT) {
+                                    Ok(Ping { nix_file, rebuild }) => {
+                                        tx_activity.send(IndicateActivity {
+                                            nix_file,
+                                            rebuild
+                                        }).expect("Unable to send a ping from listener")
+                                    },
+                                    Err(e) => err(communication_type, e)
+                                }
+                            },
+                            CommunicationType::StreamEvents => {
+                                let mut rw = handlers.stream_events();
+                                match rw.read(communicate::DEFAULT_READ_TIMEOUT) {
+                                    Ok(StreamEvents {}) => {
+                                        let (tx_event, rx_event) = chan::unbounded();
+                                        tx_build
+                                            .send(LoopHandlerEvent::NewListener(tx_event))
+                                            .expect("Unable to send a new listener to the build_loop");
+                                        for event in rx_event {
+                                            match rw.write(communicate::DEFAULT_READ_TIMEOUT, &event) {
+                                                Ok(()) => {},
+                                                Err(err) => debug!("client vanished"; "communication_type" => format!("{:?}", communication_type), "error" => format!("{:?}", err))
+                                            }
+                                        }
+                                    },
+                                    Err(e) => err(communication_type, e)
+                                }
+                            }
+                        }
 
-impl TryFrom<&build_loop::Event> for proto::Event {
-    type Error = String;
+                    });
 
-    fn try_from(ev: &build_loop::Event) -> Result<Self, Self::Error> {
-        use build_loop::Event;
-        use proto::Event_kind as kind;
-        Ok(match ev {
-            Event::SectionEnd => proto::Event {
-                kind: kind::section_end,
-                section: Some(proto::SectionMarker {}),
-                reason: None,
-                result: None,
-                failure: None,
-            },
-            Event::Started { reason, .. } => proto::Event {
-                kind: kind::started,
-                section: None,
-                reason: Some(reason.try_into()?),
-                result: None,
-                failure: None,
-            },
-            Event::Completed { .. } => proto::Event {
-                kind: kind::completed,
-                section: None,
-                reason: None,
-                result: Some(ev.try_into()?),
-                failure: None,
-            },
-            Event::Failure { .. } => proto::Event {
-                kind: kind::failure,
-                section: None,
-                reason: None,
-                result: None,
-                failure: Some(ev.try_into()?),
-            },
-        })
-    }
-}
+                    tx_done_thread.send(id).expect("Server::listen: done channel closed");
 
-impl TryFrom<build_loop::Event> for proto::Event {
-    type Error = String;
+                    // if a panic happened, continue it after sending the message
+                    match res {
+                        Err(panic) => std::panic::resume_unwind(panic),
+                        Ok(()) => {}
+                    }
 
-    fn try_from(ev: build_loop::Event) -> Result<Self, Self::Error> {
-        proto::Event::try_from(&ev)
-    }
-}
-
-impl TryFrom<proto::Monitor_Reply> for build_loop::Event {
-    type Error = String;
-
-    fn try_from(mr: proto::Monitor_Reply) -> Result<Self, Self::Error> {
-        build_loop::Event::try_from(mr.event)
-    }
-}
-
-impl TryFrom<proto::Event> for build_loop::Event {
-    type Error = String;
-
-    fn try_from(re: proto::Event) -> Result<Self, Self::Error> {
-        use proto::Event_kind::*;
-
-        Ok(match re.kind {
-            section_end => build_loop::Event::SectionEnd,
-            started => re.reason.ok_or("missing reason")?.try_into()?,
-            completed => re.result.ok_or("missing result")?.try_into()?,
-            failure => re.failure.ok_or("missing failure log")?.try_into()?,
-        })
-    }
-}
-
-impl TryFrom<proto::Reason> for build_loop::Event {
-    type Error = String;
-
-    fn try_from(r: proto::Reason) -> Result<Self, Self::Error> {
-        Ok(build_loop::Event::Started {
-            nix_file: NixFile::from(AbsPathBuf::new_unchecked(PathBuf::from(
-                r.project.clone().ok_or("missing nix file!")?,
-            ))),
-            reason: r.try_into()?,
-        })
-    }
-}
-
-impl TryFrom<&build_loop::Reason> for proto::Reason {
-    type Error = String;
-
-    fn try_from(wr: &build_loop::Reason) -> Result<Self, Self::Error> {
-        use build_loop::Reason;
-        use proto::Reason_kind::*;
-
-        Ok(match wr {
-            Reason::PingReceived => proto::Reason {
-                kind: ping_received,
-                project: None,
-                files: None,
-            },
-            Reason::ProjectAdded(nix_file) => proto::Reason {
-                kind: project_added,
-                project: Some(try_nix_file_to_string(nix_file)?),
-                files: None,
-            },
-            Reason::FilesChanged(changed) => proto::Reason {
-                kind: files_changed,
-                project: None,
-                files: Some(
-                    changed
-                        .iter()
-                        .map(|pb| try_file_to_string(&pb))
-                        .collect::<Result<Vec<String>, String>>()?,
-                ),
-            },
-        })
-    }
-}
-
-impl TryFrom<proto::Reason> for build_loop::Reason {
-    type Error = String;
-
-    fn try_from(rr: proto::Reason) -> Result<Self, Self::Error> {
-        use build_loop::Reason;
-        use proto::Reason_kind::*;
-
-        Ok(match rr.kind {
-            ping_received => Reason::PingReceived,
-            project_added => Reason::ProjectAdded(NixFile::from(AbsPathBuf::new_unchecked(
-                PathBuf::from(rr.project.ok_or("missing nix file!")?),
-            ))),
-            files_changed => Reason::FilesChanged(
-                rr.files
-                    .ok_or("missing files!")?
-                    .into_iter()
-                    .map(PathBuf::from)
-                    .collect(),
-            ),
-        })
-    }
-}
-
-impl TryFrom<&build_loop::Event> for proto::Outcome {
-    type Error = String;
-
-    fn try_from(ev: &build_loop::Event) -> Result<Self, Self::Error> {
-        if let build_loop::Event::Completed {
-            nix_file,
-            rooted_output_paths,
-        } = ev
-        {
-            Ok(proto::Outcome {
-                nix_file: try_nix_file_to_string(nix_file)?,
-                project_root: rooted_output_paths.shell_gc_root.to_string(),
-            })
-        } else {
-            Err(format!("can't make an Outcome out of {:?}", ev))
-        }
-    }
-}
-
-impl TryFrom<proto::Outcome> for build_loop::Event {
-    type Error = String;
-
-    fn try_from(o: proto::Outcome) -> Result<Self, Self::Error> {
-        use crate::builder;
-        use crate::project::roots;
-        Ok(build_loop::Event::Completed {
-            nix_file: NixFile::from(AbsPathBuf::new_unchecked(PathBuf::from(o.nix_file))),
-            rooted_output_paths: builder::OutputPaths {
-                shell_gc_root: roots::RootPath(AbsPathBuf::new_unchecked(PathBuf::from(
-                    o.project_root,
-                ))),
-            },
-        })
-    }
-}
-
-impl TryFrom<&build_loop::Event> for proto::Failure {
-    type Error = String;
-
-    fn try_from(ev: &build_loop::Event) -> Result<Self, Self::Error> {
-        use error::BuildError;
-        use proto::Failure_kind::*;
-
-        match ev {
-            build_loop::Event::Failure { nix_file, failure } => Ok(match failure {
-                BuildError::Io { msg } => proto::Failure {
-                    kind: io,
-                    nix_file: try_nix_file_to_string(nix_file)?,
-                    io: Some(proto::IOFail {
-                        message: msg.clone(),
-                    }),
-                    spawn: None,
-                    exit: None,
-                    output: None,
+                    debug!("Client connection handled"; "message_type" => format!("{:?}", communication_type), "thread_id" => &display_id);
                 },
-                BuildError::Spawn { cmd, msg } => proto::Failure {
-                    kind: spawn,
-                    nix_file: try_nix_file_to_string(nix_file)?,
-                    io: None,
-                    spawn: Some(proto::SpawnFail {
-                        command: cmd.clone(),
-                        message: msg.clone(),
-                    }),
-                    exit: None,
-                    output: None,
-                },
-                BuildError::Exit { cmd, status, logs } => proto::Failure {
-                    kind: exit,
-                    nix_file: try_nix_file_to_string(nix_file)?,
-                    io: None,
-                    spawn: None,
-                    exit: Some(proto::ExitFail {
-                        command: cmd.clone(),
-                        status: status.map(|i| i as i64),
-                        logs: logs.iter().map(log_line_to_string).collect(),
-                    }),
-                    output: None,
-                },
-                BuildError::Output { msg } => proto::Failure {
-                    kind: output,
-                    nix_file: try_nix_file_to_string(nix_file)?,
-                    io: None,
-                    spawn: None,
-                    exit: None,
-                    output: Some(proto::OutputFail {
-                        message: msg.clone(),
-                    }),
-                },
-            }),
-            _ => Err(String::from("expecting build_loop::Event::Failure")),
+            );
+
+            match accept {
+                Ok(new_thread) => {
+                    tx_new_thread
+                        .send((display_id_copy, new_thread))
+                        .expect("Serve::listen: new thread channel closed");
+                }
+                Err(accept_err) => {
+                    info!("Failed accepting a client connection"; "accept_error" => format!("{:?}", accept_err))
+                }
+            }
         }
     }
 }
 
-impl TryFrom<proto::Failure> for build_loop::Event {
-    type Error = String;
-
-    fn try_from(f: proto::Failure) -> Result<Self, Self::Error> {
-        Ok(build_loop::Event::Failure {
-            nix_file: NixFile::from(AbsPathBuf::new_unchecked(PathBuf::from(f.nix_file.clone()))),
-            failure: f.try_into()?,
-        })
-    }
-}
-
-impl TryFrom<proto::Failure> for error::BuildError {
-    type Error = &'static str;
-
-    fn try_from(pf: proto::Failure) -> Result<Self, Self::Error> {
-        use error::BuildError;
-        use proto::Failure_kind::*;
-
-        match pf {
-            proto::Failure {
-                kind: io,
-                io: Some(proto::IOFail { message }),
-                ..
-            } => Ok(BuildError::Io { msg: message }),
-            proto::Failure {
-                kind: spawn,
-                spawn: Some(proto::SpawnFail { command, message }),
-                ..
-            } => Ok(BuildError::Spawn {
-                cmd: command,
-                msg: message,
-            }),
-            proto::Failure {
-                kind: exit,
-                exit:
-                    Some(proto::ExitFail {
-                        command,
-                        status,
-                        logs,
-                    }),
-                ..
-            } => Ok(BuildError::Exit {
-                cmd: command,
-                status: status.map(|i| i as i32),
-                logs: logs.into_iter().map(error::LogLine::from).collect(),
-            }),
-            proto::Failure {
-                kind: output,
-                output: Some(proto::OutputFail { message }),
-                ..
-            } => Ok(BuildError::Output { msg: message }),
-            _ => Err("unexpected form of proto::Failure"),
+/// Join threads continuously, so that we don’t generate too many zombies.
+/// Every new thread it signalled by `rx_new`, while evrey
+/// Ideally, we’d add a method like that to our thread::Pool, but it was too hard for now.
+fn join_continuously(
+    rx_new: chan::Receiver<(String, communicate::listener::Thread)>,
+    rx_done: chan::Receiver<thread::ThreadId>,
+) {
+    let mut running = HashMap::new();
+    loop {
+        chan::select! {
+            recv(rx_new) -> msg => match msg {
+                Ok(new) => {
+                    let _ = running.insert(new.1.handle.thread().id(), new);
+                },
+                Err(chan::RecvError) => panic!("Serve::listen: new thread channel closed")
+            },
+            recv(rx_done) -> msg => match msg {
+                Ok(done) => match running.remove(&done) {
+                    // this join should be instant, provided the message was correct
+                    // and sent right before the thread exited.
+                    Some(thread) => {
+                        let message_type = format!("{:?}", thread.1.message_type);
+                        let display_id = thread.0.clone();
+                        match thread.1.handle.join() {
+                            Ok(()) => {},
+                            Err(_panic) => info!("Server::accept: a connect thread panicked"; "message_type" => message_type, "thread_id" => &display_id),
+                        }
+                        debug!("joined thread"; "thread_id" => &display_id);
+                    },
+                    None => panic!("Server::accept: join_continuously was sent a threadId it did not know about."),
+                },
+                Err(chan::RecvError) => panic!("Serve::listen: done channel closed"),
+            }
         }
-    }
-}
-
-impl TryFrom<&NixFile> for internal_proto::ShellNix {
-    type Error = &'static str;
-
-    fn try_from(nix_file: &NixFile) -> Result<Self, Self::Error> {
-        match nix_file.as_absolute_path().as_os_str().to_str() {
-            Some(s) => Ok(internal_proto::ShellNix {
-                path: s.to_string(),
-            }),
-            None => Err("nix file path is not UTF-8 clean"),
-        }
-    }
-}
-
-impl From<internal_proto::ShellNix> for NixFile {
-    fn from(shell_nix: internal_proto::ShellNix) -> Self {
-        Self::from(AbsPathBuf::new_unchecked(PathBuf::from(shell_nix.path)))
     }
 }

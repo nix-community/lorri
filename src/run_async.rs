@@ -9,13 +9,15 @@ pub struct Async<Res> {
     // we use a pool with exactly one thread,
     // because our thread pool will do the resume_unwind dance for us
     // and thus not lose the stack trace like the naïve implementation would.
-    thread: Pool,
+    thread: Pool<()>,
     result_chan: chan::Receiver<Res>,
 }
 
 impl<Res> Drop for Async<Res> {
     fn drop(&mut self) {
-        self.thread.join_all_or_panic();
+        self.thread
+            .join_all_or_panic()
+            .expect("The async thread should never return an error");
     }
 }
 
@@ -25,19 +27,19 @@ impl<Res: Send + 'static> Async<Res> {
     /// You can read the result either by blocking
     /// or by using the `chan` method to get a channel that receives exactly
     /// one result as soon as the the function is done.
-    pub fn run<F>(f: F) -> Self
+    pub fn run<F>(logger: slog::Logger, f: F) -> Self
     where
         F: FnOnce() -> Res,
         F: std::panic::UnwindSafe,
         F: Send + 'static,
     {
         let (tx, rx) = chan::bounded(1);
-        let mut thread = Pool::new();
+        let mut thread = Pool::new(logger);
 
         thread.spawn("async thread", move || {
             let res = f();
             match tx.try_send(res) {
-                Ok(()) => {},
+                Ok(()) => Ok(()),
                 Err(err) => panic!("unable to send the async result, because the channel was disconnected (should never happen): {:?}", err)
             }
         }).expect("unable to spawn Async thread, should not happen");
@@ -57,7 +59,9 @@ impl<Res: Send + 'static> Async<Res> {
                 panic!("unable to receive the async result, because the channel was disconnected and empty (should never happen)")
         };
         // since the function finished, the thread (created in `run()`) will join immediatly after
-        self.thread.join_all_or_panic();
+        self.thread
+            .join_all_or_panic()
+            .expect("The async thread should never return an error");
         res
     }
 
@@ -81,7 +85,7 @@ mod tests {
     fn test_chan_drop_order() {
         // we make the async just block on a channel which we can control from outside
         let (tx, rx) = chan::bounded(1);
-        let a = Async::run(move || rx.recv());
+        let a = Async::run(crate::logging::test_logger(), move || rx.recv());
         let c = a.chan();
         // nothing has been sent to the thread yet, so timeout
         assert_eq!(
@@ -101,7 +105,7 @@ mod tests {
     #[test]
     fn test_chan_block_still_works() {
         // check that even after getting a channel the blocking still works
-        let a = Async::run(move || 42);
+        let a = Async::run(crate::logging::test_logger(), move || 42);
         let c = a.chan();
         assert_eq!(a.block(), 42);
         // would be disconnected, because the result was already retrieved by the block

@@ -7,8 +7,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::process::{Command, ExitStatus};
 
 /// An error that can occur during a build.
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BuildError {
     /// A system-level IO error occurred during the build.
     Io {
@@ -53,24 +52,9 @@ pub enum BuildError {
     },
 }
 
-use serde::{Serialize, Serializer};
-
 /// A line from stderr log output.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogLine(pub OsString);
-
-/// Implement Serialize in a way that prints file names as strings.
-/// TODO: this won’t return the actual filenames if they are not valid utf8.
-/// so scripts won’t be able to read them. Maybe print a warning in that case?
-impl Serialize for LogLine {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let LogLine(oss) = self;
-        serializer.serialize_str(&*oss.to_string_lossy())
-    }
-}
 
 impl From<OsString> for LogLine {
     fn from(oss: OsString) -> Self {
@@ -94,36 +78,6 @@ impl<'a> fmt::Display for LogLinesDisplay<'a> {
             formatter.write_str(&s)?;
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json;
-
-    fn build_exit() -> BuildError {
-        BuildError::Exit {
-            cmd: "ebs".to_string(),
-            status: Some(1),
-            logs: vec![
-                OsString::from("this is a test of the emergency broadcast system").into(),
-                OsString::from("you will hear a tone").into(),
-                OsString::from("remember, this is only a test").into(),
-            ],
-        }
-    }
-
-    #[test]
-    fn logline_json_readable() -> Result<(), serde_json::Error> {
-        assert!(serde_json::to_string(&build_exit())?.contains("emergency"));
-        Ok(())
-    }
-
-    #[test]
-    fn logline_json_roundtrip() -> Result<(), serde_json::Error> {
-        serde_json::from_str::<serde_json::Value>(&serde_json::to_string(&build_exit())?)
-            .map(|_| ())
     }
 }
 

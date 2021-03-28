@@ -7,6 +7,7 @@ use directories::ProjectDirs;
 /// Path constants like the GC root directory.
 pub struct Paths {
     gc_root_dir: AbsPathBuf,
+    // TODO: make SocketPath
     daemon_socket_file: AbsPathBuf,
     cas_store: ContentAddressable,
 }
@@ -93,11 +94,6 @@ impl Paths {
     /// The daemon uses this path to create its Unix socket.
     pub fn daemon_socket_file(&self) -> &AbsPathBuf {
         &self.daemon_socket_file
-    }
-
-    /// Unix socket address of the daemon.
-    pub fn daemon_socket_address(&self) -> String {
-        format!("unix:{}", self.daemon_socket_file().display())
     }
 
     /// content-addressable store.

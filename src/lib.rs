@@ -33,30 +33,6 @@ pub mod socket;
 pub mod thread;
 pub mod watch;
 
-// This and the following module declaration together publicly export the
-// contents of the generated module "org_nixos_lorri" as "proto", which is a
-// much nicer module name.
-#[allow(missing_docs, clippy::all, unused_imports)]
-mod org_nixos_lorri;
-
-#[allow(missing_docs)]
-pub mod proto {
-    // Code generated from org.nixos.lorri.varlink
-    pub use super::org_nixos_lorri::*;
-}
-
-// This and the following module declaration together publicly export the
-// contents of the generated module "org_nixos_lorri_internal" as
-// "internal_proto", which is a much nicer module name.
-#[allow(missing_docs, clippy::all, unused_imports)]
-mod org_nixos_lorri_internal;
-
-#[allow(missing_docs)]
-pub(crate) mod internal_proto {
-    // Code generated from org.nixos.lorri.internal.varlink
-    pub use super::org_nixos_lorri_internal::*;
-}
-
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
@@ -121,8 +97,7 @@ impl AsRef<Path> for AbsPathBuf {
 /// A .nix file.
 ///
 /// Is guaranteed to have an absolute path by construction.
-#[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 pub struct NixFile(AbsPathBuf);
 
 impl NixFile {
@@ -132,16 +107,16 @@ impl NixFile {
     }
 }
 
-impl From<AbsPathBuf> for NixFile {
-    fn from(abs_path: AbsPathBuf) -> Self {
-        NixFile(abs_path)
+impl NixFile {
+    /// `display` the path.
+    pub fn display(&self) -> std::path::Display {
+        self.0.display()
     }
 }
 
-/// Proxy through the `Display` class for `AbsPathBuf`.
-impl std::fmt::Display for NixFile {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        self.0.display().fmt(f)
+impl From<AbsPathBuf> for NixFile {
+    fn from(abs_path: AbsPathBuf) -> Self {
+        NixFile(abs_path)
     }
 }
 
@@ -170,5 +145,16 @@ impl DrvFile {
 impl From<PathBuf> for DrvFile {
     fn from(p: PathBuf) -> DrvFile {
         DrvFile(p)
+    }
+}
+
+/// Struct that will never be constructed (no elements).
+/// In newer rustc, this corresponds to the (compiler supported) `!` type.
+pub struct Never {}
+
+impl Never {
+    /// This will never be called, so we can return anything.
+    pub fn never<T>(&self) -> T {
+        panic!("can never be called");
     }
 }

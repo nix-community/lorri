@@ -156,7 +156,12 @@ pub enum Internal_ {
     #[structopt(name = "ping")]
     Ping_(Ping_),
 
-    /// (plumbing) Ask the lorri daemon to report build events as they occur
+    /// (experimental) Ask the lorri daemon to report build events as they occur.
+    ///
+    /// This is intended for scripts. However, we don’t guarantee any stability for now,
+    /// so if you want to use it in your scripts make sure you follow our changes.
+    /// Once it stabilizes a bit more we will start mentioning changes in the changelog,
+    /// and eventually ensure backwards compat.
     #[structopt(name = "stream-events")]
     StreamEvents_(StreamEvents_),
 }
@@ -171,9 +176,6 @@ pub struct Ping_ {
     /// The .nix file to watch and build on changes.
     #[structopt(parse(from_os_str))]
     pub nix_file: PathBuf,
-    /// A custom socket address to ping - used mostly for testing and experiments
-    #[structopt(long = "socket-address")]
-    pub socket_address: Option<String>,
 }
 
 /// Stream events from the daemon.

@@ -1,16 +1,17 @@
 //! The lorri daemon, watches multiple projects in the background.
 
+pub mod client;
+pub mod server;
+
 use crate::build_loop::{BuildLoop, Event};
-use crate::internal_proto;
 use crate::nix::options::NixOptions;
 use crate::ops::error::ExitError;
+use crate::socket::communicate;
 use crate::socket::path::SocketPath;
 use crate::{AbsPathBuf, NixFile};
 use crossbeam_channel as chan;
 use slog_scope::debug;
 use std::collections::HashMap;
-
-mod server;
 
 #[derive(Debug, Clone)]
 /// Union of build_loop::Event and NewListener for internal use.
@@ -32,7 +33,7 @@ pub struct IndicateActivity {
     /// This nix file should be build/watched by the daemon.
     pub nix_file: NixFile,
     /// Determines when this activity will cause a rebuild.
-    pub rebuild: internal_proto::Rebuild,
+    pub rebuild: communicate::Rebuild,
 }
 
 /// Keeps all state of the running `lorri daemon` service, watches nix files and runs builds.
@@ -67,7 +68,7 @@ impl Daemon {
     /// Serve the daemon's RPC endpoint.
     pub fn serve(
         &mut self,
-        socket_path: SocketPath,
+        socket_path: &SocketPath,
         gc_root_dir: &AbsPathBuf,
         cas: crate::cas::ContentAddressable,
     ) -> Result<(), ExitError> {
@@ -76,25 +77,22 @@ impl Daemon {
             chan::Receiver<IndicateActivity>,
         ) = chan::unbounded();
 
-        let mut pool = crate::thread::Pool::new();
+        let mut pool = crate::thread::Pool::new(slog_scope::logger());
         let tx_build_events = self.tx_build_events.clone();
 
-        let server = server::Server::new(socket_path.clone(), tx_activity, tx_build_events)
-            .map_err(|e| {
-                ExitError::temporary(format!(
-                    "unable to bind to the server socket at {}: {:?}",
-                    socket_path.as_absolute_path().display(),
-                    e
-                ))
-            })?;
+        let server = server::Server::new(tx_activity, tx_build_events);
 
-        pool.spawn("accept-loop", || {
-            server.serve().expect("varlink error");
+        let socket_path = socket_path.clone();
+        pool.spawn("accept-loop", move || {
+            server.listen(&socket_path).map(|n| n.never())
         })?;
 
         let rx_build_events = self.rx_build_events.clone();
         let mon_tx = self.mon_tx.clone();
-        pool.spawn("build-loop", || Self::build_loop(rx_build_events, mon_tx))?;
+        pool.spawn("build-loop", || {
+            Self::build_loop(rx_build_events, mon_tx);
+            Ok(())
+        })?;
 
         let tx_build_events = self.tx_build_events.clone();
         let extra_nix_options = self.extra_nix_options.clone();
@@ -106,10 +104,11 @@ impl Daemon {
                 rx_activity,
                 &gc_root_dir,
                 cas,
-            )
+            );
+            Ok(())
         })?;
 
-        pool.join_all_or_panic();
+        pool.join_all_or_panic()?;
 
         Ok(())
     }
@@ -186,11 +185,11 @@ impl Daemon {
                 |to: &chan::Sender<()>| to.send(()).expect("could not ping the build loop");
 
             match (project_is_watched, rebuild) {
-                (Some(builder), internal_proto::Rebuild::Always) => {
+                (Some(builder), communicate::Rebuild::Always) => {
                     debug!("triggering rebuild"; "project" => key, "cause" => "unconditional ping");
                     send_ping(builder)
                 }
-                (Some(_), internal_proto::Rebuild::OnlyIfNotYetWatching) => {
+                (Some(_), communicate::Rebuild::OnlyIfNotYetWatching) => {
                     debug!("skipping rebuild"; "project" => key, "cause" => "already watching");
                 }
                 // only add if there is no no build_loop for this file yet.

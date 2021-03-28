@@ -6,6 +6,22 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
+        version = 739;
+        changes = ''
+          Rewrite the internal daemon socket protocol.
+
+          This should be a purely internal change, but if you have been using
+          `lorri internal stream-events` in your scripts, the json output might
+          have changed. Since the command is internal and not yet stable,
+          not much time was spent keeping it compatible, so beware.
+
+          The `--socket-address` command to `lorri ping` was removed for now,
+          since only having it for this command doesn’t make much sense, it
+          looks like it was originally introduced for debugging purposes.
+          In the long run we could add a `LORRI_SOCKET` environment variable.
+        '';
+      }
+      {
         version = 723;
         changes = ''
           Fix `lorri direnv` triggering an unconditional rebuild every time it is run.
