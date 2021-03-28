@@ -6,6 +6,10 @@
 // We usually want to use matches for clarity
 #![allow(clippy::match_bool)]
 #![allow(clippy::single_match)]
+// I don’t think return, .into() is clearer than ?, sorry
+#![allow(clippy::try_err)]
+// triggered by select (TODO: fixed in crossbeam_channel 0.5)
+#![allow(clippy::drop_copy, clippy::zero_ptr)]
 
 #[macro_use]
 extern crate structopt;

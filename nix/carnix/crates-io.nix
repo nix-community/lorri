@@ -1276,50 +1276,6 @@ rec {
 
 
 # end
-# human-panic-1.0.3
-
-  crates.human_panic."1.0.3" = deps: { features?(features_.human_panic."1.0.3" deps {}) }: buildRustCrate {
-    crateName = "human-panic";
-    version = "1.0.3";
-    description = "Panic messages for humans";
-    authors = [ "Yoshua Wuyts <yoshuawuyts@gmail.com>" "Pascal Hertleif <killercup@gmail.com>" "Katharina Fey <kookie@spacekookie.de>" ];
-    edition = "2018";
-    sha256 = "0w0y8ha4imvqa02aw9zfyxfd4zc3a7j9lvirxkcnyl7fbw811xnn";
-    dependencies = mapFeatures features ([
-      (crates."backtrace"."${deps."human_panic"."1.0.3"."backtrace"}" deps)
-      (crates."os_type"."${deps."human_panic"."1.0.3"."os_type"}" deps)
-      (crates."serde"."${deps."human_panic"."1.0.3"."serde"}" deps)
-      (crates."serde_derive"."${deps."human_panic"."1.0.3"."serde_derive"}" deps)
-      (crates."termcolor"."${deps."human_panic"."1.0.3"."termcolor"}" deps)
-      (crates."toml"."${deps."human_panic"."1.0.3"."toml"}" deps)
-      (crates."uuid"."${deps."human_panic"."1.0.3"."uuid"}" deps)
-    ]);
-    features = mkFeatures (features."human_panic"."1.0.3" or {});
-  };
-  features_.human_panic."1.0.3" = deps: f: updateFeatures f (rec {
-    backtrace."${deps.human_panic."1.0.3".backtrace}".default = true;
-    human_panic."1.0.3".default = (f.human_panic."1.0.3".default or true);
-    os_type."${deps.human_panic."1.0.3".os_type}".default = true;
-    serde."${deps.human_panic."1.0.3".serde}".default = true;
-    serde_derive."${deps.human_panic."1.0.3".serde_derive}".default = true;
-    termcolor."${deps.human_panic."1.0.3".termcolor}".default = true;
-    toml."${deps.human_panic."1.0.3".toml}".default = true;
-    uuid = fold recursiveUpdate {} [
-      { "${deps.human_panic."1.0.3".uuid}"."v4" = true; }
-      { "${deps.human_panic."1.0.3".uuid}".default = (f.uuid."${deps.human_panic."1.0.3".uuid}".default or false); }
-    ];
-  }) [
-    (features_.backtrace."${deps."human_panic"."1.0.3"."backtrace"}" deps)
-    (features_.os_type."${deps."human_panic"."1.0.3"."os_type"}" deps)
-    (features_.serde."${deps."human_panic"."1.0.3"."serde"}" deps)
-    (features_.serde_derive."${deps."human_panic"."1.0.3"."serde_derive"}" deps)
-    (features_.termcolor."${deps."human_panic"."1.0.3"."termcolor"}" deps)
-    (features_.toml."${deps."human_panic"."1.0.3"."toml"}" deps)
-    (features_.uuid."${deps."human_panic"."1.0.3"."uuid"}" deps)
-  ];
-
-
-# end
 # inotify-0.7.1
 
   crates.inotify."0.7.1" = deps: { features?(features_.inotify."0.7.1" deps {}) }: buildRustCrate {

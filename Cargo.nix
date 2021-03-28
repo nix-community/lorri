@@ -6,6 +6,50 @@ let inherit (lib.lists) fold;
 in
 rec {
   crates = cratesIO // rec {
+# human-panic-1.0.4-alpha.0
+
+    crates.human_panic."1.0.4-alpha.0" = deps: { features?(features_.human_panic."1.0.4-alpha.0" deps {}) }: buildRustCrate {
+      crateName = "human-panic";
+      version = "1.0.4-alpha.0";
+      description = "Panic messages for humans";
+      authors = [ "Yoshua Wuyts <yoshuawuyts@gmail.com>" "Pascal Hertleif <killercup@gmail.com>" "Katharina Fey <kookie@spacekookie.de>" ];
+      edition = "2018";
+      src = exclude [ ".git" "target" ] vendor/human-panic;
+      dependencies = mapFeatures features ([
+        (cratesIO.crates."backtrace"."${deps."human_panic"."1.0.4-alpha.0"."backtrace"}" deps)
+        (cratesIO.crates."os_type"."${deps."human_panic"."1.0.4-alpha.0"."os_type"}" deps)
+        (cratesIO.crates."serde"."${deps."human_panic"."1.0.4-alpha.0"."serde"}" deps)
+        (cratesIO.crates."serde_derive"."${deps."human_panic"."1.0.4-alpha.0"."serde_derive"}" deps)
+        (cratesIO.crates."termcolor"."${deps."human_panic"."1.0.4-alpha.0"."termcolor"}" deps)
+        (cratesIO.crates."toml"."${deps."human_panic"."1.0.4-alpha.0"."toml"}" deps)
+        (cratesIO.crates."uuid"."${deps."human_panic"."1.0.4-alpha.0"."uuid"}" deps)
+      ]);
+      features = mkFeatures (features."human_panic"."1.0.4-alpha.0" or {});
+    };
+    features_.human_panic."1.0.4-alpha.0" = deps: f: updateFeatures f (rec {
+      backtrace."${deps.human_panic."1.0.4-alpha.0".backtrace}".default = true;
+      human_panic."1.0.4-alpha.0".default = (f.human_panic."1.0.4-alpha.0".default or true);
+      os_type."${deps.human_panic."1.0.4-alpha.0".os_type}".default = true;
+      serde."${deps.human_panic."1.0.4-alpha.0".serde}".default = true;
+      serde_derive."${deps.human_panic."1.0.4-alpha.0".serde_derive}".default = true;
+      termcolor."${deps.human_panic."1.0.4-alpha.0".termcolor}".default = true;
+      toml."${deps.human_panic."1.0.4-alpha.0".toml}".default = true;
+      uuid = fold recursiveUpdate {} [
+        { "${deps.human_panic."1.0.4-alpha.0".uuid}"."v4" = true; }
+        { "${deps.human_panic."1.0.4-alpha.0".uuid}".default = (f.uuid."${deps.human_panic."1.0.4-alpha.0".uuid}".default or false); }
+      ];
+    }) [
+      (cratesIO.features_.backtrace."${deps."human_panic"."1.0.4-alpha.0"."backtrace"}" deps)
+      (cratesIO.features_.os_type."${deps."human_panic"."1.0.4-alpha.0"."os_type"}" deps)
+      (cratesIO.features_.serde."${deps."human_panic"."1.0.4-alpha.0"."serde"}" deps)
+      (cratesIO.features_.serde_derive."${deps."human_panic"."1.0.4-alpha.0"."serde_derive"}" deps)
+      (cratesIO.features_.termcolor."${deps."human_panic"."1.0.4-alpha.0"."termcolor"}" deps)
+      (cratesIO.features_.toml."${deps."human_panic"."1.0.4-alpha.0"."toml"}" deps)
+      (cratesIO.features_.uuid."${deps."human_panic"."1.0.4-alpha.0"."uuid"}" deps)
+    ];
+
+
+# end
 # lorri-1.4.0
 
     crates.lorri."1.4.0" = deps: { features?(features_.lorri."1.4.0" deps {}) }: buildRustCrate {
@@ -22,7 +66,7 @@ rec {
         (cratesIO.crates."ctrlc"."${deps."lorri"."1.4.0"."ctrlc"}" deps)
         (cratesIO.crates."directories"."${deps."lorri"."1.4.0"."directories"}" deps)
         (cratesIO.crates."fastrand"."${deps."lorri"."1.4.0"."fastrand"}" deps)
-        (cratesIO.crates."human_panic"."${deps."lorri"."1.4.0"."human_panic"}" deps)
+        (crates."human_panic"."${deps."lorri"."1.4.0"."human_panic"}" deps)
         (cratesIO.crates."lazy_static"."${deps."lorri"."1.4.0"."lazy_static"}" deps)
         (cratesIO.crates."md5"."${deps."lorri"."1.4.0"."md5"}" deps)
         (cratesIO.crates."nix"."${deps."lorri"."1.4.0"."nix"}" deps)
@@ -81,7 +125,7 @@ rec {
       (cratesIO.features_.ctrlc."${deps."lorri"."1.4.0"."ctrlc"}" deps)
       (cratesIO.features_.directories."${deps."lorri"."1.4.0"."directories"}" deps)
       (cratesIO.features_.fastrand."${deps."lorri"."1.4.0"."fastrand"}" deps)
-      (cratesIO.features_.human_panic."${deps."lorri"."1.4.0"."human_panic"}" deps)
+      (features_.human_panic."${deps."lorri"."1.4.0"."human_panic"}" deps)
       (cratesIO.features_.lazy_static."${deps."lorri"."1.4.0"."lazy_static"}" deps)
       (cratesIO.features_.md5."${deps."lorri"."1.4.0"."md5"}" deps)
       (cratesIO.features_.nix."${deps."lorri"."1.4.0"."nix"}" deps)
@@ -232,7 +276,7 @@ rec {
   deps.hermit_abi."0.1.14" = {
     libc = "0.2.86";
   };
-  deps.human_panic."1.0.3" = {
+  deps.human_panic."1.0.4-alpha.0" = {
     backtrace = "0.3.44";
     os_type = "2.2.0";
     serde = "1.0.114";
@@ -274,7 +318,7 @@ rec {
     ctrlc = "3.1.8";
     directories = "3.0.1";
     fastrand = "1.4.0";
-    human_panic = "1.0.3";
+    human_panic = "1.0.4-alpha.0";
     lazy_static = "1.4.0";
     md5 = "0.7.0";
     nix = "0.20.0";
