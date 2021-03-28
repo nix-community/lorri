@@ -1276,50 +1276,6 @@ rec {
 
 
 # end
-# human-panic-1.0.3
-
-  crates.human_panic."1.0.3" = deps: { features?(features_.human_panic."1.0.3" deps {}) }: buildRustCrate {
-    crateName = "human-panic";
-    version = "1.0.3";
-    description = "Panic messages for humans";
-    authors = [ "Yoshua Wuyts <yoshuawuyts@gmail.com>" "Pascal Hertleif <killercup@gmail.com>" "Katharina Fey <kookie@spacekookie.de>" ];
-    edition = "2018";
-    sha256 = "0w0y8ha4imvqa02aw9zfyxfd4zc3a7j9lvirxkcnyl7fbw811xnn";
-    dependencies = mapFeatures features ([
-      (crates."backtrace"."${deps."human_panic"."1.0.3"."backtrace"}" deps)
-      (crates."os_type"."${deps."human_panic"."1.0.3"."os_type"}" deps)
-      (crates."serde"."${deps."human_panic"."1.0.3"."serde"}" deps)
-      (crates."serde_derive"."${deps."human_panic"."1.0.3"."serde_derive"}" deps)
-      (crates."termcolor"."${deps."human_panic"."1.0.3"."termcolor"}" deps)
-      (crates."toml"."${deps."human_panic"."1.0.3"."toml"}" deps)
-      (crates."uuid"."${deps."human_panic"."1.0.3"."uuid"}" deps)
-    ]);
-    features = mkFeatures (features."human_panic"."1.0.3" or {});
-  };
-  features_.human_panic."1.0.3" = deps: f: updateFeatures f (rec {
-    backtrace."${deps.human_panic."1.0.3".backtrace}".default = true;
-    human_panic."1.0.3".default = (f.human_panic."1.0.3".default or true);
-    os_type."${deps.human_panic."1.0.3".os_type}".default = true;
-    serde."${deps.human_panic."1.0.3".serde}".default = true;
-    serde_derive."${deps.human_panic."1.0.3".serde_derive}".default = true;
-    termcolor."${deps.human_panic."1.0.3".termcolor}".default = true;
-    toml."${deps.human_panic."1.0.3".toml}".default = true;
-    uuid = fold recursiveUpdate {} [
-      { "${deps.human_panic."1.0.3".uuid}"."v4" = true; }
-      { "${deps.human_panic."1.0.3".uuid}".default = (f.uuid."${deps.human_panic."1.0.3".uuid}".default or false); }
-    ];
-  }) [
-    (features_.backtrace."${deps."human_panic"."1.0.3"."backtrace"}" deps)
-    (features_.os_type."${deps."human_panic"."1.0.3"."os_type"}" deps)
-    (features_.serde."${deps."human_panic"."1.0.3"."serde"}" deps)
-    (features_.serde_derive."${deps."human_panic"."1.0.3"."serde_derive"}" deps)
-    (features_.termcolor."${deps."human_panic"."1.0.3"."termcolor"}" deps)
-    (features_.toml."${deps."human_panic"."1.0.3"."toml"}" deps)
-    (features_.uuid."${deps."human_panic"."1.0.3"."uuid"}" deps)
-  ];
-
-
-# end
 # inotify-0.7.1
 
   crates.inotify."0.7.1" = deps: { features?(features_.inotify."0.7.1" deps {}) }: buildRustCrate {
@@ -2083,23 +2039,52 @@ rec {
 
 
 # end
-# os_type-2.2.0
+# os_info-2.0.8
 
-  crates.os_type."2.2.0" = deps: { features?(features_.os_type."2.2.0" deps {}) }: buildRustCrate {
-    crateName = "os_type";
-    version = "2.2.0";
-    description = "Detect the operating system type";
-    authors = [ "Jan Schulte <hello@unexpected-co.de>" ];
-    sha256 = "100ldg1vv0pxrb9s83vb4awvczbg8iy1by6vx6zl8vpdnr8n2ghg";
+  crates.os_info."2.0.8" = deps: { features?(features_.os_info."2.0.8" deps {}) }: buildRustCrate {
+    crateName = "os_info";
+    version = "2.0.8";
+    description = "Detect the operating system type and version.";
+    authors = [ "Jan Schulte <hello@unexpected-co.de>" "Stanislav Tkach <stanislav.tkach@gmail.com>" ];
+    edition = "2018";
+    sha256 = "0dkfkhzzslmncb6hmp7vsc5rfiv187lc0lc0b46pgwsxrljxy6gm";
     dependencies = mapFeatures features ([
-      (crates."regex"."${deps."os_type"."2.2.0"."regex"}" deps)
-    ]);
+      (crates."log"."${deps."os_info"."2.0.8"."log"}" deps)
+    ]
+      ++ (if features.os_info."2.0.8".serde or false then [ (crates.serde."${deps."os_info"."2.0.8".serde}" deps) ] else []))
+      ++ (if kernel == "windows" then mapFeatures features ([
+      (crates."winapi"."${deps."os_info"."2.0.8"."winapi"}" deps)
+    ]) else []);
+    features = mkFeatures (features."os_info"."2.0.8" or {});
   };
-  features_.os_type."2.2.0" = deps: f: updateFeatures f (rec {
-    os_type."2.2.0".default = (f.os_type."2.2.0".default or true);
-    regex."${deps.os_type."2.2.0".regex}".default = true;
+  features_.os_info."2.0.8" = deps: f: updateFeatures f (rec {
+    log."${deps.os_info."2.0.8".log}".default = true;
+    os_info = fold recursiveUpdate {} [
+      { "2.0.8"."serde" =
+        (f.os_info."2.0.8"."serde" or false) ||
+        (f.os_info."2.0.8".default or false) ||
+        (os_info."2.0.8"."default" or false); }
+      { "2.0.8".default = (f.os_info."2.0.8".default or true); }
+    ];
+    serde = fold recursiveUpdate {} [
+      { "${deps.os_info."2.0.8".serde}"."derive" = true; }
+      { "${deps.os_info."2.0.8".serde}".default = true; }
+    ];
+    winapi = fold recursiveUpdate {} [
+      { "${deps.os_info."2.0.8".winapi}"."libloaderapi" = true; }
+      { "${deps.os_info."2.0.8".winapi}"."minwindef" = true; }
+      { "${deps.os_info."2.0.8".winapi}"."ntdef" = true; }
+      { "${deps.os_info."2.0.8".winapi}"."ntstatus" = true; }
+      { "${deps.os_info."2.0.8".winapi}"."processthreadsapi" = true; }
+      { "${deps.os_info."2.0.8".winapi}"."sysinfoapi" = true; }
+      { "${deps.os_info."2.0.8".winapi}"."winnt" = true; }
+      { "${deps.os_info."2.0.8".winapi}"."winuser" = true; }
+      { "${deps.os_info."2.0.8".winapi}".default = true; }
+    ];
   }) [
-    (features_.regex."${deps."os_type"."2.2.0"."regex"}" deps)
+    (features_.log."${deps."os_info"."2.0.8"."log"}" deps)
+    (features_.serde."${deps."os_info"."2.0.8"."serde"}" deps)
+    (features_.winapi."${deps."os_info"."2.0.8"."winapi"}" deps)
   ];
 
 
@@ -3273,7 +3258,8 @@ rec {
     sha256 = "108wasih2s7d77qhfw2wjda54r309jvhr83ifvvzdp3vjahrfk8i";
     build = "build.rs";
     dependencies = mapFeatures features ([
-]);
+    ]
+      ++ (if features.serde."1.0.114".serde_derive or false then [ (crates.serde_derive."${deps."serde"."1.0.114".serde_derive}" deps) ] else []));
     features = mkFeatures (features."serde"."1.0.114" or {});
   };
   features_.serde."1.0.114" = deps: f: updateFeatures f (rec {
@@ -3288,7 +3274,10 @@ rec {
         (serde."1.0.114"."default" or false); }
       { "1.0.114".default = (f.serde."1.0.114".default or true); }
     ];
-  }) [];
+    serde_derive."${deps.serde."1.0.114".serde_derive}".default = true;
+  }) [
+    (features_.serde_derive."${deps."serde"."1.0.114"."serde_derive"}" deps)
+  ];
 
 
 # end

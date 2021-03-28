@@ -53,8 +53,7 @@ directories = "3.0.1"
 lazy_static = "1.4.0"
 md5  = "0.7.0"
 vec1 = "1.1.0"
-# TODO: might want to remove? Big footprint?
-human-panic = "1.0.3"
+human-panic = { path = "vendor/human-panic" }
 
 [dev-dependencies]
 # 1.0.0 requires at least rust 1.50
