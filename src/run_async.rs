@@ -11,13 +11,18 @@ pub struct Async<Res> {
     // and thus not lose the stack trace like the naïve implementation would.
     thread: Pool<()>,
     result_chan: chan::Receiver<Res>,
+    /// whether the thread should linger (aka detach) after this Async is dropped
+    linger: bool,
 }
 
 impl<Res> Drop for Async<Res> {
     fn drop(&mut self) {
-        self.thread
-            .join_all_or_panic()
-            .expect("The async thread should never return an error");
+        // when the Async should not linger, we have to wait for it to finish here.
+        if !self.linger {
+            self.thread
+                .join_all_or_panic()
+                .expect("The async thread should never return an error");
+        }
     }
 }
 
@@ -28,6 +33,33 @@ impl<Res: Send + 'static> Async<Res> {
     /// or by using the `chan` method to get a channel that receives exactly
     /// one result as soon as the the function is done.
     pub fn run<F>(logger: slog::Logger, f: F) -> Self
+    where
+        F: FnOnce() -> Res,
+        F: std::panic::UnwindSafe,
+        F: Send + 'static,
+    {
+        Self::run_inner(logger, f, false)
+    }
+
+    /// Create a new Async that runs a function in a thread.
+    ///
+    /// It behaves like `run`, until the Async is dropped.
+    /// While an Async created by `run` will block until the inner task
+    /// is finished, an Async created by this function will detach
+    /// and continue lingering in the background.
+    ///
+    /// It will only be dropped when the program finishes.
+    /// The inner thread will detach and not be joined when the task finishes.
+    pub fn run_and_linger<F>(logger: slog::Logger, f: F) -> Self
+    where
+        F: FnOnce() -> Res,
+        F: std::panic::UnwindSafe,
+        F: Send + 'static,
+    {
+        Self::run_inner(logger, f, true)
+    }
+
+    fn run_inner<F>(logger: slog::Logger, f: F, linger: bool) -> Self
     where
         F: FnOnce() -> Res,
         F: std::panic::UnwindSafe,
@@ -47,6 +79,7 @@ impl<Res: Send + 'static> Async<Res> {
         Async {
             thread,
             result_chan: rx,
+            linger,
         }
     }
 
