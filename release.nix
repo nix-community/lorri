@@ -6,6 +6,19 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
+        version = 872;
+        changes = ''
+          Add support for builtins.filterSource, refine builtins.readDir
+
+          The filter of filterSource is only respected for direct children of
+          the source root.  For example, if you use nix-gitignore, .git is not
+          watched.
+
+          builtins.readDir'ed paths are now not watched recursively, which should
+          greatly reduce inotiy resource consumption.
+        '';
+      }
+      {
         version = 739;
         changes = ''
           Rewrite the internal daemon socket protocol.
