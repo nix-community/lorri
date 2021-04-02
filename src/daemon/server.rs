@@ -2,6 +2,7 @@
 use crate::daemon::{IndicateActivity, LoopHandlerEvent};
 use crate::run_async::Async;
 use crate::socket::communicate;
+use crate::socket::communicate::listener::{Connection, Listener};
 use crate::socket::communicate::{CommunicationType, Ping, StreamEvents};
 use crate::socket::path::{BindError, SocketPath};
 use crate::Never;
@@ -30,7 +31,7 @@ impl Server {
 
     /// Listen for incoming clients. Goes into an accept() loop, thus blocks.
     pub fn listen(&self, socket_path: &SocketPath) -> Result<Never, BindError> {
-        let listener = communicate::listener::Listener::new(socket_path)?;
+        let listener = Listener::new(socket_path)?;
 
         // We have to continuously be joining threads,
         // otherwise they turn into zombies and we eventually run out of processes on linux.
@@ -42,89 +43,9 @@ impl Server {
 
         loop {
             let tx_done_thread = tx_done_thread.clone();
-            let tx_activity = self.tx_activity.clone();
-            let tx_build = self.tx_build.clone();
-            // We can’t display thread ids, so let’s generate a short random string to identify a thread
-            let display_id: String = std::iter::repeat_with(fastrand::alphanumeric)
-                .take(4)
-                .collect();
-            let display_id_copy = display_id.clone();
-
             match listener.accept() {
-                Ok(communicate::listener::Connection {
-                    handlers,
-                    communication_type,
-                }) => {
-                    let new_thread = std::thread::spawn(move || {
-                        let id = thread::current().id();
-                        debug!("New client connection accepted"; "message_type" => format!("{:?}", communication_type), "thread_id" => &display_id);
-
-                        fn err<E>(ct: CommunicationType, e: E)
-                        where
-                            E: std::fmt::Debug,
-                        {
-                            debug!("Unable to communicate with client"; "communication_type" => format!("{:?}", ct), "error" => format!("{:?}", e))
-                        }
-
-                        // catch any panics that happen, to be able to send a done message in any case
-                        let res = std::panic::catch_unwind(|| {
-                            // handle all events
-                            // TODO: it would be good if we didn’t have to match on the communication type here, but I don’t see a way to do that.
-                            match communication_type {
-                                CommunicationType::Ping => {
-                                    match handlers.ping().read(communicate::DEFAULT_READ_TIMEOUT) {
-                                        Ok(Ping { nix_file, rebuild }) => tx_activity
-                                            .send(IndicateActivity { nix_file, rebuild })
-                                            .expect("Unable to send a ping from listener"),
-                                        Err(e) => err(communication_type, e),
-                                    }
-                                }
-                                CommunicationType::StreamEvents => {
-                                    let mut rw = handlers.stream_events();
-                                    match rw.read(communicate::DEFAULT_READ_TIMEOUT) {
-                                        Ok(StreamEvents {}) => {
-                                            let (tx_event, rx_event) = chan::unbounded();
-                                            tx_build
-                                                .send(LoopHandlerEvent::NewListener(tx_event))
-                                                .expect(
-                                                "Unable to send a new listener to the build_loop",
-                                            );
-                                            for event in rx_event {
-                                                match rw.write(
-                                                    communicate::DEFAULT_READ_TIMEOUT,
-                                                    &event,
-                                                ) {
-                                                    Ok(()) => {}
-                                                    Err(err) => {
-                                                        debug!("client vanished"; "communication_type" => format!("{:?}", communication_type), "error" => format!("{:?}", err));
-                                                        // break out of the loop or the handler is not stopped
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        Err(e) => err(communication_type, e),
-                                    }
-                                }
-                            }
-                        });
-
-                        tx_done_thread
-                            .send(id)
-                            .expect("Server::listen: done channel closed");
-
-                        // if a panic happened, continue it after sending the message
-                        match res {
-                            Err(panic) => std::panic::resume_unwind(panic),
-                            Ok(()) => {}
-                        }
-
-                        debug!("Client connection handled"; "message_type" => format!("{:?}", communication_type), "thread_id" => &display_id);
-                    });
-
-                    tx_new_thread
-                        .send((display_id_copy, communication_type, new_thread))
-                        .expect("Serve::listen: new thread channel closed");
+                Ok(connection) => {
+                    self.handle_client(connection, tx_new_thread.clone(), tx_done_thread)
                 }
                 Err(accept_err) => {
                     info!("Failed accepting a client connection"; "accept_error" => format!("{:?}", accept_err));
@@ -134,6 +55,91 @@ impl Server {
                 }
             }
         }
+    }
+
+    fn handle_client(
+        &self,
+        conn: Connection,
+        tx_new_thread: chan::Sender<(String, CommunicationType, std::thread::JoinHandle<()>)>,
+        tx_done_thread: chan::Sender<std::thread::ThreadId>,
+    ) {
+        let Connection {
+            handlers,
+            communication_type,
+        } = conn;
+
+        // We can’t display thread ids, so let’s generate a short random string to identify a thread
+        let display_id: String = std::iter::repeat_with(fastrand::alphanumeric)
+            .take(4)
+            .collect();
+        let display_id_copy = display_id.clone();
+
+        let tx_activity = self.tx_activity.clone();
+        let tx_build = self.tx_build.clone();
+
+        let new_thread = std::thread::spawn(move || {
+            let id = thread::current().id();
+            debug!("New client connection accepted"; "message_type" => format!("{:?}", communication_type), "thread_id" => &display_id);
+
+            fn err<E>(ct: CommunicationType, e: E)
+            where
+                E: std::fmt::Debug,
+            {
+                debug!("Unable to communicate with client"; "communication_type" => format!("{:?}", ct), "error" => format!("{:?}", e))
+            }
+
+            // catch any panics that happen, to be able to send a done message in any case
+            let res = std::panic::catch_unwind(|| {
+                // handle all events
+                // TODO: it would be good if we didn’t have to match on the communication type here, but I don’t see a way to do that.
+                match communication_type {
+                    CommunicationType::Ping => {
+                        match handlers.ping().read(communicate::DEFAULT_READ_TIMEOUT) {
+                            Ok(Ping { nix_file, rebuild }) => tx_activity
+                                .send(IndicateActivity { nix_file, rebuild })
+                                .expect("Unable to send a ping from listener"),
+                            Err(e) => err(communication_type, e),
+                        }
+                    }
+                    CommunicationType::StreamEvents => {
+                        let mut rw = handlers.stream_events();
+                        match rw.read(communicate::DEFAULT_READ_TIMEOUT) {
+                            Ok(StreamEvents {}) => {
+                                let (tx_event, rx_event) = chan::unbounded();
+                                tx_build
+                                    .send(LoopHandlerEvent::NewListener(tx_event))
+                                    .expect("Unable to send a new listener to the build_loop");
+                                for event in rx_event {
+                                    match rw.write(communicate::DEFAULT_READ_TIMEOUT, &event) {
+                                        Ok(()) => {}
+                                        Err(err) => {
+                                            debug!("client vanished"; "communication_type" => format!("{:?}", communication_type), "error" => format!("{:?}", err))
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => err(communication_type, e),
+                        }
+                    }
+                }
+            });
+
+            tx_done_thread
+                .send(id)
+                .expect("Server::listen: done channel closed");
+
+            // if a panic happened, continue it after sending the message
+            match res {
+                Err(panic) => std::panic::resume_unwind(panic),
+                Ok(()) => {}
+            }
+
+            debug!("Client connection handled"; "message_type" => format!("{:?}", communication_type), "thread_id" => &display_id);
+        });
+
+        tx_new_thread
+            .send((display_id_copy, communication_type, new_thread))
+            .expect("Serve::listen: new thread channel closed");
     }
 }
 
