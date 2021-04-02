@@ -6,8 +6,8 @@ use crate::project::Project;
 use crate::AbsPathBuf;
 use slog_scope::debug;
 use std::env;
-use std::fmt;
 use std::path::{Path, PathBuf};
+use thiserror::Error;
 
 /// Roots manipulation
 #[derive(Clone)]
@@ -93,7 +93,10 @@ where {
         // The user directory sometimes doesn’t exist,
         // but we can create it (it’s root but `rwxrwxrwx`)
         if !root.is_dir() {
-            std::fs::create_dir_all(&root).map_err(|e| AddRootError::create_dir_all(e, &root))?;
+            std::fs::create_dir_all(&root).map_err(|source| AddRootError {
+                source,
+                msg: format!("Failed to recursively create directory {}", root.display()),
+            })?
         }
 
         root.push(format!("{}-{}", self.id, root_name));
@@ -112,47 +115,33 @@ where {
 }
 
 /// Error conditions encountered when adding roots
-#[derive(Debug)]
-pub enum AddRootError {
-    /// IO-related errors
-    Io(std::io::Error, String),
+#[derive(Error, Debug)]
+#[error("{msg}: {source}")]
+pub struct AddRootError {
+    #[source]
+    source: std::io::Error,
+    msg: String,
 }
 
 impl AddRootError {
-    /// Create a contextualized error around failing to create a directory
-    fn create_dir_all(err: std::io::Error, path: &Path) -> AddRootError {
-        AddRootError::Io(
-            err,
-            format!("Failed to recursively create directory {}", path.display()),
-        )
-    }
-
     /// Ignore NotFound errors (it is after all a remove), and otherwise
     /// return an error explaining a delete on path failed.
-    fn remove(err: std::io::Error, path: &Path) -> Result<(), AddRootError> {
-        if err.kind() == std::io::ErrorKind::NotFound {
+    fn remove(source: std::io::Error, path: &Path) -> Result<(), AddRootError> {
+        if source.kind() == std::io::ErrorKind::NotFound {
             Ok(())
         } else {
-            Err(AddRootError::Io(
-                err,
-                format!("Failed to delete {}", path.display()),
-            ))
+            Err(AddRootError {
+                source,
+                msg: format!("Failed to delete {}", path.display()),
+            })
         }
     }
 
     /// Return an error explaining what symlink failed
-    fn symlink(err: std::io::Error, src: &Path, dest: &Path) -> AddRootError {
-        AddRootError::Io(
-            err,
-            format!("Failed to symlink {} to {}", src.display(), dest.display()),
-        )
-    }
-}
-
-impl fmt::Display for AddRootError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            AddRootError::Io(e, msg) => write!(f, "{}: {}", msg, e),
+    fn symlink(source: std::io::Error, src: &Path, dest: &Path) -> AddRootError {
+        AddRootError {
+            source,
+            msg: format!("Failed to symlink {} to {}", src.display(), dest.display()),
         }
     }
 }
