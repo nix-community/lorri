@@ -10,7 +10,6 @@
 //! we support.
 
 use std::os::unix::net::UnixStream;
-use std::thread;
 use thiserror::Error;
 
 use crate::build_loop;
@@ -120,12 +119,15 @@ pub mod listener {
         accept_timeout: Timeout,
     }
 
-    /// A thread spawned by the accept method.
-    pub struct Thread {
-        /// The kind of handler that is run by this thread (e.g. a ping event)
-        pub message_type: CommunicationType,
-        /// Handle to join the thread
-        pub handle: thread::JoinHandle<()>,
+    /// Standing connection to the client.
+    /// The `communication_type` determines which handler the user has to call in `Handlers`,
+    /// but the missing dependent types makes it hard to express;
+    /// Handlers should probably be a trait instead.
+    pub struct Connection {
+        /// The kind of communication the client requested us to talk to it.
+        pub communication_type: CommunicationType,
+        /// The handlers, being able to
+        pub handlers: Handlers,
     }
 
     /// Errors in `accept()`ing a new connection.
@@ -148,36 +150,24 @@ pub mod listener {
             })
         }
 
-        /// Accept a new connection on the socket,
-        /// read the communication type and then delegate to the
-        /// corresponding handling subroutine.
-        ///
-        /// The handler is start in a thread, the thread handle is returned.
+        /// Accept a new connection on the socket, and read the communication type,
+        /// then return the open socket.
         ///
         /// This method blocks until a client tries to connect.
-        pub fn accept<F>(&self, handlers: F) -> Result<Thread, AcceptError>
-        where
-            F: FnOnce(CommunicationType, Handlers),
-            F: 'static + Send,
-        {
+        pub fn accept(&self) -> Result<Connection, AcceptError> {
             // - socket accept
             let (unix_stream, _) = self.listener.accept().map_err(AcceptError::Accept)?;
             // - read first message as a `CommunicationType`
-            let comm_type: CommunicationType =
+            let communication_type: CommunicationType =
                 ReadWriter::<CommunicationType, ConnectionAccepted>::new(&unix_stream)
                     .react(self.accept_timeout, |_| ConnectionAccepted())
                     .map_err(AcceptError::Message)?;
             // spawn a thread with the accept handler
-            Ok(Thread {
-                handle: std::thread::spawn(move || {
-                    handlers(
-                        comm_type,
-                        Handlers {
-                            socket: unix_stream,
-                        },
-                    )
-                }),
-                message_type: comm_type,
+            Ok(Connection {
+                handlers: Handlers {
+                    socket: unix_stream,
+                },
+                communication_type,
             })
         }
     }

@@ -97,7 +97,7 @@ impl Daemon {
         let tx_build_events = self.tx_build_events.clone();
         let extra_nix_options = self.extra_nix_options.clone();
         let gc_root_dir = gc_root_dir.clone();
-        pool.spawn("foo", move || {
+        pool.spawn("build-instruction-handler", move || {
             Self::build_instruction_handler(
                 tx_build_events,
                 extra_nix_options,
