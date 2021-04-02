@@ -2,7 +2,6 @@
 //!
 //! TODO: inline this module into `::project`
 use crate::builder::{OutputPath, RootedPath};
-use crate::nix::StorePath;
 use crate::project::Project;
 use crate::AbsPathBuf;
 use slog_scope::debug;
@@ -65,15 +64,11 @@ impl Roots {
         path: RootedPath,
     ) -> Result<OutputPath<RootPath>, AddRootError>
 where {
-        Ok(OutputPath {
-            shell_gc_root: self.add("shell_gc_root", &path.path)?,
-        })
-    }
+        let root_name = "shell_gc_root";
+        let store_path = &path.path;
 
-    /// Store a new root under name
-    fn add(&self, name: &str, store_path: &StorePath) -> Result<RootPath, AddRootError> {
         // final path in the `self.gc_root_path` directory
-        let path = self.gc_root_path.join(name);
+        let path = self.gc_root_path.join(root_name);
 
         debug!("adding root"; "from" => store_path.as_path().to_str(), "to" => path.display());
         std::fs::remove_file(&path)
@@ -101,7 +96,7 @@ where {
             std::fs::create_dir_all(&root).map_err(|e| AddRootError::create_dir_all(e, &root))?;
         }
 
-        root.push(format!("{}-{}", self.id, name));
+        root.push(format!("{}-{}", self.id, root_name));
 
         debug!("connecting root"; "from" => path.display(), "to" => root.to_str());
         std::fs::remove_file(&root).or_else(|e| AddRootError::remove(e, &root))?;
@@ -110,7 +105,9 @@ where {
             .map_err(|e| AddRootError::symlink(e, path.as_absolute_path(), &root))?;
 
         // TODO: don’t return the RootPath here
-        Ok(RootPath(path))
+        Ok(OutputPath {
+            shell_gc_root: RootPath(path),
+        })
     }
 }
 
