@@ -9,6 +9,44 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+/// Represents if a path to watch should be watched recursively by the watcher or not
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub enum WatchPathBuf {
+    /// This path should be watched recursively. Equivalent to Normal for non-directory.
+    Recursive(PathBuf),
+    /// This path should not be watched recursively. For directories, only the list of files is
+    /// watched.
+    Normal(PathBuf),
+}
+
+impl AsRef<Path> for WatchPathBuf {
+    fn as_ref(&self) -> &Path {
+        match self {
+            WatchPathBuf::Recursive(path) => path.as_ref(),
+            WatchPathBuf::Normal(path) => path.as_ref(),
+        }
+    }
+}
+
+impl AsMut<PathBuf> for WatchPathBuf {
+    fn as_mut(&mut self) -> &mut PathBuf {
+        match self {
+            WatchPathBuf::Recursive(ref mut path) => path,
+            WatchPathBuf::Normal(ref mut path) => path,
+        }
+    }
+}
+
+impl WatchPathBuf {
+    /// Create a new WatchPathBuf of the same variant, but with this PathBuf instead.
+    pub fn replace(&self, path: PathBuf) -> WatchPathBuf {
+        match self {
+            WatchPathBuf::Normal(_) => WatchPathBuf::Normal(path),
+            WatchPathBuf::Recursive(_) => WatchPathBuf::Recursive(path),
+        }
+    }
+}
+
 /// A dynamic list of paths to watch for changes, and
 /// react to changes when they occur.
 pub struct Watch {
@@ -66,9 +104,12 @@ impl Watch {
     /// Extend the watch list with an additional list of paths.
     /// Note: Watch maintains a list of already watched paths, and
     /// will not add duplicates.
-    pub fn extend(&mut self, paths: Vec<PathBuf>) -> Result<(), notify::Error> {
+    pub fn extend(&mut self, paths: Vec<WatchPathBuf>) -> Result<(), notify::Error> {
         for path in paths {
-            let recursive_paths = walk_path_topo(path)?;
+            let recursive_paths = match path {
+                WatchPathBuf::Recursive(path) => walk_path_topo(path)?,
+                WatchPathBuf::Normal(path) => vec![path],
+            };
             for p in recursive_paths {
                 let p = p.canonicalize()?;
                 match Self::extend_filter(p) {
@@ -258,7 +299,7 @@ fn path_match(watched_paths: &HashSet<PathBuf>, event_path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::Watch;
+    use super::{Watch, WatchPathBuf};
     use crate::bash::expect_bash;
     use std::path::PathBuf;
     use std::thread::sleep;
@@ -341,16 +382,39 @@ mod tests {
         let mut watcher = Watch::try_new().expect("failed creating Watch");
         let temp = tempdir().unwrap();
 
-        expect_bash(r#"mkdir -p "$1""#, &[temp.path().as_os_str()]);
-        watcher.extend(vec![temp.path().to_path_buf()]).unwrap();
+        expect_bash(r#"mkdir -p "$1"/foo"#, &[temp.path().as_os_str()]);
+        expect_bash(r#"touch "$1"/foo/bar"#, &[temp.path().as_os_str()]);
+        watcher
+            .extend(vec![WatchPathBuf::Recursive(temp.path().to_path_buf())])
+            .unwrap();
 
-        expect_bash(r#"touch "$1/foo""#, &[temp.path().as_os_str()]);
+        expect_bash(r#"echo 1 > "$1/baz""#, &[temp.path().as_os_str()]);
         sleep(upper_watcher_timeout());
-        assert_file_changed(&watcher, "foo");
+        assert_file_changed(&watcher, "baz");
 
-        expect_bash(r#"echo 1 > "$1/foo""#, &[temp.path().as_os_str()]);
+        expect_bash(r#"echo 1 > "$1/foo/bar""#, &[temp.path().as_os_str()]);
         sleep(upper_watcher_timeout());
-        assert_file_changed(&watcher, "foo");
+        assert_file_changed(&watcher, "bar");
+    }
+
+    #[test]
+    fn trivial_watch_directory_not_recursively() {
+        let mut watcher = Watch::try_new().expect("failed creating Watch");
+        let temp = tempdir().unwrap();
+
+        expect_bash(r#"mkdir -p "$1"/foo"#, &[temp.path().as_os_str()]);
+        expect_bash(r#"touch "$1"/foo/bar"#, &[temp.path().as_os_str()]);
+        watcher
+            .extend(vec![WatchPathBuf::Normal(temp.path().to_path_buf())])
+            .unwrap();
+
+        expect_bash(r#"touch "$1/baz""#, &[temp.path().as_os_str()]);
+        sleep(upper_watcher_timeout());
+        assert_file_changed(&watcher, "baz");
+
+        expect_bash(r#"echo 1 > "$1/foo/bar""#, &[temp.path().as_os_str()]);
+        sleep(upper_watcher_timeout());
+        assert!(no_changes(&watcher));
     }
 
     #[test]
@@ -360,7 +424,9 @@ mod tests {
 
         expect_bash(r#"mkdir -p "$1""#, &[temp.path().as_os_str()]);
         expect_bash(r#"touch "$1/foo""#, &[temp.path().as_os_str()]);
-        watcher.extend(vec![temp.path().join("foo")]).unwrap();
+        watcher
+            .extend(vec![WatchPathBuf::Recursive(temp.path().join("foo"))])
+            .unwrap();
         macos_eat_late_notifications(&mut watcher);
 
         expect_bash(r#"echo 1 > "$1/foo""#, &[temp.path().as_os_str()]);
@@ -376,7 +442,9 @@ mod tests {
 
         expect_bash(r#"mkdir -p "$1""#, &[temp.path().as_os_str()]);
         expect_bash(r#"touch "$1/foo""#, &[temp.path().as_os_str()]);
-        watcher.extend(vec![temp.path().join("foo")]).unwrap();
+        watcher
+            .extend(vec![WatchPathBuf::Recursive(temp.path().join("foo"))])
+            .unwrap();
         macos_eat_late_notifications(&mut watcher);
 
         // bar is not watched, expect error

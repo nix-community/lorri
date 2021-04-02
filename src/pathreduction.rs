@@ -1,12 +1,13 @@
 //! Given a list of paths, reduce them to a minimum set of paths
 //! which should be watched for changes.
 
+use crate::watch::WatchPathBuf;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 #[derive(PartialEq, Debug)]
 enum PathReduction {
-    Reduced(PathBuf),
+    Reduced(WatchPathBuf),
     Remove,
 }
 
@@ -17,7 +18,7 @@ enum ReductionOp {
 }
 
 impl PathReduction {
-    fn unwrap(self, msg: &'static str) -> PathBuf {
+    fn unwrap(self, msg: &'static str) -> WatchPathBuf {
         match self {
             PathReduction::Reduced(p) => p,
             _ => panic!("{}", msg),
@@ -26,7 +27,7 @@ impl PathReduction {
 }
 
 /// Reduce one list of paths to another list of paths.
-pub fn reduce_paths(paths: &[PathBuf]) -> HashSet<PathBuf> {
+pub fn reduce_paths(paths: &[WatchPathBuf]) -> HashSet<WatchPathBuf> {
     let mut reduced = paths
         .iter()
         .map(|path| {
@@ -48,7 +49,7 @@ pub fn reduce_paths(paths: &[PathBuf]) -> HashSet<PathBuf> {
         })
         .filter(|reduction| reduction != &PathReduction::Remove)
         .map(|reduction| reduction.unwrap("previous filter got them"))
-        .collect::<Vec<PathBuf>>();
+        .collect::<Vec<WatchPathBuf>>();
 
     // Sort by length so we automatically select project roots when
     // possible, in the next fold.
@@ -56,8 +57,8 @@ pub fn reduce_paths(paths: &[PathBuf]) -> HashSet<PathBuf> {
     reduced.dedup();
     reduced
         .into_iter()
-        .fold::<HashSet<PathBuf>, _>(HashSet::new(), |mut set, new_path| {
-            if !set.iter().any(|path| new_path.starts_with(path)) {
+        .fold::<HashSet<WatchPathBuf>, _>(HashSet::new(), |mut set, new_path| {
+            if !set.iter().any(|path| new_path.as_ref().starts_with(path)) {
                 set.insert(new_path);
             }
             set
@@ -105,20 +106,21 @@ pub fn reduce_paths(paths: &[PathBuf]) -> HashSet<PathBuf> {
 ///    (C) it never changes.
 ///
 /// (E) Sub-path to exactly what file was looked at.
-fn reduce_channel_path(path: &Path) -> ReductionOp {
+fn reduce_channel_path(path: &WatchPathBuf) -> ReductionOp {
     let nix_profile = Path::new("/nix/var/nix/profiles/per-user");
 
     // example path: /nix/var/nix/profiles/per-user/root/channels/nixos/....
     //     segments: 1 2   3   4     5         6     7       8      9    10
     let channel_version_root_segments = 9;
 
-    if !path.starts_with(nix_profile) {
+    if !path.as_ref().starts_with(nix_profile) {
         return ReductionOp::NoOpinion;
     }
 
     // channel_root_path will contain:
     //     /nix/var/nix/profiles/per-user/root/channels/nixos
     let channel_root_path = path
+        .as_ref()
         .iter()
         .take(channel_version_root_segments)
         .map(Path::new)
@@ -128,14 +130,16 @@ fn reduce_channel_path(path: &Path) -> ReductionOp {
     // root the full path resolves to. If so, simplify to
     // the directory containing the swapped channel symlink.
     let canonical_channel_location = channel_root_path.canonicalize().unwrap();
-    let canonical_path_location = path.canonicalize().unwrap();
+    let canonical_path_location = path.as_ref().canonicalize().unwrap();
     if canonical_path_location.starts_with(&canonical_channel_location) {
         let reduce_to = channel_root_path
             .parent()
             .expect("expected /nix/var/nix/profiles/per-user/root/channels")
             .parent()
             .expect("expected /nix/var/nix/profiles/per-user/root");
-        ReductionOp::Reduction(PathReduction::Reduced(reduce_to.to_path_buf()))
+        ReductionOp::Reduction(PathReduction::Reduced(
+            path.replace(reduce_to.to_path_buf()),
+        ))
     } else {
         ReductionOp::NoOpinion
     }
@@ -147,18 +151,18 @@ fn reduce_channel_path(path: &Path) -> ReductionOp {
 ///
 /// Note that because store paths are immutable, these paths can
 /// be discarded.
-fn reduce_nix_store_path(path: &Path) -> ReductionOp {
+fn reduce_nix_store_path(path: &WatchPathBuf) -> ReductionOp {
     let nix_store = Path::new("/nix/store");
 
     // This is only a valid reduction if the Nix store path
     // does not contain a symlink to a location out of the Nix store.
     // Because of that, we check that it starts with /nix/store before
     // and after making it canonical.
-    if !path.starts_with(nix_store) {
+    if !path.as_ref().starts_with(nix_store) {
         return ReductionOp::NoOpinion;
     }
 
-    if let Ok(path) = path.canonicalize() {
+    if let Ok(path) = path.as_ref().canonicalize() {
         // Verify the path still starts with /nix/store
         // (see the prior comment block)
         if path.starts_with(nix_store) {
