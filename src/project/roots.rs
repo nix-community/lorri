@@ -79,9 +79,6 @@ where {
         std::fs::remove_file(&path)
             .or_else(|e| AddRootError::remove(e, &path.as_absolute_path()))?;
 
-        std::fs::remove_file(&path)
-            .or_else(|e| AddRootError::remove(e, &path.as_absolute_path()))?;
-
         // the forward GC root that points from the store path to our cache gc_roots dir
         std::os::unix::fs::symlink(store_path.as_path(), &path)
             .map_err(|e| AddRootError::symlink(e, store_path.as_path(), path.as_absolute_path()))?;
