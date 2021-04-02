@@ -13,6 +13,24 @@ let
     builtins = builtins // {
       readFile = file: builtins.trace "lorri read: '${toString file}'" (builtins.readFile file);
       readDir = path: builtins.trace "lorri readdir: '${toString path}'" (builtins.readDir path);
+      filterSource = fn: path: let
+        # use the filter function to check which of the direct children of path should be watched
+        # this allow to ignore usual suspects like .git or a top-level result symlink
+        file_type = builtins.readDir path;
+        # list of files
+        files = builtins.attrNames file_type;
+        # list of kept files
+        kept = builtins.filter (name: fn "${toString path}/${name}" file_type.${name}) files;
+        # whether all files were kept
+        all_kept = builtins.length kept == builtins.length files;
+        # the actual value we must return
+        result = builtins.filterSource fn path;
+        # if all files were kept, let's log only ${path}
+        logTopLevel = builtins.trace "lorri read: '${toString path}'" result;
+        # otherwise log all kept files individually, and the listing of the toplevel dir
+        log1stLevel = builtins.trace "lorri readdir: '${toString path}'" (builtins.foldl' (acc: name: builtins.trace "lorri read: '${toString path}/${name}'" acc) result kept);
+      in
+      if all_kept then logTopLevel else log1stLevel;
     };
   };
 
