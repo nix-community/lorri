@@ -10,7 +10,7 @@ use crate::project::roots;
 use crate::project::roots::Roots;
 use crate::project::Project;
 use crate::run_async::Async;
-use crate::watch::Watch;
+use crate::watch::{Watch, WatchPathBuf};
 use crate::NixFile;
 use crossbeam_channel as chan;
 use slog_scope::debug;
@@ -308,7 +308,7 @@ impl<'a> BuildLoop<'a> {
         self.root_result(run_result.result)
     }
 
-    fn register_paths(&mut self, paths: &[PathBuf]) -> Result<(), notify::Error> {
+    fn register_paths(&mut self, paths: &[WatchPathBuf]) -> Result<(), notify::Error> {
         let original_paths_len = paths.len();
         let paths = reduce_paths(&paths);
         debug!("paths reduced"; "from" => original_paths_len, "to" => paths.len());

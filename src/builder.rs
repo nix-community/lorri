@@ -11,6 +11,7 @@ use crate::cas::ContentAddressable;
 use crate::error::BuildError;
 use crate::nix::{options::NixOptions, StorePath};
 use crate::osstrlines;
+use crate::watch::WatchPathBuf;
 use crate::{DrvFile, NixFile};
 use regex::Regex;
 use slog_scope::debug;
@@ -38,7 +39,7 @@ pub struct RootedPath {
 }
 
 struct InstantiateOutput {
-    referenced_paths: Vec<PathBuf>,
+    referenced_paths: Vec<WatchPathBuf>,
     output: RootedDrv,
 }
 
@@ -133,13 +134,16 @@ fn instrumented_instantiation(
     // meaning we don’t have to keep the outputs in memory (fold directly)
 
     // iterate over all lines, parsing out the ones we are interested in
-    let (paths, log_lines): (Vec<PathBuf>, Vec<OsString>) =
+    let (paths, log_lines): (Vec<WatchPathBuf>, Vec<OsString>) =
         results
             .into_iter()
             .fold((vec![], vec![]), |(mut paths, mut log_lines), result| {
                 match result {
-                    LogDatum::CopiedSource(src) | LogDatum::ReadFileOrDir(src) => {
-                        paths.push(src);
+                    LogDatum::CopiedSource(src) | LogDatum::ReadRecursively(src) => {
+                        paths.push(WatchPathBuf::Recursive(src));
+                    }
+                    LogDatum::ReadDir(src) => {
+                        paths.push(WatchPathBuf::Normal(src));
                     }
                     LogDatum::NixSourceFile(mut src) => {
                         // We need to emulate nix’s `default.nix` mechanism here.
@@ -153,7 +157,7 @@ fn instrumented_instantiation(
                         if src.is_dir() {
                             src.push("default.nix");
                         }
-                        paths.push(src);
+                        paths.push(WatchPathBuf::Normal(src));
                     }
                     LogDatum::Text(line) => log_lines.push(OsString::from(line)),
                     LogDatum::NonUtf(line) => log_lines.push(line),
@@ -206,7 +210,7 @@ struct GcRootTempDir(tempfile::TempDir);
 #[derive(Debug)]
 pub struct RunResult {
     /// All the paths identified during the instantiation
-    pub referenced_paths: Vec<PathBuf>,
+    pub referenced_paths: Vec<WatchPathBuf>,
     /// The status of the build attempt
     pub result: RootedPath,
 }
@@ -235,8 +239,12 @@ enum LogDatum {
     NixSourceFile(PathBuf),
     /// A file/directory copied verbatim to the nix store
     CopiedSource(PathBuf),
-    /// A `builtins.readFile` or `builtins.readDir` invocation (at eval time)
-    ReadFileOrDir(PathBuf),
+    /// A `builtins.readFile` or `builtins.filterSource` invocation (at eval time)
+    /// Means this subtree should be recursively watched.
+    ReadRecursively(PathBuf),
+    /// A `builtins.readDir` invocation (at eval time).
+    /// The subtree must not be recursively watched, only the file listing of the directory.
+    ReadDir(PathBuf),
     /// Arbitrary text (which we couldn’t otherwise classify)
     Text(String),
     /// Text which we coudn’t decode from UTF-8
@@ -257,10 +265,17 @@ where
         // This the same is true for directories (e.g. `foo = ./abc` in a derivation).
         static ref COPIED_SOURCE: Regex =
             Regex::new("^copied source '(?P<source>.*)' -> '(?:.*)'$").expect("invalid regex!");
-        // These are printed for `builtins.readFile` and `builtins.readDir`,
+        // These are printed for `builtins.readFile` and `builtins.filterSource`,
         // by our instrumentation in `./logged-evaluation.nix`.
+        // They mean we should watch recursively this file or directory
         static ref LORRI_READ: Regex =
             Regex::new("^trace: lorri read: '(?P<source>.*)'$").expect("invalid regex!");
+        // These are printed for `builtins.readDir` and `builtins.filterSource`,
+        // by our instrumentation in `./logged-evaluation.nix`.
+        // They mean we should watch the file listing of this directory, but not
+        // its children.
+        static ref LORRI_READDIR: Regex =
+            Regex::new("^trace: lorri readdir: '(?P<source>.*)'$").expect("invalid regex!");
     }
 
     // see the regexes above for explanations of the nix outputs
@@ -275,10 +290,10 @@ where
                 LogDatum::NixSourceFile(PathBuf::from(&matches["source"]))
             } else if let Some(matches) = COPIED_SOURCE.captures(&linestr) {
                 LogDatum::CopiedSource(PathBuf::from(&matches["source"]))
-            // TODO: parse files and dirs into different LogInfo cases
-            // to make sure we only watch directories if they were builtins.readDir’ed
             } else if let Some(matches) = LORRI_READ.captures(&linestr) {
-                LogDatum::ReadFileOrDir(PathBuf::from(&matches["source"]))
+                LogDatum::ReadRecursively(PathBuf::from(&matches["source"]))
+            } else if let Some(matches) = LORRI_READ.captures(&linestr) {
+                LogDatum::ReadDir(PathBuf::from(&matches["source"]))
             } else {
                 LogDatum::Text(linestr.to_owned())
             }
@@ -330,7 +345,7 @@ mod tests {
             parse_evaluation_line(
                 "trace: lorri read: '/home/grahamc/projects/grahamc/lorri/nix/nixpkgs.json'"
             ),
-            LogDatum::ReadFileOrDir(PathBuf::from(
+            LogDatum::ReadRecursively(PathBuf::from(
                 "/home/grahamc/projects/grahamc/lorri/nix/nixpkgs.json"
             ))
         );
@@ -480,7 +495,12 @@ dir-as-source = ./dir;
             &NixOptions::empty(),
         )
         .unwrap();
-        let ends_with = |end| inst_info.referenced_paths.iter().any(|p| p.ends_with(end));
+        let ends_with = |end| {
+            inst_info
+                .referenced_paths
+                .iter()
+                .any(|p| p.as_ref().ends_with(end))
+        };
         assert!(
             ends_with("foo/default.nix"),
             "foo/default.nix should be watched!"
