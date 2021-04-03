@@ -20,7 +20,7 @@ impl PathReduction {
     fn unwrap(self, msg: &'static str) -> PathBuf {
         match self {
             PathReduction::Reduced(p) => p,
-            _ => panic!(msg),
+            _ => panic!("{}", msg),
         }
     }
 }
@@ -105,7 +105,7 @@ pub fn reduce_paths(paths: &[PathBuf]) -> HashSet<PathBuf> {
 ///    (C) it never changes.
 ///
 /// (E) Sub-path to exactly what file was looked at.
-fn reduce_channel_path(path: &PathBuf) -> ReductionOp {
+fn reduce_channel_path(path: &Path) -> ReductionOp {
     let nix_profile = Path::new("/nix/var/nix/profiles/per-user");
 
     // example path: /nix/var/nix/profiles/per-user/root/channels/nixos/....
@@ -147,7 +147,7 @@ fn reduce_channel_path(path: &PathBuf) -> ReductionOp {
 ///
 /// Note that because store paths are immutable, these paths can
 /// be discarded.
-fn reduce_nix_store_path(path: &PathBuf) -> ReductionOp {
+fn reduce_nix_store_path(path: &Path) -> ReductionOp {
     let nix_store = Path::new("/nix/store");
 
     // This is only a valid reduction if the Nix store path
