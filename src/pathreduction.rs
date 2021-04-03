@@ -20,7 +20,7 @@ impl PathReduction {
     fn unwrap(self, msg: &'static str) -> PathBuf {
         match self {
             PathReduction::Reduced(p) => p,
-            _ => panic!(msg),
+            _ => panic!("{}", msg),
         }
     }
 }
