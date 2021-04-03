@@ -3,7 +3,7 @@
 use crate::AbsPathBuf;
 use std::env;
 use std::io;
-use std::path::PathBuf;
+use std::path::Path;
 
 /// Error conditions encountered when hunting for a file on disk
 #[derive(Debug)]
@@ -24,7 +24,7 @@ impl From<std::io::Error> for FileLocationError {
 
 /// Search for `name` in the current directory.
 /// If `name` is an absolute path, it returns `name`.
-pub fn in_cwd(name: &PathBuf) -> Result<AbsPathBuf, FileLocationError> {
+pub fn in_cwd(name: &Path) -> Result<AbsPathBuf, FileLocationError> {
     let path = AbsPathBuf::new(env::current_dir()?)
         .unwrap_or_else(|orig| {
             panic!(

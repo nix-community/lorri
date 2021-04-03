@@ -9,7 +9,7 @@ use lorri::NixFile;
 use slog::{debug, error, o};
 use slog_scope::GlobalLoggerGuard;
 use std::env;
-use std::path::PathBuf;
+use std::path::Path;
 use structopt::StructOpt;
 
 const TRIVIAL_SHELL_SRC: &str = include_str!("./trivial-shell.nix");
@@ -61,9 +61,9 @@ fn install_signal_handler() {
 /// Reads a nix filename given by the user and either returns
 /// the `NixFile` type or exists with a helpful error message
 /// that instructs the user how to write a minimal `shell.nix`.
-fn find_nix_file(shellfile: &PathBuf) -> Result<NixFile, ExitError> {
+fn find_nix_file(shellfile: &Path) -> Result<NixFile, ExitError> {
     // use shell.nix from cwd
-    Ok(NixFile::from(locate_file::in_cwd(&shellfile).map_err(
+    Ok(NixFile::from(locate_file::in_cwd(shellfile).map_err(
         |_| {
             ExitError::user_error(format!(
                 "`{}` does not exist\n\
