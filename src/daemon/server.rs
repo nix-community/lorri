@@ -89,7 +89,11 @@ impl Server {
                                         for event in rx_event {
                                             match rw.write(communicate::DEFAULT_READ_TIMEOUT, &event) {
                                                 Ok(()) => {},
-                                                Err(err) => debug!("client vanished"; "communication_type" => format!("{:?}", communication_type), "error" => format!("{:?}", err))
+                                                Err(err) => {
+                                                    debug!("client vanished"; "communication_type" => format!("{:?}", communication_type), "error" => format!("{:?}", err));
+                                                    // break out of the loop or the handler is not stopped
+                                                    break;
+                                                }
                                             }
                                         }
                                     },
