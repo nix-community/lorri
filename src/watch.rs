@@ -126,7 +126,7 @@ impl Watch {
         Ok(())
     }
 
-    fn path_is_interesting(watches: &HashSet<PathBuf>, path: &PathBuf, kind: &EventKind) -> bool {
+    fn path_is_interesting(watches: &HashSet<PathBuf>, path: &Path, kind: &EventKind) -> bool {
         path_match(watches, path)
             && match kind {
                 // We ignore metadata modification events for the profiles directory
