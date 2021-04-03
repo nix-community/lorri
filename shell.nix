@@ -8,9 +8,6 @@
 }:
 
 let
-  # Keep project-specific shell commands local
-  HISTFILE = "${toString ./.}/.bash_history";
-
   ci = import ./nix/ci {
     inherit
       pkgs
@@ -132,7 +129,7 @@ pkgs.mkShell (
   }
   // (
     if isDevelopmentShell then {
-      inherit RUST_SRC_PATH CARGO_INSTALL_ROOT HISTFILE;
+      inherit RUST_SRC_PATH CARGO_INSTALL_ROOT;
     } else {}
   )
 )
