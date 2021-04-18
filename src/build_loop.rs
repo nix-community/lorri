@@ -192,10 +192,10 @@ impl<'a> BuildLoop<'a> {
 
                 // build finished
                 recv(rx_current_build) -> msg => match msg {
-                    Ok(run_result) => {
+                    Ok(builder_result) => {
                         self.start_if_scheduled_or_stop(&mut current_build);
 
-                        match self.handle_run_result(run_result) {
+                        match self.handle_builder_result(builder_result) {
                             Ok(rooted_output_paths) => {
                                 send(Event::Completed {
                                     nix_file: self.project.nix_file.clone(),
@@ -291,7 +291,7 @@ impl<'a> BuildLoop<'a> {
         let nix_file = self.project.nix_file.clone();
         let cas = self.project.cas.clone();
         let extra_nix_options = self.extra_nix_options.clone();
-        self.handle_run_result(
+        self.handle_builder_result(
             crate::run_async::Async::run(slog_scope::logger(), move || {
                 builder::run(&nix_file, &cas, &extra_nix_options)
             })
@@ -299,16 +299,18 @@ impl<'a> BuildLoop<'a> {
         )
     }
 
-    fn handle_run_result(
+    /// After the nix build runs.
+    fn handle_builder_result(
         &mut self,
         run_result: Result<builder::RunResult, BuildError>,
     ) -> Result<builder::OutputPath<roots::RootPath>, BuildError> {
         let run_result = run_result?;
-        self.register_paths(&run_result.referenced_paths)?;
+        self.watch_new_paths(&run_result.referenced_paths)?;
         self.root_result(run_result.result)
     }
 
-    fn register_paths(&mut self, paths: &[PathBuf]) -> Result<(), notify::Error> {
+    /// Add new paths (picked up during a nix build) to the watcher.
+    fn watch_new_paths(&mut self, paths: &[PathBuf]) -> Result<(), notify::Error> {
         let original_paths_len = paths.len();
         let paths = reduce_paths(&paths);
         debug!("paths reduced"; "from" => original_paths_len, "to" => paths.len());
@@ -319,6 +321,7 @@ impl<'a> BuildLoop<'a> {
         Ok(())
     }
 
+    /// Root the store path returned by the nix build.
     fn root_result(
         &mut self,
         build: builder::RootedPath,
