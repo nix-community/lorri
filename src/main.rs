@@ -65,7 +65,7 @@ fn find_nix_file(shellfile: &Path) -> Result<NixFile, ExitError> {
     // use shell.nix from cwd
     Ok(NixFile::from(locate_file::in_cwd(shellfile).map_err(
         |_| {
-            ExitError::user_error(format!(
+            ExitError::user_error(anyhow::anyhow!(
                 "`{}` does not exist\n\
                  You can use the following minimal `shell.nix` to get started:\n\n\
                  {}",
@@ -77,8 +77,9 @@ fn find_nix_file(shellfile: &Path) -> Result<NixFile, ExitError> {
 }
 
 fn create_project(paths: &constants::Paths, shell_nix: NixFile) -> Result<Project, ExitError> {
-    Project::new(shell_nix, &paths.gc_root_dir(), paths.cas_store().clone())
-        .map_err(|e| ExitError::temporary(format!("Could not set up project paths: {:#?}", e)))
+    Project::new(shell_nix, &paths.gc_root_dir(), paths.cas_store().clone()).map_err(|err| {
+        ExitError::temporary(anyhow::anyhow!(err).context("Could not set up project paths"))
+    })
 }
 
 /// Run the main function of the relevant command.

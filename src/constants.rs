@@ -3,6 +3,7 @@
 use crate::cas::ContentAddressable;
 use crate::AbsPathBuf;
 use directories::ProjectDirs;
+use thiserror::Error;
 
 /// Path constants like the GC root directory.
 pub struct Paths {
@@ -14,24 +15,30 @@ pub struct Paths {
 
 /// Everything that can happen when creating `Paths`.
 /// Mostly filesystem access problems.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum PathsInitError {
     /// The `gc_root_dir` creation failed.
+    #[error("Could not create GC roots in {gc_root_dir}")]
     #[allow(missing_docs)]
     GcRootsDirectoryCantBeCreated {
-        gc_root_dir: AbsPathBuf,
+        gc_root_dir: String,
+        #[source]
         err: std::io::Error,
     },
     /// The `socket_dir` creation failed.
+    #[error("Could not create the socket directory in {socket_dir}")]
     #[allow(missing_docs)]
     SocketDirCantBeCreated {
-        socket_dir: AbsPathBuf,
+        socket_dir: String,
+        #[source]
         err: std::io::Error,
     },
     /// The CAS creation failed.
+    #[error("Could not create the CAS directory in {cas_dir}")]
     #[allow(missing_docs)]
     CasCantBeCreated {
-        cas_dir: AbsPathBuf,
+        cas_dir: String,
+        #[source]
         err: std::io::Error,
     },
 }
@@ -70,16 +77,23 @@ impl Paths {
 
         Ok(Paths {
             gc_root_dir: create_dir(gc_root_dir.clone()).map_err(|err| {
-                PathsInitError::GcRootsDirectoryCantBeCreated { gc_root_dir, err }
+                PathsInitError::GcRootsDirectoryCantBeCreated {
+                    gc_root_dir: gc_root_dir.display().to_string(),
+                    err,
+                }
             })?,
             daemon_socket_file: create_dir(abs_runtime_dir.clone())
                 .map_err(|err| PathsInitError::SocketDirCantBeCreated {
-                    socket_dir: abs_runtime_dir,
+                    socket_dir: abs_runtime_dir.display().to_string(),
                     err,
                 })?
                 .join("daemon.socket"),
-            cas_store: ContentAddressable::new(cas_dir.clone())
-                .map_err(|err| PathsInitError::CasCantBeCreated { cas_dir, err })?,
+            cas_store: ContentAddressable::new(cas_dir.clone()).map_err(|err| {
+                PathsInitError::CasCantBeCreated {
+                    cas_dir: cas_dir.display().to_string(),
+                    err,
+                }
+            })?,
         })
     }
 

@@ -13,13 +13,12 @@
 /// - 126 if there is a problem with the environment in which lorri is run
 /// - 127 if they're trying to execute into a program and cannot find it
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ExitError {
     /// Exit code of the process, should be non-zero
     exitcode: i32,
-
-    /// Final dying words
-    message: String,
+    /// The error
+    error: anyhow::Error,
 }
 
 /// Final result from a CLI operation
@@ -33,72 +32,72 @@ pub fn ok() -> OpResult {
 impl ExitError {
     /// Exit 1 to signify a generic expected error
     /// (e.g. something that sometimes just goes wrong, like a nix build).
-    pub fn expected_error<T>(message: T) -> ExitError
+    pub fn expected_error<E>(err: E) -> ExitError
     where
-        T: Into<String>,
+        E: Into<anyhow::Error>,
     {
         ExitError {
             exitcode: 1,
-            message: message.into(),
+            error: err.into(),
         }
     }
 
     /// Exit 100 to signify a user error (“the user is holding it wrong”).
     /// This is a permanent error, if the program is executed the same way
     /// it should crash with 100 again.
-    pub fn user_error<T>(message: T) -> ExitError
+    pub fn user_error<E>(err: E) -> ExitError
     where
-        T: Into<String>,
+        E: Into<anyhow::Error>,
     {
         ExitError {
             exitcode: 100,
-            message: message.into(),
+            error: err.into(),
         }
     }
 
     /// Exit 101 to signify an unexpected crash (failing assertion or panic).
     /// This is the same exit code that `panic!()` emits.
-    pub fn panic<T>(message: T) -> ExitError
+    pub fn panic<E>(err: E) -> ExitError
     where
-        T: Into<String>,
+        E: Into<anyhow::Error>,
     {
         ExitError {
             exitcode: 101,
-            message: message.into(),
+            error: err.into(),
         }
     }
 
     /// Exit 111 to signify a temporary error (such as resource exhaustion)
-    pub fn temporary<T>(message: T) -> ExitError
+    pub fn temporary<E>(err: E) -> ExitError
     where
-        T: Into<String>,
+        E: Into<anyhow::Error>,
     {
         ExitError {
             exitcode: 111,
-            message: message.into(),
+            error: err.into(),
         }
     }
 
     /// Exit 126 to signify an environment problem
     /// (the user has set up stuff incorrectly so lorri cannot work)
-    pub fn environment_problem<T>(message: T) -> ExitError
+    pub fn environment_problem<E>(err: E) -> ExitError
     where
-        T: Into<String>,
+        E: Into<anyhow::Error>,
     {
         ExitError {
             exitcode: 126,
-            message: message.into(),
+            error: err.into(),
         }
     }
 
     /// Exit 127 to signify a missing executable.
-    pub fn missing_executable<T>(message: T) -> ExitError
+    pub fn missing_executable<E>(err: E) -> ExitError
     where
-        T: Into<String>,
+        E: Into<anyhow::Error>,
     {
         ExitError {
             exitcode: 127,
-            message: message.into(),
+            error: err.into(),
         }
     }
 
@@ -108,15 +107,17 @@ impl ExitError {
     }
 
     /// Exit message to be displayed to the user on stderr
-    pub fn message(&self) -> &str {
-        &self.message
+    pub fn message(&self) -> String {
+        // use the alternative form, since it includes the error source.
+        // TODO: format with {:?} if -v was enabled (|| RUST_BACKTRACE?)
+        format!("{:#}", &self.error)
     }
 }
 
 /// We count plain IO errors as temporary errors.
 impl From<std::io::Error> for ExitError {
     fn from(e: std::io::Error) -> ExitError {
-        ExitError::temporary(format!("{}", e))
+        ExitError::temporary(anyhow::anyhow!(e))
     }
 }
 
@@ -149,15 +150,14 @@ where
 {
     fn from(e: Err) -> ExitError {
         let exit_as = e.exit_as();
-        let msg = format!("{:?}", anyhow::Error::new(e));
         use ExitErrorType::*;
         match exit_as {
-            ExpectedError => ExitError::expected_error(msg),
-            UserError => ExitError::user_error(msg),
-            Panic => ExitError::panic(msg),
-            Temporary => ExitError::temporary(msg),
-            EnvironmentProblem => ExitError::environment_problem(msg),
-            MissingExecutable => ExitError::missing_executable(msg),
+            ExpectedError => ExitError::expected_error(e),
+            UserError => ExitError::user_error(e),
+            Panic => ExitError::panic(e),
+            Temporary => ExitError::temporary(e),
+            EnvironmentProblem => ExitError::environment_problem(e),
+            MissingExecutable => ExitError::missing_executable(e),
         }
     }
 }

@@ -19,7 +19,7 @@ use crate::nix;
 use crate::nix::options::NixOptions;
 use crate::nix::CallOpts;
 use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
-use crate::ops::error::{ok, ExitError, OpResult};
+use crate::ops::error::{ok, ExitAs, ExitError, ExitErrorType, OpResult};
 use crate::project::{roots::Roots, Project};
 use crate::run_async::Async;
 use crate::socket::path::SocketPath;
@@ -43,11 +43,14 @@ use std::{env, fs, io, thread};
 use crossbeam_channel as chan;
 
 use slog_scope::{debug, info, warn};
+use thiserror::Error;
 
 /// Set up necessary directories or fail.
 pub fn get_paths() -> Result<crate::constants::Paths, error::ExitError> {
     crate::constants::Paths::initialize().map_err(|e| {
-        error::ExitError::user_error(format!("Cannot initialize the lorri paths: {:#?}", e))
+        error::ExitError::user_error(
+            anyhow::Error::new(e).context("Cannot initialize the lorri paths"),
+        )
     })
 }
 
@@ -174,14 +177,15 @@ fn check_direnv_version() -> OpResult {
         .map_err(|_| ())
         .and_then(|utf| utf.trim_end().parse::<DirenvVersion>())
         .map_err(|()| {
-            ExitError::environment_problem(
-                "Could not figure out the current `direnv` version (parse error)".to_string(),
-            )
+            ExitError::environment_problem(anyhow::anyhow!(
+                "Could not figure out the current `direnv` version (parse error)"
+            ))
         })?;
     if version < MIN_DIRENV_VERSION {
-        Err(ExitError::environment_problem(format!(
+        Err(ExitError::environment_problem(anyhow::anyhow!(
             "`direnv` is version {}, but >= {} is required for lorri to function",
-            version, MIN_DIRENV_VERSION
+            version,
+            MIN_DIRENV_VERSION
         )))
     } else {
         ok()
@@ -196,11 +200,13 @@ where
     F: FnOnce(Command) -> std::io::Result<T>,
 {
     let res = cmd(Command::new(executable));
-    res.map_err(|a| {
-        ExitError::missing_executable(match a.kind() {
-            std::io::ErrorKind::NotFound => format!("`{}`: executable not found", executable),
-            _ => format!("Could not start `{}`: {}", executable, a),
-        })
+    res.map_err(|err| match err.kind() {
+        std::io::ErrorKind::NotFound => {
+            ExitError::missing_executable(anyhow::anyhow!("`{}`: executable not found", executable))
+        }
+        _ => ExitError::temporary(
+            anyhow::Error::new(err).context(format!("Could not start `{}`", executable)),
+        ),
     })
 }
 
@@ -233,14 +239,14 @@ pub fn init(default_shell: &str, default_envrc: &str) -> OpResult {
         default_shell,
         "Make sure shell.nix is of a form that works with nix-shell.",
     )
-    .map_err(|e| ExitError::user_error(format!("{}", e)))?;
+    .map_err(|e| ExitError::user_error(e))?;
 
     create_if_missing(
         Path::new("./.envrc"),
         default_envrc,
         "Please add 'eval \"$(lorri direnv)\"' to .envrc to set up lorri support.",
     )
-    .map_err(|e| ExitError::user_error(format!("{}", e)))?;
+    .map_err(|e| ExitError::user_error(e))?;
 
     info!("done");
     ok()
@@ -325,7 +331,7 @@ pub fn shell(project: Project, opts: ShellOptions) -> OpResult {
         .expect("failed to execute bash");
 
     if !status.success() {
-        Err(ExitError::panic(format!(
+        Err(ExitError::panic(anyhow::anyhow!(
             "cannot run lorri shell: failed to execute internal shell command (error: {})",
             status
         )))
@@ -375,14 +381,14 @@ fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
     let run_result = run_result
         .map_err(|e| {
             if cached {
-                ExitError::temporary(format!(
+                ExitError::temporary(anyhow::anyhow!(
                     "Build failed. Hint: try running `lorri shell --cached` to use the most \
                      recent environment that was built successfully.\n\
                      Build error: {}",
                     e
                 ))
             } else {
-                ExitError::temporary(format!(
+                ExitError::temporary(anyhow::anyhow!(
                     "Build failed. No cached environment available.\n\
                      Build error: {}",
                     e
@@ -393,7 +399,9 @@ fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
 
     Ok(Roots::from_project(&project)
         .create_roots(run_result)
-        .map_err(|e| ExitError::temporary(format!("rooting the environment failed: {}", e)))?
+        .map_err(|e| {
+            ExitError::temporary(anyhow::Error::new(e).context("rooting the environment failed"))
+        })?
         .shell_gc_root
         .0
         .as_absolute_path()
@@ -403,9 +411,9 @@ fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
 fn cached_root(project: &Project) -> Result<PathBuf, ExitError> {
     let root_paths = Roots::from_project(&project).paths();
     if !root_paths.all_exist() {
-        Err(ExitError::temporary(
+        Err(ExitError::temporary(anyhow::anyhow!(
             "project has not previously been built successfully",
-        ))
+        )))
     } else {
         Ok(root_paths.shell_gc_root.0.as_absolute_path().to_owned())
     }
@@ -604,7 +612,7 @@ pub fn stream_events(kind: EventKind) -> OpResult {
                 tx_event
                     .send(
                         // TODO: error
-                        res.map_err(|err| ExitError::temporary(format!("{:?}", err)))?,
+                        res.map_err(|err| ExitError::temporary(anyhow::Error::new(err)))?,
                     )
                     .expect("tx_event hung up!");
             }
@@ -666,13 +674,29 @@ enum UpgradeSource {
     Local(PathBuf),
 }
 
+#[derive(Error, Debug)]
 enum UpgradeSourceError {
     /// The local path given by the user could not be found
+    #[error("Cannot upgrade to local repostory {0}: path not found")]
     LocalPathNotFound(PathBuf),
     /// We couldn’t find local_path/release.nix, it is not a lorri repo.
+    #[error("{0} does not exist, are you sure this is a lorri repository?")]
     ReleaseNixDoesntExist(PathBuf),
     /// An other error happened when canonicalizing the given path.
-    CantCanonicalizeLocalPath(std::io::Error),
+    #[error("Problem accessing local repository")]
+    CantCanonicalizeLocalPath(#[source] std::io::Error),
+}
+
+impl ExitAs for UpgradeSourceError {
+    fn exit_as(&self) -> ExitErrorType {
+        use ExitErrorType::*;
+        use UpgradeSourceError::*;
+        match self {
+            LocalPathNotFound(_) => UserError,
+            CantCanonicalizeLocalPath(_) => Temporary,
+            ReleaseNixDoesntExist(_) => UserError,
+        }
+    }
 }
 
 impl UpgradeSource {
@@ -732,22 +756,7 @@ pub fn upgrade(upgrade_target: cli::UpgradeTo, cas: &ContentAddressable) -> OpRe
         .expect("could not write to CAS");
 
     let expr = {
-        let src = match UpgradeSource::from_cli_argument(upgrade_target) {
-            Ok(src) => Ok(src),
-            Err(UpgradeSourceError::LocalPathNotFound(p)) => Err(ExitError::user_error(format!(
-                "Cannot upgrade to local repository {}: path not found",
-                p.display()
-            ))),
-            Err(UpgradeSourceError::CantCanonicalizeLocalPath(err)) => Err(ExitError::temporary(
-                format!("Problem accessing local repository:\n{:?}", err),
-            )),
-            Err(UpgradeSourceError::ReleaseNixDoesntExist(p)) => {
-                Err(ExitError::user_error(format!(
-                    "{} does not exist, are you sure this is a lorri repository?",
-                    p.display()
-                )))
-            }
-        }?;
+        let src = UpgradeSource::from_cli_argument(upgrade_target)?;
 
         match src {
             UpgradeSource::Branch(ref b) => println!("Upgrading from branch: {}", b),
@@ -801,7 +810,7 @@ pub fn upgrade(upgrade_target: cli::UpgradeTo, cas: &ContentAddressable) -> OpRe
                 info!("upgrade successful");
                 ok()
             } else {
-                Err(ExitError::expected_error(format!(
+                Err(ExitError::expected_error(anyhow::anyhow!(
                     "\nError: nix-env command was not successful!\n{:#?}",
                     status
                 )))
@@ -835,9 +844,11 @@ fn main_run_once(project: Project) -> OpResult {
         }
         Err(e) => {
             if e.is_actionable() {
-                Err(ExitError::expected_error(format!("{:#?}", e)))
+                // TODO: implement std::io::Error for BuildError to get a backtrace
+                Err(ExitError::expected_error(anyhow::anyhow!("{:#?}", e)))
             } else {
-                Err(ExitError::temporary(format!("{:?}", e)))
+                // TODO: implement std::io::Error for BuildError to get a backtrace
+                Err(ExitError::temporary(anyhow::Error::msg(e)))
             }
         }
     }

@@ -173,7 +173,11 @@ impl<'a> BuildLoop<'a> {
     /// Sends `Event`s over `Self.tx` once they happen.
     /// When new filesystem changes are detected while a build is
     /// still running, it is finished first before starting a new build.
-    pub fn forever(&mut self, tx: chan::Sender<LoopHandlerEvent>, rx_ping: chan::Receiver<()>) {
+    pub fn forever(
+        &mut self,
+        tx: chan::Sender<LoopHandlerEvent>,
+        rx_ping: chan::Receiver<()>,
+    ) -> crate::Never {
         let mut current_build = BuildState::NotRunning;
         let rx_watcher = self.watch.rx.clone();
 
