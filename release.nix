@@ -6,6 +6,18 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
+        version = 881;
+        changes = ''
+          Fix watcher not starting if the first nix build fails.
+
+          We were not actually watching the nix file, only indirectly picking
+          it up from the first nix build; so if that failed, we’d not watch any file.
+
+          Now lorri will always add the `shell.nix` to the watchlist,
+          ensuring it triggers a rebuild as soon as it is fixed again.
+        '';
+      }
+      {
         version = 872;
         changes = ''
           Add support for builtins.filterSource, refine builtins.readDir

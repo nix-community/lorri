@@ -239,14 +239,14 @@ pub fn init(default_shell: &str, default_envrc: &str) -> OpResult {
         default_shell,
         "Make sure shell.nix is of a form that works with nix-shell.",
     )
-    .map_err(|e| ExitError::user_error(e))?;
+    .map_err(ExitError::user_error)?;
 
     create_if_missing(
         Path::new("./.envrc"),
         default_envrc,
         "Please add 'eval \"$(lorri direnv)\"' to .envrc to set up lorri support.",
     )
-    .map_err(|e| ExitError::user_error(e))?;
+    .map_err(ExitError::user_error)?;
 
     info!("done");
     ok()
@@ -836,7 +836,8 @@ pub fn watch(project: Project, opts: WatchOptions) -> OpResult {
 
 fn main_run_once(project: Project) -> OpResult {
     // TODO: add the ability to pass extra_nix_options to watch
-    let mut build_loop = BuildLoop::new(&project, NixOptions::empty());
+    let mut build_loop =
+        BuildLoop::new(&project, NixOptions::empty()).map_err(ExitError::temporary)?;
     match build_loop.once() {
         Ok(msg) => {
             print_build_message(msg);
@@ -857,12 +858,13 @@ fn main_run_once(project: Project) -> OpResult {
 fn main_run_forever(project: Project) -> OpResult {
     let (tx_build_results, rx_build_results) = chan::unbounded();
     let (tx_ping, rx_ping) = chan::unbounded();
+    // TODO: add the ability to pass extra_nix_options to watch
     let build_thread = {
         Async::run(slog_scope::logger(), move || {
-            // TODO: add the ability to pass extra_nix_options to watch
-            let mut build_loop = BuildLoop::new(&project, NixOptions::empty());
-
-            build_loop.forever(tx_build_results, rx_ping);
+            match BuildLoop::new(&project, NixOptions::empty()) {
+                Ok(mut bl) => bl.forever(tx_build_results, rx_ping).never(),
+                Err(e) => Err(ExitError::temporary(e)),
+            }
         })
     };
 
@@ -873,9 +875,7 @@ fn main_run_forever(project: Project) -> OpResult {
         print_build_message(msg);
     }
 
-    build_thread.block();
-
-    ok()
+    build_thread.block()
 }
 
 /// Print a build message to stdout and flush.

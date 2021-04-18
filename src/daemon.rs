@@ -209,9 +209,28 @@ impl Daemon {
                     // thread when you get a message” that could work!
                     // pool.spawn(format!("build_loop for {}", nix_file.display()),
                     let _ = std::thread::spawn(move || {
-                        let mut build_loop = BuildLoop::new(&project, extra_nix_options);
-
-                        build_loop.forever(tx_build_events, rx_ping);
+                        match BuildLoop::new(&project, extra_nix_options) {
+                            Ok(mut build_loop) => {
+                                build_loop.forever(tx_build_events, rx_ping).never()
+                            }
+                            Err(err) =>
+                            // TODO: omg this is so bad, too many layers of wrapping
+                            {
+                                tx_build_events
+                                    .send(LoopHandlerEvent::BuildEvent(Event::Failure {
+                                        nix_file: project.nix_file.clone(),
+                                        failure: crate::error::BuildError::Io {
+                                            msg: err
+                                                .context(format!(
+                                                    "could not start the watcher for {}",
+                                                    &project.nix_file.display()
+                                                ))
+                                                .to_string(),
+                                        },
+                                    }))
+                                    .expect("rx_build_events hung up")
+                            }
+                        }
                     });
 
                     let e = handler_threads.insert(key.clone(), tx_ping.clone());
