@@ -12,6 +12,7 @@ use crate::project::Project;
 use crate::run_async::Async;
 use crate::watch::{Watch, WatchPathBuf};
 use crate::NixFile;
+use anyhow::{anyhow, Context};
 use crossbeam_channel as chan;
 use slog_scope::debug;
 use std::path::PathBuf;
@@ -161,12 +162,30 @@ impl BuildState {
 impl<'a> BuildLoop<'a> {
     /// Instatiate a new BuildLoop. Uses an internal filesystem
     /// watching implementation.
-    pub fn new(project: &'a Project, extra_nix_options: NixOptions) -> BuildLoop<'a> {
-        BuildLoop {
+    ///
+    /// Will start by only watching the project’s nix file,
+    /// and then add new files after each nix run.
+    pub fn new(
+        project: &'a Project,
+        extra_nix_options: NixOptions,
+    ) -> anyhow::Result<BuildLoop<'a>> {
+        let mut watch = Watch::try_new().map_err(|err| anyhow!(err))?;
+        watch
+            .extend(vec![WatchPathBuf::Normal(
+                project.nix_file.as_absolute_path().to_owned(),
+            )])
+            .with_context(|| {
+                format!(
+                    "Failed to add nix path to watcher for nix file {}",
+                    project.nix_file.display()
+                )
+            })?;
+
+        Ok(BuildLoop {
             project,
-            watch: Watch::try_new().expect("Failed to initialize watch"),
+            watch,
             extra_nix_options,
-        }
+        })
     }
 
     /// Loop forever, watching the filesystem for changes. Blocks.

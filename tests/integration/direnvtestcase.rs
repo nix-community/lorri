@@ -43,7 +43,9 @@ impl DirenvTestCase {
 
     /// Execute the build loop one time
     pub fn evaluate(&mut self) -> Result<builder::OutputPath<roots::RootPath>, BuildError> {
-        BuildLoop::new(&self.project, NixOptions::empty()).once()
+        BuildLoop::new(&self.project, NixOptions::empty())
+            .expect("could not set up build loop")
+            .once()
     }
 
     /// Run `direnv allow` and then `direnv export json`, and return
