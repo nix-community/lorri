@@ -48,7 +48,7 @@ impl Roots {
         }
     }
 
-    /// Return the filesystem paths for these roots.
+    /// Return the filesystem path for this root.
     pub fn paths(&self) -> OutputPath<RootPath> {
         OutputPath {
             shell_gc_root: RootPath(self.gc_root_path.join("shell_gc_root")),
@@ -56,6 +56,33 @@ impl Roots {
     }
 
     /// Create roots to store paths.
+    ///
+    /// A lorri root is an *indirect gc root*.
+    /// An indirect gc root in nix terms is a gc root controlled by the user,
+    /// with a backlink from the nix store pointing to the user controlled link.
+    ///
+    /// This is the same mechanism that ensures `./result` symlinks created
+    /// by `nix-build` are not deleted by a GC run until the symlink is deleted.
+    ///
+    /// In practice that means that we need a two-step setup,
+    /// once we have the store path to gc_root:
+    ///
+    /// 1) We create a symlink from `~/.cache/lorri/<foo>` pointing to `/nix/store/…`
+    /// 2) We create a backlink from `/nix/var/nix/gcroots/per-user/<user>/<bar>`
+    ///    pointing to `~/.cache/lorri/<foo>`.
+    ///
+    /// The directory in `/nix/var/nix/gcroots/per-user/<user>` is set up
+    /// user-writable by nix, so we can create new backlinks there.
+    ///
+    /// That way lorri keeps all its information in `~/.cache/lorri`
+    /// and can control how long a gc root should exist, and if we overwrite
+    /// the store path symlink with a new one, the old backlink is freed
+    /// to be GCed by nix.
+    ///
+    /// TODO: passing the store path to this function means there is a
+    /// race condition between the nix build finishing and us creating the gc root,
+    /// during which the store path might be GCed.
+    /// Can we use nix’s `--indirect` instead?
     pub fn create_roots(
         &self,
         // Important: this intentionally only allows creating
@@ -68,17 +95,31 @@ where {
         let store_path = &path.path;
 
         // final path in the `self.gc_root_path` directory
+        //
+        // example:
+        //
+        // ```
+        // < home dir > <  cache   > <   gc roots for this project/nix file          > < root symlink >
+        // /home/myuser/.cache/lorri/gc_roots/1862b3eddd2ef1a0958d7630dd7a37c5/gc_root/shell_gc_root
+        // ```
         let path = self.gc_root_path.join(root_name);
 
         debug!("adding root"; "from" => store_path.as_path().to_str(), "to" => path.display());
+
+        // TODO: this leads to a short period where the gc root does not exist,
+        // which might be responsible for some of the crashes we’ve been seeing.
+        // Use a lockfile in the directory and atomic rename via rust-atomicwrites.
         std::fs::remove_file(&path)
             .or_else(|e| AddRootError::remove(e, &path.as_absolute_path()))?;
 
-        // the forward GC root that points from the store path to our cache gc_roots dir
+        // the forward GC root that points from our cache gc_roots dir to the store path
         std::os::unix::fs::symlink(store_path.as_path(), &path)
             .map_err(|e| AddRootError::symlink(e, store_path.as_path(), path.as_absolute_path()))?;
 
-        // the reverse GC root that points from nix to our cache gc_roots dir
+        // the backlink GC root that points from nix to our cache gc_roots dir
+        //
+        // Example:
+        // /nix/var/nix/gcroots/per-user/<user>/e68fc0e54c6a8d9b92814b371da289ed-shell_gc_root
         let mut root = if let Ok(path) = env::var("NIX_STATE_DIR") {
             PathBuf::from(path)
         } else {
@@ -92,6 +133,7 @@ where {
 
         // The user directory sometimes doesn’t exist,
         // but we can create it (it’s root but `rwxrwxrwx`)
+        // TODO: do at the start of lorri
         if !root.is_dir() {
             std::fs::create_dir_all(&root).map_err(|source| AddRootError {
                 source,
@@ -101,6 +143,7 @@ where {
 
         root.push(format!("{}-{}", self.id, root_name));
 
+        // TODO: Same as above, there is a short while when this file is missing
         debug!("connecting root"; "from" => path.display(), "to" => root.to_str());
         std::fs::remove_file(&root).or_else(|e| AddRootError::remove(e, &root))?;
 
