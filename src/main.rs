@@ -90,7 +90,8 @@ fn run_command(log: slog::Logger, opts: Arguments) -> OpResult {
     let without_project = || slog_scope::set_global_logger(log.clone());
     let with_project = |nix_file| -> std::result::Result<(Project, GlobalLoggerGuard), ExitError> {
         let project = create_project(&lorri::ops::get_paths()?, find_nix_file(nix_file)?)?;
-        let guard = slog_scope::set_global_logger(log.new(o!("expr" => project.nix_file.clone())));
+        let guard =
+            slog_scope::set_global_logger(log.new(o!("nix_file" => project.nix_file.clone())));
         Ok((project, guard))
     };
 
