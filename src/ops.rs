@@ -133,10 +133,6 @@ pub fn direnv<W: std::io::Write>(project: Project, mut shell_output: W) -> OpRes
             warn!("lorri daemon is not running and this project has not yet been evaluated, please run `lorri daemon`"),
     }
 
-    if std::env::var("DIRENV_IN_ENVRC") != Ok(String::from("1")) {
-        warn!("`lorri direnv` should be executed by direnv from within an `.envrc` file")
-    }
-
     // direnv interprets stdout as a script that it evaluates. That is why (1) the logger for
     // `lorri direnv` outputs to stderr by default (to avoid corrupting the script) and (2) we
     // can't use the stderr logger here.
@@ -161,6 +157,12 @@ watch_file "$EVALUATION_ROOT"
         include_str!("./ops/direnv/envrc.bash")
     )
     .expect("failed to write shell output");
+
+    // direnv provides us with an environment variable if we are inside of its envrc execution.
+    // Thus we can show a warning if the user runs it on their command line.
+    if std::env::var("DIRENV_IN_ENVRC") != Ok(String::from("1")) {
+        warn!("`lorri direnv` should be executed by direnv from within an `.envrc` file. Run `lorri init` to get started.")
+    }
 
     ok()
 }
