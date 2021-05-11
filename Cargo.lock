@@ -401,7 +401,7 @@ dependencies = [
 
 [[package]]
 name = "lorri"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow 1.0.38 (registry+https://github.com/rust-lang/crates.io-index)",
  "atomicwrites 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)",

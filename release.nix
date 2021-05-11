@@ -6,6 +6,14 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
+        version = 886;
+        changes = ''
+          Various fixes to lorri internal stream-events after daemon socket
+          protocol rewrite. It would hang and leak file descriptors in the
+          daemon.
+        '';
+      }
+      {
         version = 881;
         changes = ''
           Fix watcher not starting if the first nix build fails.
