@@ -1,5 +1,9 @@
 # lorri
 
+Announcement: The IRC channel has moved to libera.chat, `#lorri`.
+We have been devoiced and de-oped by the freenode admins because of advertising this fact.
+If you still idle in `#lorri` on freenode, please come join us there.
+
 https://github.com/nix-community/lorri
 
 [![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
@@ -173,10 +177,10 @@ For pinning versions of software during development,
 
 Please use the [issue tracker](https://github.com/nix-community/lorri/issues)
 for any problems or bugs you encounter. We are on `#lorri` on
-`freenode` ([Webchat][]), though we might not be responsive at all
+`libera` ([Webchat][]), though we might not be responsive at all
 times.
 
-[Webchat]: https://kiwiirc.com/nextclient/#irc://irc.freenode.net:+6697/#lorri
+[Webchat]: https://kiwiirc.com/nextclient/#irc://irc.libera.chat:+6697/#lorri
 
 ### Why is lorri not on [crates.io][]?
 
