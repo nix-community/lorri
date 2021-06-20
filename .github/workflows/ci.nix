@@ -175,5 +175,10 @@ let
   writeConfig = pkgs.writers.writeDash "write-ci.yml" ''
     ${pkgs.coreutils}/bin/cat "${yaml}" > "${toString ./ci.yml}"
   '';
-in
-writeConfig
+
+in {
+  inherit
+    yaml
+    writeConfig
+    ;
+}
