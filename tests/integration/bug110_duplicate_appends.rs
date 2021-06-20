@@ -19,6 +19,7 @@ fn not_so_slow() {
             DirenvValue::Value(v) => v.ends_with("foo/bar"),
             _ => false,
         },
-        format!("ITWORKED shoud end with 'foo/bar', but is {:?}", itworked)
+        "ITWORKED shoud end with 'foo/bar', but is {:?}",
+        itworked
     )
 }
