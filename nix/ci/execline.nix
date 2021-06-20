@@ -37,6 +37,7 @@ let
       let
         go = arg:
           if builtins.isString arg then [ (escapeExeclineArg arg) ]
+          else if builtins.isPath arg then [ arg ]
           else if pkgs.lib.isDerivation arg then [ (escapeExeclineArg arg) ]
           else if builtins.isList arg then [ "{" ] ++ pkgs.lib.concatMap go arg ++ [ "}" ]
           else abort "escapeExecline can only hande nested lists of strings, was ${pkgs.lib.generators.toPretty {} arg}";

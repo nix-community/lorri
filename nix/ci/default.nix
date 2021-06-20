@@ -20,6 +20,7 @@ let
       // getBins pkgs.gnused [ "sed" ]
       // getBins pkgs.bats [ "bats" ]
       // getBins pkgs.coreutils [ "test" "echo" "cat" "mkdir" "mv" "touch" ]
+      // getBins pkgs.diffutils [ "diff" ]
       ;
 
   inherit (import ./sandbox.nix { inherit pkgs writeExecline; })
@@ -173,11 +174,16 @@ let
         ]);
     };
 
-    ci-script = {
+    ci-script = offlineCheck.test {
+      name = "lint-ci-script";
       description = "check ci script was generated";
-      test = writeExecline "ci-script" {} [
-        "if" [ (import ../../.github/workflows/ci.nix { inherit pkgs; }) ]
-        bins.git "diff" "--quiet" "--" "${LORRI_ROOT}/.github/workflows/ci.yml"
+      test = { ok, err }:
+        let yaml = (import ../../.github/workflows/ci.nix { inherit pkgs; }).yaml;
+        in writeExecline "ci-script" {} [
+          "ifelse" [bins.diff "--" ../../.github/workflows/ci.yml yaml]
+          [ ok ]
+          "if" [ bins.echo ''NOTE: Please run `nix-build ./.github/workflows/ci.nix -A writeConfig && ./result"` to re-generate the CI yaml file'' ]
+          err
       ];
     };
 
