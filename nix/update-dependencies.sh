@@ -3,13 +3,35 @@
 
 set -euo pipefail
 
-# lorri should always build with the current NixOS stable branch.
-channel='nixos-20.03'
-nix-prefetch-git https://github.com/nixos/nixpkgs-channels.git \
-                 --rev "refs/heads/${channel}" > ./nix/nixpkgs-stable.json
+function prefetch-nixpkgs-channel () {
+    channel="$1"
+    outfile="$2"
+    url="https://channels.nixos.org/${channel}/git-revision"
+    git_rev_stable=$(curl -L "$url")
+    github_url="https://github.com/nixos/nixpkgs/archive/${git_rev_stable}.tar.gz"
+    echo "fetching ${github_url}" >&2
+    echo "${channel} git rev is ${git_rev_stable}" >&2
 
+    echo "prefetching ${channel} to ${outfile}" >&2
+    printf '{
+  "nixpkgs-channel": "%s",
+  "date": "%s",
+  "url": "%s",
+  "sha256": "%s"
+}' \
+           "$channel" \
+           "$(date --utc)" \
+           "$github_url" \
+           "$(nix-prefetch-url \
+                --unpack \
+                "$github_url" \
+                | tr -d '\n'
+             )" \
+           > "$outfile"
+}
+
+# lorri should always build with the current NixOS stable branch.
+prefetch-nixpkgs-channel "nixos-21.05" ./nix/nixpkgs-stable.json
 # lorri should also build with 19.09 (the first release with `rustPackages`,
 # which we use for e.g. clippy).
-min_channel='nixos-19.09'
-nix-prefetch-git https://github.com/nixos/nixpkgs-channels.git \
-                 --rev "refs/heads/${min_channel}" > ./nix/nixpkgs-1909.json
+prefetch-nixpkgs-channel "nixos-19.09" ./nix/nixpkgs-1909.json

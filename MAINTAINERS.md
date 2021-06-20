@@ -118,7 +118,7 @@ To update the lorri version in [nixpkgs][]:
 
 Run `./nix/update-dependencies.sh` from the root directory of this
 repository. This updates `nixpkgs.json` to the latest commit of the
-`nixos-unstable` channel.
+stable nixos version that is set in `./nix/update-dependencies.sh`.
 
 Afterwards, don’t forget to run `nix-shell` and `nix-build` to test
 whether everything still builds.
