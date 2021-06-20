@@ -5,185 +5,185 @@ jobs:
     name: nix-build [nixos 19.09] (macos-latest)
     runs-on: macos-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: null
-    - name: Nix
-      uses: cachix/install-nix-action@v12
-    - name: Cachix
-      uses: cachix/cachix-action@v8
-      with:
-        name: nix-community
-        signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
-    - name: Build
-      run: nix-build --arg nixpkgs ./nix/nixpkgs-1909.nix
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: null
+      - name: Nix
+        uses: cachix/install-nix-action@v12
+      - name: Cachix
+        uses: cachix/cachix-action@v8
+        with:
+          name: nix-community
+          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+      - name: Build
+        run: nix-build --arg nixpkgs ./nix/nixpkgs-1909.nix
   nix-build_1909-ubuntu-latest:
     name: nix-build [nixos 19.09] (ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: null
-    - name: Nix
-      uses: cachix/install-nix-action@v12
-    - name: Cachix
-      uses: cachix/cachix-action@v8
-      with:
-        name: nix-community
-        signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
-    - name: Build
-      run: nix-build --arg nixpkgs ./nix/nixpkgs-1909.nix
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: null
+      - name: Nix
+        uses: cachix/install-nix-action@v12
+      - name: Cachix
+        uses: cachix/cachix-action@v8
+        with:
+          name: nix-community
+          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+      - name: Build
+        run: nix-build --arg nixpkgs ./nix/nixpkgs-1909.nix
   nix-build_stable-macos-latest:
     name: nix-build [nixos stable] (macos-latest)
     runs-on: macos-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: 0
-    - name: Nix
-      uses: cachix/install-nix-action@v12
-    - name: Cachix
-      uses: cachix/cachix-action@v8
-      with:
-        name: nix-community
-        signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
-    - name: Build
-      run: nix-build
-    - name: Install
-      run: nix-env -i ./result
-    - name: Self-upgrade
-      run: lorri self-upgrade local $(pwd)
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Nix
+        uses: cachix/install-nix-action@v12
+      - name: Cachix
+        uses: cachix/cachix-action@v8
+        with:
+          name: nix-community
+          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+      - name: Build
+        run: nix-build
+      - name: Install
+        run: nix-env -i ./result
+      - name: Self-upgrade
+        run: lorri self-upgrade local $(pwd)
   nix-build_stable-ubuntu-latest:
     name: nix-build [nixos stable] (ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: 0
-    - name: Nix
-      uses: cachix/install-nix-action@v12
-    - name: Cachix
-      uses: cachix/cachix-action@v8
-      with:
-        name: nix-community
-        signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
-    - name: Build
-      run: nix-build
-    - name: Install
-      run: nix-env -i ./result
-    - name: Self-upgrade
-      run: lorri self-upgrade local $(pwd)
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Nix
+        uses: cachix/install-nix-action@v12
+      - name: Cachix
+        uses: cachix/cachix-action@v8
+        with:
+          name: nix-community
+          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+      - name: Build
+        run: nix-build
+      - name: Install
+        run: nix-env -i ./result
+      - name: Self-upgrade
+        run: lorri self-upgrade local $(pwd)
   overlay-macos-latest:
     name: Overlay builds (macos-latest)
     runs-on: macos-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: null
-    - name: Nix
-      uses: cachix/install-nix-action@v12
-    - name: Cachix
-      uses: cachix/cachix-action@v8
-      with:
-        name: nix-community
-        signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
-    - name: Build w/ overlay (19.09)
-      run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-1909.json
-    - name: Build w/ overlay (stable)
-      run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: null
+      - name: Nix
+        uses: cachix/install-nix-action@v12
+      - name: Cachix
+        uses: cachix/cachix-action@v8
+        with:
+          name: nix-community
+          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+      - name: Build w/ overlay (19.09)
+        run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-1909.json
+      - name: Build w/ overlay (stable)
+        run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
   overlay-ubuntu-latest:
     name: Overlay builds (ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: null
-    - name: Nix
-      uses: cachix/install-nix-action@v12
-    - name: Cachix
-      uses: cachix/cachix-action@v8
-      with:
-        name: nix-community
-        signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
-    - name: Build w/ overlay (19.09)
-      run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-1909.json
-    - name: Build w/ overlay (stable)
-      run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: null
+      - name: Nix
+        uses: cachix/install-nix-action@v12
+      - name: Cachix
+        uses: cachix/cachix-action@v8
+        with:
+          name: nix-community
+          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+      - name: Build w/ overlay (19.09)
+        run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-1909.json
+      - name: Build w/ overlay (stable)
+        run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
   rust-macos-latest:
     name: Rust and CI tests (macos-latest)
     runs-on: macos-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: null
-    - name: Nix
-      uses: cachix/install-nix-action@v12
-    - name: Cachix
-      uses: cachix/cachix-action@v8
-      with:
-        name: nix-community
-        signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
-    - name: Add rustc to PATH
-      run: |
-        set -euo pipefail
-        rustc_path="$(nix-build -A rustc nix/nixpkgs-stable.nix)/bin"
-        echo "$rustc_path" >> "$GITHUB_PATH"
-    - name: print PATH
-      run: printenv PATH
-    - name: Rust Cache
-      uses: Swatinem/rust-cache@v1.2.0
-    - name: CI tests
-      run: |
-        nix-build \
-          --out-link ./ci-tests \
-          --arg isDevelopmentShell false \
-          -A ci.testsuite \
-          shell.nix \
-          && ./ci-tests
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: null
+      - name: Nix
+        uses: cachix/install-nix-action@v12
+      - name: Cachix
+        uses: cachix/cachix-action@v8
+        with:
+          name: nix-community
+          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+      - name: Add rustc to PATH
+        run: |
+          set -euo pipefail
+          rustc_path="$(nix-build -A rustc nix/nixpkgs-stable.nix)/bin"
+          echo "$rustc_path" >> "$GITHUB_PATH"
+      - name: print PATH
+        run: printenv PATH
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v1.2.0
+      - name: CI tests
+        run: |
+          nix-build \
+            --out-link ./ci-tests \
+            --arg isDevelopmentShell false \
+            -A ci.testsuite \
+            shell.nix \
+            && ./ci-tests
   rust-ubuntu-latest:
     name: Rust and CI tests (ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: null
-    - name: Nix
-      uses: cachix/install-nix-action@v12
-    - name: Cachix
-      uses: cachix/cachix-action@v8
-      with:
-        name: nix-community
-        signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
-    - name: Add rustc to PATH
-      run: |
-        set -euo pipefail
-        rustc_path="$(nix-build -A rustc nix/nixpkgs-stable.nix)/bin"
-        echo "$rustc_path" >> "$GITHUB_PATH"
-    - name: print PATH
-      run: printenv PATH
-    - name: Rust Cache
-      uses: Swatinem/rust-cache@v1.2.0
-    - name: CI tests
-      run: |
-        nix-build \
-          --out-link ./ci-tests \
-          --arg isDevelopmentShell false \
-          -A ci.testsuite \
-          shell.nix \
-          && ./ci-tests
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: null
+      - name: Nix
+        uses: cachix/install-nix-action@v12
+      - name: Cachix
+        uses: cachix/cachix-action@v8
+        with:
+          name: nix-community
+          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+      - name: Add rustc to PATH
+        run: |
+          set -euo pipefail
+          rustc_path="$(nix-build -A rustc nix/nixpkgs-stable.nix)/bin"
+          echo "$rustc_path" >> "$GITHUB_PATH"
+      - name: print PATH
+        run: printenv PATH
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v1.2.0
+      - name: CI tests
+        run: |
+          nix-build \
+            --out-link ./ci-tests \
+            --arg isDevelopmentShell false \
+            -A ci.testsuite \
+            shell.nix \
+            && ./ci-tests
 name: CI
 "on":
   pull_request:
     branches:
-    - '**'
+      - '**'
   push:
     branches:
-    - master
+      - master
