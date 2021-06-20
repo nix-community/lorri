@@ -215,7 +215,6 @@ where
 /// See the documentation for lorri::cli::Command::Info for more
 /// details.
 pub fn info(project: Project) -> OpResult {
-    println!("lorri version: {}", crate::LORRI_VERSION);
     let root_paths = Roots::from_project(&project).paths();
     let OutputPath { shell_gc_root } = &root_paths;
     if root_paths.all_exist() {
