@@ -2,7 +2,7 @@
 let
   srcDef = builtins.fromJSON (builtins.readFile pkgs);
   nixpkgs = builtins.fetchTarball {
-    url = "https://github.com/NixOS/nixpkgs/archive/${srcDef.rev}.tar.gz";
+    url = srcDef.url;
     sha256 = srcDef.sha256;
   };
 in
