@@ -11,6 +11,17 @@ let
     in writeExecline "empty-env" {}
          (importas ++ [ "emptyenv" ] ++ export ++ [ "${pkgs.execline}/bin/exec" "$@" ]);
 
+  runWithoutNetwork = writeExecline "run-without-network" {} [
+    "${pkgs.bubblewrap}/bin/bwrap"
+    "--dev-bind" "/" "/"
+    "--unshare-net"
+    "$@"
+  ];
+
+
 in {
-  inherit runInEmptyEnv;
+  inherit
+    runInEmptyEnv
+    runWithoutNetwork
+    ;
 }
