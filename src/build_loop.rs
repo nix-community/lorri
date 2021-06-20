@@ -183,8 +183,8 @@ impl<'a> BuildLoop<'a> {
 
         Ok(BuildLoop {
             project,
-            watch,
             extra_nix_options,
+            watch,
         })
     }
 

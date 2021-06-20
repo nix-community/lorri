@@ -23,7 +23,9 @@ let
       ;
 
   inherit (import ./sandbox.nix { inherit pkgs writeExecline; })
-    runInEmptyEnv;
+    runInEmptyEnv
+    runWithoutNetwork
+    ;
 
   # shellcheck a file
   shellcheck = file: writeExecline "lint-shellcheck" {} [
@@ -142,9 +144,13 @@ let
         "if" [ "env" ]
         # print the absolute path of the cargo-clippy version used
         "if" [ "sh" "-c" "type cargo-clippy" ]
+        # first make sure all packages are fetched already
+        (writeCargo "cargo-fetch" [] [ "fetch" ])
+        # turn of network to prevent clippy from downloading anything
+        runWithoutNetwork
         "if" [ "cargo-clippy" "--version" ]
         "export" "RUSTFLAGS" "-D warnings"
-      ] [ "clippy" ];
+      ] [ "clippy" "--offline" ];
     };
 
     # TODO: it would be good to sandbox this (it changes files in the tree)
