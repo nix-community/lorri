@@ -50,12 +50,12 @@ cargoLorri.override {
           --no-out-link
       '';
 
-      buildInputs = with pkgs; [
-        nix # required for the preConfigure test
-        rustPackages.rustfmt
-      ] ++ stdenv.lib.optionals stdenv.isDarwin [
-        darwin.Security
-        darwin.apple_sdk.frameworks.CoreServices
+      buildInputs = [
+        pkgs.nix # required for the preConfigure test
+        pkgs.rustPackages.rustfmt
+      ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+        pkgs.darwin.Security
+        pkgs.darwin.apple_sdk.frameworks.CoreServices
       ];
 
       # copy the docs to the $man and $doc outputs

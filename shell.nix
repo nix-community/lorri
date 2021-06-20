@@ -57,7 +57,7 @@ let
     # To ensure we always have a compatible nix in our shells.
     # CI doesn’t know `nix-env` otherwise.
     pkgs.nix
-  ] ++ pkgs.stdenv.lib.optionals pkgs.stdenv.isDarwin [
+  ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
     pkgs.darwin.Security
     pkgs.darwin.apple_sdk.frameworks.CoreServices
     pkgs.darwin.apple_sdk.frameworks.CoreFoundation
@@ -68,7 +68,7 @@ pkgs.mkShell (
   {
     name = "lorri";
     buildInputs = buildInputs
-    ++ pkgs.stdenv.lib.optionals isDevelopmentShell [ pkgs.rustracer ];
+    ++ pkgs.lib.optionals isDevelopmentShell [ pkgs.rustracer ];
 
     inherit BUILD_REV_COUNT RUN_TIME_CLOSURE;
 
