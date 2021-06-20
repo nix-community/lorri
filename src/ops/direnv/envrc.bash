@@ -164,10 +164,12 @@ export IN_NIX_SHELL=impure
 
 if [ -f "$EVALUATION_ROOT/bash-export" ]; then
     # shellcheck disable=SC1090
-    . "$EVALUATION_ROOT/bash-export"
+    # shellcheck disable=SC1091
+    source "$EVALUATION_ROOT/bash-export"
 elif [ -f "$EVALUATION_ROOT" ]; then
     # shellcheck disable=SC1090
-    . "$EVALUATION_ROOT"
+    # shellcheck disable=SC1091
+    source "$EVALUATION_ROOT"
 fi
 
 unset declare
