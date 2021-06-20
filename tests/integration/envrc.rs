@@ -68,6 +68,7 @@ fn trivial_v2() {
 fn v2_gopath_previously_unset() {
     let env = EnvrcTestCase::new()
         .ambient_env("PATH", &env::var("PATH").unwrap())
+        .ambient_env("HOME", "/home/alice")
         .project_env(ProjectEnvBuilderV2::new().append("GOPATH", ":", "BAR"))
         .unwrap()
         .get_direnv_variables();
@@ -85,6 +86,7 @@ fn bug18_path_with_spaces() {
         .unwrap();
     let env = EnvrcTestCase::new()
         .ambient_env("PATH", &path)
+        .ambient_env("HOME", "/home/alice")
         .project_env(ProjectEnvBuilderV1::new().set("PATH", "/foo/bar"))
         .unwrap()
         .get_direnv_variables();

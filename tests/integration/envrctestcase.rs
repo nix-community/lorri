@@ -24,7 +24,8 @@ fn find_program<S: Display + AsRef<OsStr>>(program: S) -> PathBuf {
 
     assert!(
         output.status.success(),
-        format!("Calling «bash -c 'which {}'» failed!", &program)
+        "Calling «bash -c 'which {}'» failed!",
+        &program
     );
 
     let location = String::from_utf8(output.stdout).expect(&format!(
