@@ -5,4 +5,4 @@ let
     sha256 = srcDef.sha256;
   };
 in
-import nixpkgs { overlays = [ (import ./overrides.nix) ]; }
+args@{...}: import nixpkgs (args // { overlays = args.overlays or [] ++ [ (import ./overrides.nix) ]; })

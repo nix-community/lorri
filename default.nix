@@ -1,5 +1,8 @@
 { nixpkgs ? ./nix/nixpkgs-stable.nix
-, pkgs ? import nixpkgs
+, pkgs ? import nixpkgs {
+    # This is a hack to work around something requiring libcap on MacOS
+    config.allowUnsupportedSystem = true;
+  }
 }:
 let
   src = pkgs.nix-gitignore.gitignoreSource [
