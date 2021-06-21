@@ -23,7 +23,7 @@ cargoLorri.override {
     lorri = attrs: {
       name = "lorri";
 
-      inherit src;
+      src = pkgs.nix-gitignore.gitignoreSource  [ ".git" "target" "/*.nix" ] ./.;
 
       # add man and doc outputs to put our documentation into
       outputs = cargoLorri.outputs ++ [ "man" "doc" ];
