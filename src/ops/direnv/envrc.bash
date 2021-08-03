@@ -156,6 +156,11 @@ function declare() {
         "preHook="*) punt;;
         "origPreHook="*) move "origPreHook" "preHook" "$@";;
 
+        # https://github.com/nix-community/lorri/issues/48 and
+        # https://github.com/nix-community/home-manager/blob/master/modules/misc/xdg-system-dirs.nix#L16-L36
+        "XDG_DATA_DIRS="*) prepend "XDG_DATA_DIRS" ":" "$@";;
+        "XDG_CONFIG_DIRS="*) prepend "XDG_CONFIG_DIRS" ":" "$@";;
+
         *) varmap "$@" ;;
     esac
 }
