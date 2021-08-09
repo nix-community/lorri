@@ -6,6 +6,12 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
+        version = 889;
+        changes = ''
+          Fix another file descriptor leak in the daemon.
+        '';
+      }
+      {
         version = 886;
         changes = ''
           Various fixes to lorri internal stream-events after daemon socket
