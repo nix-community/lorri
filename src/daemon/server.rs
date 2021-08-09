@@ -113,7 +113,8 @@ impl Server {
                                     match rw.write(communicate::DEFAULT_READ_TIMEOUT, &event) {
                                         Ok(()) => {}
                                         Err(err) => {
-                                            debug!("client vanished"; "communication_type" => format!("{:?}", communication_type), "error" => format!("{:?}", err))
+                                            debug!("client vanished, closing socket"; "communication_type" => format!("{:?}", communication_type), "error" => format!("{:?}", err));
+                                            break;
                                         }
                                     }
                                 }
