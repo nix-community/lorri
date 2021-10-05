@@ -1,0 +1,6 @@
+{
+  "nixpkgs-channel": "nixos-20.09",
+  "date": "Di 5. Okt 19:28:28 UTC 2021",
+  "url": "https://github.com/nixos/nixpkgs/archive/a13824fe5e38187fbc75cd598b5c06bdcc13501f.tar.gz",
+  "sha256": "1jy36v8af78qlml78v21djla9ywdq1rcvb25axk020xmgsxxz916"
+}

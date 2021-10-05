@@ -78,7 +78,7 @@ To cut a new release:
 ## Publishing a release on [nixpkgs][]
 
 lorri is available in the `nixos-unstable` and the stable release channels
-from 19.09, which correspond to the `master` and `release-<stable-release-date>`
+from 20.09, which correspond to the `master` and `release-<stable-release-date>`
 (example: `release-20.03`) branches in the [nixpkgs][] repository, respectively.
 
 The relevant directories and files in [nixpkgs][] are:
