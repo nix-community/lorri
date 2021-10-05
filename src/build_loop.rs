@@ -14,7 +14,7 @@ use crate::watch::{Watch, WatchPathBuf};
 use crate::NixFile;
 use anyhow::{anyhow, Context};
 use crossbeam_channel as chan;
-use slog_scope::debug;
+use slog::debug;
 use std::path::PathBuf;
 
 /// Build events that can happen.
@@ -129,6 +129,7 @@ pub struct BuildLoop<'a> {
     /// Watches all input files for changes.
     /// As new input files are discovered, they are added to the watchlist.
     watch: Watch,
+    logger: slog::Logger,
 }
 
 enum BuildState {
@@ -168,8 +169,9 @@ impl<'a> BuildLoop<'a> {
     pub fn new(
         project: &'a Project,
         extra_nix_options: NixOptions,
+        logger: slog::Logger,
     ) -> anyhow::Result<BuildLoop<'a>> {
-        let mut watch = Watch::try_new().map_err(|err| anyhow!(err))?;
+        let mut watch = Watch::try_new(logger.clone()).map_err(|err| anyhow!(err))?;
         watch
             .extend(vec![WatchPathBuf::Normal(
                 project.nix_file.as_absolute_path().to_owned(),
@@ -185,6 +187,7 @@ impl<'a> BuildLoop<'a> {
             project,
             extra_nix_options,
             watch,
+            logger,
         })
     }
 
@@ -201,7 +204,7 @@ impl<'a> BuildLoop<'a> {
         let rx_watcher = self.watch.rx.clone();
 
         loop {
-            debug!("looping build_loop";
+            debug!(self.logger, "looping build_loop";
                    "current_build" => current_build.display_status(),
                    "project" => &self.project.nix_file);
             let rx_current_build = current_build.result_chan();
@@ -238,7 +241,7 @@ impl<'a> BuildLoop<'a> {
                         }
                     },
                     Err(chan::RecvError) =>
-                        debug!("current build async chan was disconnected"; "project" => &self.project.nix_file)
+                        debug!(self.logger, "current build async chan was disconnected"; "project" => &self.project.nix_file)
                 },
 
                 // watcher found file change
@@ -258,7 +261,7 @@ impl<'a> BuildLoop<'a> {
                         }
                     },
                     Err(chan::RecvError) =>
-                        debug!("notify chan was disconnected"; "project" => &self.project.nix_file)
+                        debug!(self.logger, "notify chan was disconnected"; "project" => &self.project.nix_file)
                 },
 
                 // we were pinged
@@ -272,7 +275,7 @@ impl<'a> BuildLoop<'a> {
                         self.schedule_build(&mut current_build)
                     },
                     Err(chan::RecvError) =>
-                        debug!("ping chan was disconnected"; "project" => &self.project.nix_file)
+                        debug!(self.logger, "ping chan was disconnected"; "project" => &self.project.nix_file)
                 }
             };
         }
@@ -301,8 +304,9 @@ impl<'a> BuildLoop<'a> {
         let nix_file = self.project.nix_file.clone();
         let cas = self.project.cas.clone();
         let extra_nix_options = self.extra_nix_options.clone();
-        crate::run_async::Async::run(slog_scope::logger(), move || {
-            builder::run(&nix_file, &cas, &extra_nix_options)
+        let logger2 = self.logger.clone();
+        crate::run_async::Async::run(&self.logger, move || {
+            builder::run(&nix_file, &cas, &extra_nix_options, &logger2)
         })
     }
 
@@ -314,9 +318,10 @@ impl<'a> BuildLoop<'a> {
         let nix_file = self.project.nix_file.clone();
         let cas = self.project.cas.clone();
         let extra_nix_options = self.extra_nix_options.clone();
+        let logger2 = self.logger.clone();
         self.handle_run_result(
-            crate::run_async::Async::run(slog_scope::logger(), move || {
-                builder::run(&nix_file, &cas, &extra_nix_options)
+            crate::run_async::Async::run(&self.logger, move || {
+                builder::run(&nix_file, &cas, &extra_nix_options, &logger2)
             })
             .block(),
         )
@@ -334,7 +339,7 @@ impl<'a> BuildLoop<'a> {
     fn register_paths(&mut self, paths: &[WatchPathBuf]) -> Result<(), notify::Error> {
         let original_paths_len = paths.len();
         let paths = reduce_paths(&paths);
-        debug!("paths reduced"; "from" => original_paths_len, "to" => paths.len());
+        debug!(self.logger, "paths reduced"; "from" => original_paths_len, "to" => paths.len());
 
         // add all new (reduced) nix sources to the input source watchlist
         self.watch.extend(paths.into_iter().collect::<Vec<_>>())?;
@@ -347,6 +352,8 @@ impl<'a> BuildLoop<'a> {
         build: builder::RootedPath,
     ) -> Result<builder::OutputPath<roots::RootPath>, BuildError> {
         let roots = Roots::from_project(&self.project);
-        roots.create_roots(build).map_err(BuildError::io)
+        roots
+            .create_roots(build, &self.logger.clone())
+            .map_err(BuildError::io)
     }
 }

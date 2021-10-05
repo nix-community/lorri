@@ -33,7 +33,7 @@
 use crate::error::BuildError;
 use crate::osstrlines;
 use crossbeam_channel as chan;
-use slog_scope::debug;
+use slog::debug;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -239,7 +239,7 @@ impl<'a> CallOpts<'a> {
     ///             import <nixpkgs> {}
     /// "#)
     ///         .attribute("hello")
-    ///         .path()
+    ///         .path(&lorri::logging::test_logger())
     ///         .unwrap()
     ///         ;
     ///
@@ -269,15 +269,15 @@ impl<'a> CallOpts<'a> {
     /// let paths = nix::CallOpts::expression(r#"
     ///             { inherit (import <nixpkgs> {}) hello git; }
     /// "#)
-    ///         .path();
+    ///         .path(&lorri::logging::test_logger());
     ///
     /// match paths {
     ///    Err(BuildError::Output { .. }) => {},
     ///    otherwise => panic!(otherwise)
     /// }
     /// ```
-    pub fn path(&self) -> Result<(StorePath, GcRootTempDir), BuildError> {
-        let (pathsv1, gc_root) = self.paths()?;
+    pub fn path(&self, logger: &slog::Logger) -> Result<(StorePath, GcRootTempDir), BuildError> {
+        let (pathsv1, gc_root) = self.paths(logger)?;
         let mut paths = pathsv1.into_vec();
 
         match (paths.pop(), paths.pop()) {
@@ -309,7 +309,7 @@ impl<'a> CallOpts<'a> {
     /// let (paths, gc_root) = nix::CallOpts::expression(r#"
     ///             { inherit (import <nixpkgs> {}) hello git; }
     /// "#)
-    ///         .paths()
+    ///         .paths(&lorri::logging::test_logger())
     ///         .unwrap();
     /// let mut paths = paths
     ///         .into_iter()
@@ -318,7 +318,10 @@ impl<'a> CallOpts<'a> {
     /// assert!(paths.next().unwrap().contains("hello-"));
     /// drop(gc_root);
     /// ```
-    pub fn paths(&self) -> Result<(Vec1<StorePath>, GcRootTempDir), BuildError> {
+    pub fn paths(
+        &self,
+        logger: &slog::Logger,
+    ) -> Result<(Vec1<StorePath>, GcRootTempDir), BuildError> {
         // TODO: temp_dir writes to /tmp by default, we should
         // create a wrapper using XDG_RUNTIME_DIR instead,
         // which is per-user and (on systemd systems) a tmpfs.
@@ -334,7 +337,7 @@ impl<'a> CallOpts<'a> {
 
         cmd.args(self.command_arguments());
 
-        debug!("nix-build"; "command" => ?cmd);
+        debug!(logger, "nix-build"; "command" => ?cmd);
 
         let paths: Vec<StorePath> = self.execute(cmd, move |stdout_handle| {
             osstrlines::Lines::from(stdout_handle)

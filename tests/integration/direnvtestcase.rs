@@ -18,6 +18,7 @@ pub struct DirenvTestCase {
     #[allow(dead_code)]
     pub cachedir: TempDir,
     project: Project,
+    logger: slog::Logger,
 }
 
 impl DirenvTestCase {
@@ -38,12 +39,13 @@ impl DirenvTestCase {
             projectdir,
             cachedir: cachedir_tmp,
             project,
+            logger: lorri::logging::test_logger(),
         }
     }
 
     /// Execute the build loop one time
     pub fn evaluate(&mut self) -> Result<builder::OutputPath<roots::RootPath>, BuildError> {
-        BuildLoop::new(&self.project, NixOptions::empty())
+        BuildLoop::new(&self.project, NixOptions::empty(), self.logger.clone())
             .expect("could not set up build loop")
             .once()
     }
@@ -52,7 +54,7 @@ impl DirenvTestCase {
     /// the environment DirEnv would produce.
     pub fn get_direnv_variables(&self) -> DirenvEnv {
         let envrc = File::create(self.projectdir.path().join(".envrc")).unwrap();
-        ops::direnv(self.project.clone(), envrc).unwrap();
+        ops::direnv(self.project.clone(), envrc, &self.logger).unwrap();
 
         {
             let mut allow = self.direnv_cmd();

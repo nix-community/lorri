@@ -14,7 +14,7 @@ use crate::osstrlines;
 use crate::watch::WatchPathBuf;
 use crate::{DrvFile, NixFile};
 use regex::Regex;
-use slog_scope::debug;
+use slog::debug;
 use std::ffi::{OsStr, OsString};
 use std::io::BufReader;
 use std::path::PathBuf;
@@ -47,6 +47,7 @@ fn instrumented_instantiation(
     nix_file: &NixFile,
     cas: &ContentAddressable,
     extra_nix_options: &NixOptions,
+    logger: &slog::Logger,
 ) -> Result<InstantiateOutput, BuildError> {
     // We're looking for log lines matching:
     //
@@ -92,7 +93,7 @@ fn instrumented_instantiation(
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
 
-    debug!("nix-instantiate"; "command" => ?cmd);
+    debug!(logger, "nix-instantiate"; "command" => ?cmd);
 
     let mut child = cmd.spawn().map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => BuildError::spawn(&cmd, e),
@@ -193,8 +194,8 @@ struct BuildOutput {
 /// Builds the Nix expression in `root_nix_file`.
 ///
 /// Instruments the nix file to gain extra information, which is valuable even if the build fails.
-fn build(drv_path: DrvFile) -> Result<BuildOutput, BuildError> {
-    let (path, gc_handle) = crate::nix::CallOpts::file(drv_path.as_path()).path()?;
+fn build(drv_path: DrvFile, logger: &slog::Logger) -> Result<BuildOutput, BuildError> {
+    let (path, gc_handle) = crate::nix::CallOpts::file(drv_path.as_path()).path(logger)?;
     Ok(BuildOutput {
         output: RootedPath { gc_handle, path },
     })
@@ -223,9 +224,10 @@ pub fn run(
     root_nix_file: &NixFile,
     cas: &ContentAddressable,
     extra_nix_options: &NixOptions,
+    logger: &slog::Logger,
 ) -> Result<RunResult, BuildError> {
-    let inst_info = instrumented_instantiation(root_nix_file, cas, &extra_nix_options)?;
-    let buildoutput = build(inst_info.output.path)?;
+    let inst_info = instrumented_instantiation(root_nix_file, cas, &extra_nix_options, logger)?;
+    let buildoutput = build(inst_info.output.path, logger)?;
     Ok(RunResult {
         referenced_paths: inst_info.referenced_paths,
         result: buildoutput.output,
@@ -415,6 +417,7 @@ in {}
             &crate::NixFile::from(cas.file_from_string(&nix_drv)?),
             &cas,
             &NixOptions::empty(),
+            &crate::logging::test_logger(),
         )
         .expect("should not crash!");
         Ok(())
@@ -431,7 +434,12 @@ in {}
             &format!("dep = {};", drv("dep", r##"args = [ "-c" "exit 1" ];"##)),
         ))?);
 
-        if let Err(BuildError::Exit { .. }) = run(&d, &cas, &NixOptions::empty()) {
+        if let Err(BuildError::Exit { .. }) = run(
+            &d,
+            &cas,
+            &NixOptions::empty(),
+            &crate::logging::test_logger(),
+        ) {
         } else {
             assert!(
                 false,
@@ -493,6 +501,7 @@ dir-as-source = ./dir;
             &NixFile::from(AbsPathBuf::new(shell).unwrap()),
             &cas,
             &NixOptions::empty(),
+            &crate::logging::test_logger(),
         )
         .unwrap();
         let ends_with = |end| {

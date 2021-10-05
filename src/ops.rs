@@ -42,7 +42,7 @@ use std::{env, fs, io, thread};
 
 use crossbeam_channel as chan;
 
-use slog_scope::{debug, info, warn};
+use slog::{debug, info, warn};
 use thiserror::Error;
 
 /// Set up necessary directories or fail.
@@ -58,7 +58,7 @@ pub fn get_paths() -> Result<crate::constants::Paths, error::ExitError> {
 /// Can be used together with `direnv`.
 
 /// See the documentation for lorri::cli::Command::Daemon for details.
-pub fn daemon(opts: crate::cli::DaemonOptions) -> OpResult {
+pub fn daemon(opts: crate::cli::DaemonOptions, logger: &slog::Logger) -> OpResult {
     let extra_nix_options = match opts.extra_nix_options {
         None => NixOptions::empty(),
         Some(v) => NixOptions {
@@ -68,18 +68,20 @@ pub fn daemon(opts: crate::cli::DaemonOptions) -> OpResult {
     };
 
     let (mut daemon, build_rx) = Daemon::new(extra_nix_options);
-    let build_handle = std::thread::spawn(|| {
+    let logger2 = logger.clone();
+    let build_handle = std::thread::spawn(move || {
         for msg in build_rx {
-            info!("build status"; "message" => ?msg);
+            info!(logger2, "build status"; "message" => ?msg);
         }
     });
-    info!("ready");
+    info!(logger, "ready");
 
     let paths = crate::ops::get_paths()?;
     daemon.serve(
         &SocketPath::from(paths.daemon_socket_file().clone()),
         paths.gc_root_dir(),
         paths.cas_store().clone(),
+        &logger,
     )?;
     build_handle
         .join()
@@ -91,7 +93,11 @@ pub fn daemon(opts: crate::cli::DaemonOptions) -> OpResult {
 ///
 /// See the documentation for lorri::cli::Command::Direnv for more
 /// details.
-pub fn direnv<W: std::io::Write>(project: Project, mut shell_output: W) -> OpResult {
+pub fn direnv<W: std::io::Write>(
+    project: Project,
+    mut shell_output: W,
+    logger: &slog::Logger,
+) -> OpResult {
     check_direnv_version()?;
 
     let root_paths = Roots::from_project(&project).paths();
@@ -99,8 +105,8 @@ pub fn direnv<W: std::io::Write>(project: Project, mut shell_output: W) -> OpRes
 
     let ping_sent = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
-        debug!("connecting to socket"; "socket" => address.as_absolute_path().display());
-        client::create::<client::Ping>(client::Timeout::from_millis(500))
+        debug!(logger, "connecting to socket"; "socket" => address.as_absolute_path().display());
+        client::create::<client::Ping>(client::Timeout::from_millis(500), logger)
             .and_then(|c| {
                 c.write(&client::Ping {
                     nix_file: project.nix_file,
@@ -119,6 +125,7 @@ pub fn direnv<W: std::io::Write>(project: Project, mut shell_output: W) -> OpRes
         // the direnv environment will be updated automatically.
         (true, false) =>
             info!(
+                logger,
                 "lorri has not completed an evaluation for this project yet"
             ),
 
@@ -126,6 +133,7 @@ pub fn direnv<W: std::io::Write>(project: Project, mut shell_output: W) -> OpRes
         // When the daemon is started, we'll send a fresh ping.
         (false, true) =>
             info!(
+                logger,
                 "lorri daemon is not running, loading a cached environment"
             ),
 
@@ -133,7 +141,7 @@ pub fn direnv<W: std::io::Write>(project: Project, mut shell_output: W) -> OpRes
         // but when the daemon in started we'll send a ping and eventually
         // load a fresh environment.
         (false, false) =>
-            warn!("lorri daemon is not running and this project has not yet been evaluated, please run `lorri daemon`"),
+            warn!(logger, "lorri daemon is not running and this project has not yet been evaluated, please run `lorri daemon`"),
     }
 
     // direnv interprets stdout as a script that it evaluates. That is why (1) the logger for
@@ -164,7 +172,7 @@ watch_file "$EVALUATION_ROOT"
     // direnv provides us with an environment variable if we are inside of its envrc execution.
     // Thus we can show a warning if the user runs it on their command line.
     if std::env::var("DIRENV_IN_ENVRC") != Ok(String::from("1")) {
-        warn!("`lorri direnv` should be executed by direnv from within an `.envrc` file. Run `lorri init` to get started.")
+        warn!(logger, "`lorri direnv` should be executed by direnv from within an `.envrc` file. Run `lorri init` to get started.")
     }
 
     ok()
@@ -232,11 +240,12 @@ pub fn info(project: Project) -> OpResult {
 ///
 /// See the documentation for lorri::cli::Command::Init for
 /// more details
-pub fn init(default_shell: &str, default_envrc: &str) -> OpResult {
+pub fn init(default_shell: &str, default_envrc: &str, logger: &slog::Logger) -> OpResult {
     create_if_missing(
         Path::new("./shell.nix"),
         default_shell,
         "Make sure shell.nix is of a form that works with nix-shell.",
+        logger,
     )
     .map_err(ExitError::user_error)?;
 
@@ -244,21 +253,27 @@ pub fn init(default_shell: &str, default_envrc: &str) -> OpResult {
         Path::new("./.envrc"),
         default_envrc,
         "Please add 'eval \"$(lorri direnv)\"' to .envrc to set up lorri support.",
+        logger,
     )
     .map_err(ExitError::user_error)?;
 
-    info!("done");
+    info!(logger, "done");
     ok()
 }
 
-fn create_if_missing(path: &Path, contents: &str, msg: &str) -> Result<(), io::Error> {
+fn create_if_missing(
+    path: &Path,
+    contents: &str,
+    msg: &str,
+    logger: &slog::Logger,
+) -> Result<(), io::Error> {
     if path.exists() {
-        info!("file already exists, skipping"; "path" => path.to_str(), "message" => msg);
+        info!(logger, "file already exists, skipping"; "path" => path.to_str(), "message" => msg);
         Ok(())
     } else {
         let mut f = File::create(path)?;
         f.write_all(contents.as_bytes())?;
-        info!("wrote file"; "path" => path.to_str());
+        info!(logger, "wrote file"; "path" => path.to_str());
         Ok(())
     }
 }
@@ -267,8 +282,8 @@ fn create_if_missing(path: &Path, contents: &str, msg: &str) -> Result<(), io::E
 ///
 /// Can be used together with `direnv`.
 /// See the documentation for lorri::cli::Command::Ping_ for details.
-pub fn ping(nix_file: NixFile) -> OpResult {
-    client::create(client::Timeout::from_millis(500))?.write(&client::Ping {
+pub fn ping(nix_file: NixFile, logger: &slog::Logger) -> OpResult {
+    client::create(client::Timeout::from_millis(500), logger)?.write(&client::Ping {
         nix_file,
         rebuild: client::Rebuild::Always,
     })?;
@@ -297,7 +312,7 @@ pub fn ping(nix_file: NixFile) -> OpResult {
 /// This setup allows lorri to support almost any shell with minimal additional work. Only the step
 /// marked (*) must be adjusted, and only in case we want to customize the shell, e.g. changing the
 /// way the prompt looks.
-pub fn shell(project: Project, opts: ShellOptions) -> OpResult {
+pub fn shell(project: Project, opts: ShellOptions, logger: &slog::Logger) -> OpResult {
     let lorri = env::current_exe().expect("failed to determine lorri executable's path");
     let shell = env::var("SHELL").expect("lorri shell requires $SHELL to be set");
     let cached = cached_root(&project);
@@ -305,12 +320,13 @@ pub fn shell(project: Project, opts: ShellOptions) -> OpResult {
         if opts.cached {
             cached?
         } else {
-            build_root(&project, cached.is_ok())?
+            build_root(&project, cached.is_ok(), logger)?
         },
         &project.cas,
+        logger,
     )?;
 
-    debug!("bash_cmd : {:?}", bash_cmd);
+    debug!(logger, "bash_cmd : {:?}", bash_cmd);
     let status = bash_cmd
         .args(&[
             "-c",
@@ -339,10 +355,15 @@ pub fn shell(project: Project, opts: ShellOptions) -> OpResult {
     }
 }
 
-fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
+fn build_root(
+    project: &Project,
+    cached: bool,
+    logger: &slog::Logger,
+) -> Result<PathBuf, ExitError> {
     let building = Arc::new(AtomicBool::new(true));
     let building_clone = building.clone();
-    let progress_thread = Async::run(slog_scope::logger(), move || {
+    let logger2 = logger.clone();
+    let progress_thread = Async::run(logger, move || {
         // Keep track of the start time to display a hint to the user that they can use `--cached`,
         // but only if a cached version of the environment exists
         let mut start = if cached { Some(Instant::now()) } else { None };
@@ -373,6 +394,7 @@ fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
         &project.nix_file,
         &project.cas,
         &crate::nix::options::NixOptions::empty(),
+        &logger2,
     );
     building.store(false, Ordering::SeqCst);
     progress_thread.block();
@@ -397,7 +419,7 @@ fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
         .result;
 
     Ok(Roots::from_project(&project)
-        .create_roots(run_result)
+        .create_roots(run_result, &logger2)
         .map_err(|e| {
             ExitError::temporary(anyhow::Error::new(e).context("rooting the environment failed"))
         })?
@@ -419,7 +441,11 @@ fn cached_root(project: &Project) -> Result<PathBuf, ExitError> {
 }
 
 /// Instantiates a `Command` to start bash.
-pub fn bash_cmd(project_root: PathBuf, cas: &ContentAddressable) -> Result<Command, ExitError> {
+pub fn bash_cmd(
+    project_root: PathBuf,
+    cas: &ContentAddressable,
+    logger: &slog::Logger,
+) -> Result<Command, ExitError> {
     let init_file = cas
         .file_from_string(&format!(
             r#"
@@ -431,7 +457,7 @@ EVALUATION_ROOT="{}"
         ))
         .expect("failed to write shell output");
 
-    debug!("building bash via runtime closure"; "closure" => crate::RUN_TIME_CLOSURE);
+    debug!(logger,"building bash via runtime closure"; "closure" => crate::RUN_TIME_CLOSURE);
     let bash_path = CallOpts::expression(&format!("(import {}).path", crate::RUN_TIME_CLOSURE))
         .value::<PathBuf>()
         .expect("failed to get runtime closure path");
@@ -590,19 +616,20 @@ struct StreamBuildError {
 ///
 /// See the documentation for lorri::cli::Command::StreamEvents_ for more
 /// details.
-pub fn stream_events(kind: EventKind) -> OpResult {
+pub fn stream_events(kind: EventKind, logger: &slog::Logger) -> OpResult {
     let (tx_event, rx_event) = chan::unbounded::<Event>();
 
     let thread = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
-        debug!("connecting to socket"; "socket" => address.as_absolute_path().display());
-
+        debug!(logger, "connecting to socket"; "socket" => address.as_absolute_path().display());
+        let logger2 = logger.clone();
         // This async will not block when it is dropped,
         // since it only reads messages and don’t want to block exit in the Snapshot case.
-        Async::<Result<(), ExitError>>::run_and_linger(slog_scope::logger(), move || {
+        Async::<Result<(), ExitError>>::run_and_linger(logger, move || {
             let client = client::create::<client::StreamEvents>(
                 // infinite timeout because we are listening indefinitely
                 client::Timeout::Infinite,
+                &logger2,
             )?;
 
             client.write(&client::StreamEvents {})?;
@@ -623,7 +650,7 @@ pub fn stream_events(kind: EventKind) -> OpResult {
         chan::select! {
             recv(rx_event) -> event => match event.expect("rx_event hung up!") {
                 Event::SectionEnd => {
-                    debug!("SectionEnd");
+                    debug!(logger, "SectionEnd");
                     match kind {
                         // If we only want the snapshot, quit the program
                         EventKind::Snapshot => break Ok(()),
@@ -743,7 +770,11 @@ impl UpgradeSource {
 ///
 /// Originally it was used as pre-release, that’s why there is support
 /// for updating to a special rolling-release branch.
-pub fn upgrade(upgrade_target: cli::UpgradeTo, cas: &ContentAddressable) -> OpResult {
+pub fn upgrade(
+    upgrade_target: cli::UpgradeTo,
+    cas: &ContentAddressable,
+    logger: &slog::Logger,
+) -> OpResult {
     /*
     1. nix-instantiate the expression
     2. get all the changelog entries from <currentnumber> to <maxnumber>
@@ -794,7 +825,7 @@ pub fn upgrade(upgrade_target: cli::UpgradeTo, cas: &ContentAddressable) -> OpRe
     }
 
     println!("Building ...");
-    match expr.clone().attribute("package").path() {
+    match expr.clone().attribute("package").path(logger) {
         Ok((build_result, gc_root)) => {
             let status = Command::new("nix-env")
                 .arg("--install")
@@ -806,7 +837,7 @@ pub fn upgrade(upgrade_target: cli::UpgradeTo, cas: &ContentAddressable) -> OpRe
             drop(gc_root);
 
             if status.success() {
-                info!("upgrade successful");
+                info!(logger, "upgrade successful");
                 ok()
             } else {
                 Err(ExitError::expected_error(anyhow::anyhow!(
@@ -825,21 +856,21 @@ pub fn upgrade(upgrade_target: cli::UpgradeTo, cas: &ContentAddressable) -> OpRe
 ///
 /// See the documentation for lorri::cli::Command::Shell for more
 /// details.
-pub fn watch(project: Project, opts: WatchOptions) -> OpResult {
+pub fn watch(project: Project, opts: WatchOptions, logger: &slog::Logger) -> OpResult {
     if opts.once {
-        main_run_once(project)
+        main_run_once(project, logger)
     } else {
-        main_run_forever(project)
+        main_run_forever(project, logger)
     }
 }
 
-fn main_run_once(project: Project) -> OpResult {
+fn main_run_once(project: Project, logger: &slog::Logger) -> OpResult {
     // TODO: add the ability to pass extra_nix_options to watch
-    let mut build_loop =
-        BuildLoop::new(&project, NixOptions::empty()).map_err(ExitError::temporary)?;
+    let mut build_loop = BuildLoop::new(&project, NixOptions::empty(), logger.clone())
+        .map_err(ExitError::temporary)?;
     match build_loop.once() {
         Ok(msg) => {
-            print_build_message(msg);
+            info!(logger, "build message"; "message" => ?msg);
             ok()
         }
         Err(e) => {
@@ -854,13 +885,14 @@ fn main_run_once(project: Project) -> OpResult {
     }
 }
 
-fn main_run_forever(project: Project) -> OpResult {
+fn main_run_forever(project: Project, logger: &slog::Logger) -> OpResult {
     let (tx_build_results, rx_build_results) = chan::unbounded();
     let (tx_ping, rx_ping) = chan::unbounded();
+    let logger2 = logger.clone();
     // TODO: add the ability to pass extra_nix_options to watch
     let build_thread = {
-        Async::run(slog_scope::logger(), move || {
-            match BuildLoop::new(&project, NixOptions::empty()) {
+        Async::run(logger, move || {
+            match BuildLoop::new(&project, NixOptions::empty(), logger2) {
                 Ok(mut bl) => bl.forever(tx_build_results, rx_ping).never(),
                 Err(e) => Err(ExitError::temporary(e)),
             }
@@ -871,16 +903,8 @@ fn main_run_forever(project: Project) -> OpResult {
     tx_ping.send(()).expect("could not send ping to build_loop");
 
     for msg in rx_build_results {
-        print_build_message(msg);
+        info!(logger, "build message"; "message" => ?msg);
     }
 
     build_thread.block()
-}
-
-/// Print a build message to stdout and flush.
-fn print_build_message<A>(msg: A)
-where
-    A: Debug,
-{
-    info!("build message"; "message" => ?msg);
 }

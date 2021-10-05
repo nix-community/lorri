@@ -186,17 +186,6 @@ rec {
         features = {
         };
       };
-      "arc-swap" = rec {
-        crateName = "arc-swap";
-        version = "1.4.0";
-        edition = "2018";
-        sha256 = "0qzczn3grbwla2aax1jnmww39bqqy2wfr311wl63cc2qbkpmmpz6";
-        authors = [
-          "Michal 'vorner' Vaner <vorner@vorner.cz>"
-        ];
-        features = {
-        };
-      };
       "atomicwrites" = rec {
         crateName = "atomicwrites";
         version = "0.2.5";
@@ -1229,10 +1218,6 @@ rec {
             name = "slog";
             packageId = "slog";
             features = [ "release_max_level_debug" ];
-          }
-          {
-            name = "slog-scope";
-            packageId = "slog-scope";
           }
           {
             name = "slog-term";
@@ -2679,31 +2664,6 @@ rec {
           "nested-values" = [ "erased-serde" ];
         };
         resolvedDefaultFeatures = [ "default" "release_max_level_debug" "std" ];
-      };
-      "slog-scope" = rec {
-        crateName = "slog-scope";
-        version = "4.4.0";
-        edition = "2015";
-        sha256 = "11n7nd0g3iab8ahcwnxzpmchi4ycgjsq5nj9jn3d4k17qfsa959g";
-        libPath = "lib.rs";
-        authors = [
-          "Dawid Ciężarkiewicz <dpc@dpc.pw>"
-        ];
-        dependencies = [
-          {
-            name = "arc-swap";
-            packageId = "arc-swap";
-          }
-          {
-            name = "lazy_static";
-            packageId = "lazy_static";
-          }
-          {
-            name = "slog";
-            packageId = "slog";
-          }
-        ];
-
       };
       "slog-term" = rec {
         crateName = "slog-term";
