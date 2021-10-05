@@ -31,7 +31,7 @@ pub enum Verbosity {
     /// Default verbosity, print info and up
     DefaultInfo,
     /// Debug verbosity, print all messages
-    Debug
+    Debug,
 }
 
 #[derive(StructOpt, Debug)]
