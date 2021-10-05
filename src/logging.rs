@@ -21,7 +21,6 @@ pub fn root(verbosity: Verbosity, command: &Command) -> slog::Logger {
 }
 
 /// Logger that can be used in tests
-#[cfg(test)]
 pub fn test_logger() -> slog::Logger {
     lorri_logger(slog::Level::Trace, LogTo::Stderr)
 }

@@ -4,7 +4,7 @@
 use crate::builder::{OutputPath, RootedPath};
 use crate::project::Project;
 use crate::AbsPathBuf;
-use slog_scope::debug;
+use slog::debug;
 use std::env;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -62,6 +62,7 @@ impl Roots {
         // roots to `StorePath`, not to `DrvFile`, because we have
         // no use case for creating GC roots for drv files.
         path: RootedPath,
+        logger: &slog::Logger,
     ) -> Result<OutputPath<RootPath>, AddRootError>
 where {
         let root_name = "shell_gc_root";
@@ -70,7 +71,7 @@ where {
         // final path in the `self.gc_root_path` directory
         let path = self.gc_root_path.join(root_name);
 
-        debug!("adding root"; "from" => store_path.as_path().to_str(), "to" => path.display());
+        debug!(logger, "adding root"; "from" => store_path.as_path().to_str(), "to" => path.display());
         std::fs::remove_file(&path)
             .or_else(|e| AddRootError::remove(e, &path.as_absolute_path()))?;
 
@@ -101,7 +102,7 @@ where {
 
         root.push(format!("{}-{}", self.id, root_name));
 
-        debug!("connecting root"; "from" => path.display(), "to" => root.to_str());
+        debug!(logger, "connecting root"; "from" => path.display(), "to" => root.to_str());
         std::fs::remove_file(&root).or_else(|e| AddRootError::remove(e, &root))?;
 
         std::os::unix::fs::symlink(&path, &root)

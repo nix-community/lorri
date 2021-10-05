@@ -10,7 +10,7 @@ use crate::socket::communicate;
 use crate::socket::path::SocketPath;
 use crate::{AbsPathBuf, NixFile};
 use crossbeam_channel as chan;
-use slog_scope::debug;
+use slog::debug;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -71,26 +71,31 @@ impl Daemon {
         socket_path: &SocketPath,
         gc_root_dir: &AbsPathBuf,
         cas: crate::cas::ContentAddressable,
+        logger: &slog::Logger,
     ) -> Result<(), ExitError> {
         let (tx_activity, rx_activity): (
             chan::Sender<IndicateActivity>,
             chan::Receiver<IndicateActivity>,
         ) = chan::unbounded();
 
-        let mut pool = crate::thread::Pool::new(slog_scope::logger());
+        let mut pool = crate::thread::Pool::new(logger.clone());
         let tx_build_events = self.tx_build_events.clone();
 
         let server = server::Server::new(tx_activity, tx_build_events);
 
         let socket_path = socket_path.clone();
+        let logger = logger.clone();
+        let logger2 = logger.clone();
+        let logger3 = logger.clone();
+
         pool.spawn("accept-loop", move || {
-            server.listen(&socket_path).map(|n| n.never())
+            server.listen(&socket_path, &logger).map(|n| n.never())
         })?;
 
         let rx_build_events = self.rx_build_events.clone();
         let mon_tx = self.mon_tx.clone();
-        pool.spawn("build-loop", || {
-            Self::build_loop(rx_build_events, mon_tx);
+        pool.spawn("build-loop", move || {
+            Self::build_loop(rx_build_events, mon_tx, &logger2);
             Ok(())
         })?;
 
@@ -104,6 +109,7 @@ impl Daemon {
                 rx_activity,
                 &gc_root_dir,
                 cas,
+                &logger3,
             );
             Ok(())
         })?;
@@ -116,6 +122,7 @@ impl Daemon {
     fn build_loop(
         rx_build_events: chan::Receiver<LoopHandlerEvent>,
         mon_tx: chan::Sender<LoopHandlerEvent>,
+        logger: &slog::Logger,
     ) {
         let mut project_states: HashMap<NixFile, Event> = HashMap::new();
         let mut event_listeners: Vec<chan::Sender<Event>> = Vec::new();
@@ -133,25 +140,25 @@ impl Daemon {
                         project_states.insert(nix_file.clone(), ev.clone());
                         event_listeners.retain(|tx| {
                             let keep = tx.send(ev.clone()).is_ok();
-                            debug!("Sent"; "event" => ?ev, "keep" => keep);
+                            debug!(logger,"Sent"; "event" => ?ev, "keep" => keep);
                             keep
                         })
                     }
                 },
                 LoopHandlerEvent::NewListener(tx) => {
-                    debug!("adding listener");
+                    debug!(logger, "adding listener");
                     let keep = project_states.values().all(|event| {
                         let keeping = tx.send(event.clone()).is_ok();
-                        debug!("Sent snapshot"; "event" => ?&event, "keep" => keeping);
+                        debug!(logger, "Sent snapshot"; "event" => ?&event, "keep" => keeping);
                         keeping
                     });
-                    debug!("Finished snapshot"; "keep" => keep);
+                    debug!(logger,"Finished snapshot"; "keep" => keep);
                     if keep {
                         event_listeners.push(tx.clone());
                     }
                     event_listeners.retain(|tx| {
                         let keep = tx.send(Event::SectionEnd).is_ok();
-                        debug!("Sent new listener sectionend"; "keep" => keep);
+                        debug!(logger, "Sent new listener sectionend"; "keep" => keep);
                         keep
                     })
                 }
@@ -167,6 +174,7 @@ impl Daemon {
         rx_activity: chan::Receiver<IndicateActivity>,
         gc_root_dir: &AbsPathBuf,
         cas: crate::cas::ContentAddressable,
+        logger: &slog::Logger,
     ) {
         // A thread for each `BuildLoop`, keyed by the nix files listened on.
         let mut handler_threads: HashMap<NixFile, chan::Sender<()>> = HashMap::new();
@@ -186,11 +194,11 @@ impl Daemon {
 
             match (project_is_watched, rebuild) {
                 (Some(builder), communicate::Rebuild::Always) => {
-                    debug!("triggering rebuild"; "project" => key, "cause" => "unconditional ping");
+                    debug!(logger, "triggering rebuild"; "project" => key, "cause" => "unconditional ping");
                     send_ping(builder)
                 }
                 (Some(_), communicate::Rebuild::OnlyIfNotYetWatching) => {
-                    debug!("skipping rebuild"; "project" => key, "cause" => "already watching");
+                    debug!(logger, "skipping rebuild"; "project" => key, "cause" => "already watching");
                 }
                 // only add if there is no no build_loop for this file yet.
                 (None, _) => {
@@ -199,7 +207,8 @@ impl Daemon {
                     // messages from all builders.
                     let tx_build_events = tx_build_events.clone();
                     let extra_nix_options = extra_nix_options.clone();
-
+                    let logger = logger.clone();
+                    let logger2 = logger.clone();
                     // TODO: how to use the pool here?
                     // We cannot just spawn new threads once messages come in,
                     // because then then pool objects is stuck in this loop
@@ -209,7 +218,7 @@ impl Daemon {
                     // thread when you get a message” that could work!
                     // pool.spawn(format!("build_loop for {}", nix_file.display()),
                     let _ = std::thread::spawn(move || {
-                        match BuildLoop::new(&project, extra_nix_options) {
+                        match BuildLoop::new(&project, extra_nix_options, logger) {
                             Ok(mut build_loop) => {
                                 build_loop.forever(tx_build_events, rx_ping).never()
                             }
@@ -240,7 +249,7 @@ impl Daemon {
                             panic!("handler_threads had the key, but we already checked before")
                         }
                     }
-                    debug!("triggering rebuild"; "project" => key, "cause" => "new project");
+                    debug!(logger2, "triggering rebuild"; "project" => key, "cause" => "new project");
                     send_ping(&tx_ping);
                 }
             }

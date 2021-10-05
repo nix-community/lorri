@@ -50,7 +50,9 @@ fn loads_env() {
         .expect("fail to run lorri shell");
     assert!(res.status.success(), "lorri shell command failed");
 
-    let output = ops::bash_cmd(build(&project), &project.cas)
+    let logger = lorri::logging::test_logger();
+
+    let output = ops::bash_cmd(build(&project, &logger), &project.cas, &logger)
         .unwrap()
         .args(&["-c", "echo $MY_ENV_VAR"])
         .output()
@@ -82,12 +84,18 @@ fn project(name: &str, cache_dir: &AbsPathBuf) -> Project {
     .unwrap()
 }
 
-fn build(project: &Project) -> PathBuf {
+fn build(project: &Project, logger: &slog::Logger) -> PathBuf {
     Roots::from_project(&project)
         .create_roots(
-            builder::run(&project.nix_file, &project.cas, &NixOptions::empty())
-                .unwrap()
-                .result,
+            builder::run(
+                &project.nix_file,
+                &project.cas,
+                &NixOptions::empty(),
+                logger,
+            )
+            .unwrap()
+            .result,
+            logger,
         )
         .unwrap()
         .shell_gc_root

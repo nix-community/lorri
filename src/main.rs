@@ -7,7 +7,6 @@ use lorri::ops::error::{ExitError, OpResult};
 use lorri::project::Project;
 use lorri::NixFile;
 use slog::{debug, error, o};
-use slog_scope::GlobalLoggerGuard;
 use std::env;
 use std::path::Path;
 use structopt::StructOpt;
@@ -31,12 +30,12 @@ fn main() {
         // This logger is asynchronous. It is guaranteed to be flushed upon destruction. By tying
         // its lifetime to this smaller scope, we ensure that it is destroyed before
         // 'std::process::exit' gets called.
-        let log = logging::root(verbosity, &opts.command);
-        debug!(log, "input options"; "options" => ?opts);
+        let logger = logging::root(verbosity, &opts.command);
+        debug!(logger, "input options"; "options" => ?opts);
 
-        match run_command(log.clone(), opts) {
+        match run_command(&logger, opts) {
             Err(err) => {
-                error!(log, "{}", err.message());
+                error!(logger, "{}", err.message());
                 err.exitcode()
             }
             Ok(()) => 0,
@@ -90,64 +89,50 @@ fn create_project(paths: &constants::Paths, shell_nix: NixFile) -> Result<Projec
 }
 
 /// Run the main function of the relevant command.
-fn run_command(log: slog::Logger, opts: Arguments) -> OpResult {
+fn run_command(logger: &slog::Logger, opts: Arguments) -> OpResult {
     let paths = lorri::ops::get_paths()?;
 
-    // `without_project` and `with_project` set up the slog_scope global logger. Make sure to use
-    // one of them so the logger gets set up correctly.
-    let without_project = || slog_scope::set_global_logger(log.clone());
-    let with_project = |nix_file| -> std::result::Result<(Project, GlobalLoggerGuard), ExitError> {
+    let with_project = |nix_file| -> std::result::Result<(Project, slog::Logger), ExitError> {
         let project = create_project(&lorri::ops::get_paths()?, find_nix_file(nix_file)?)?;
-        let guard =
-            slog_scope::set_global_logger(log.new(o!("nix_file" => project.nix_file.clone())));
-        Ok((project, guard))
+        let logger = logger.new(o!("nix_file" => project.nix_file.clone()));
+        Ok((project, logger))
     };
 
     match opts.command {
         Command::Info(opts) => {
-            let (project, _guard) = with_project(&opts.nix_file)?;
+            let (project, _logger) = with_project(&opts.nix_file)?;
             ops::info(project)
         }
         Command::Direnv(opts) => {
-            let (project, _guard) = with_project(&opts.nix_file)?;
-            ops::direnv(project, /* shell_output */ std::io::stdout())
+            let (project, logger) = with_project(&opts.nix_file)?;
+            ops::direnv(project, /* shell_output */ std::io::stdout(), &logger)
         }
         Command::Shell(opts) => {
-            let (project, _guard) = with_project(&opts.nix_file)?;
-            ops::shell(project, opts)
+            let (project, logger) = with_project(&opts.nix_file)?;
+            ops::shell(project, opts, &logger)
         }
 
         Command::Watch(opts) => {
-            let (project, _guard) = with_project(&opts.nix_file)?;
-            ops::watch(project, opts)
+            let (project, logger) = with_project(&opts.nix_file)?;
+            ops::watch(project, opts, &logger)
         }
         Command::Daemon(opts) => {
             install_signal_handler();
-            let _guard = without_project();
-            ops::daemon(opts)
+            ops::daemon(opts, logger)
         }
-        Command::Upgrade(opts) => {
-            let _guard = without_project();
-            ops::upgrade(opts, paths.cas_store())
-        }
-        Command::Init => {
-            let _guard = without_project();
-            ops::init(TRIVIAL_SHELL_SRC, DEFAULT_ENVRC)
-        }
+        Command::Upgrade(opts) => ops::upgrade(opts, paths.cas_store(), logger),
+        Command::Init => ops::init(TRIVIAL_SHELL_SRC, DEFAULT_ENVRC, logger),
 
         Command::Internal { command } => match command {
             Internal_::Ping_(opts) => {
-                let _guard = without_project();
-                find_nix_file(&opts.nix_file).and_then(ops::ping)
+                let nix_file = find_nix_file(&opts.nix_file)?;
+                ops::ping(nix_file, logger)
             }
             Internal_::StartUserShell_(opts) => {
-                let (project, _guard) = with_project(&opts.nix_file)?;
+                let (project, _logger) = with_project(&opts.nix_file)?;
                 ops::start_user_shell(project, opts)
             }
-            Internal_::StreamEvents_(se) => {
-                let _guard = without_project();
-                ops::stream_events(se.kind)
-            }
+            Internal_::StreamEvents_(se) => ops::stream_events(se.kind, logger),
         },
     }
 }

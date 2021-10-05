@@ -4,7 +4,7 @@
 use crossbeam_channel as chan;
 use notify::event::ModifyKind;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use slog_scope::{debug, info};
+use slog::{debug, info};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -54,6 +54,7 @@ pub struct Watch {
     pub rx: chan::Receiver<notify::Result<notify::Event>>,
     notify: RecommendedWatcher,
     watches: HashSet<PathBuf>,
+    logger: slog::Logger,
 }
 
 /// A debug message string that can only be displayed via `Debug`.
@@ -68,13 +69,14 @@ struct FilteredOut<'a> {
 
 impl Watch {
     /// Instantiate a new Watch.
-    pub fn try_new() -> Result<Watch, notify::Error> {
+    pub fn try_new(logger: slog::Logger) -> Result<Watch, notify::Error> {
         let (tx, rx) = chan::unbounded();
 
         Ok(Watch {
             notify: Watcher::new(tx, Duration::from_millis(100))?,
             watches: HashSet::new(),
             rx,
+            logger,
         })
     }
 
@@ -87,11 +89,11 @@ impl Watch {
         match event {
             Err(err) => panic!("notify error: {}", err),
             Ok(event) => {
-                Self::log_event(&event);
+                self.log_event(&event);
                 let notify::Event { paths, kind, .. } = event;
                 let interesting_paths: Vec<PathBuf> = paths
                     .into_iter()
-                    .filter(|p| Self::path_is_interesting(&self.watches, p, &kind))
+                    .filter(|p| Self::path_is_interesting(&self.watches, p, &kind, &self.logger))
                     .collect();
                 match interesting_paths.is_empty() {
                     true => None,
@@ -114,7 +116,12 @@ impl Watch {
                 let p = p.canonicalize()?;
                 match Self::extend_filter(p) {
                     Err(FilteredOut { reason, path }) => {
-                        debug!("Skipping watching {}: {}", path.display(), reason)
+                        debug!(
+                            self.logger,
+                            "Skipping watching {}: {}",
+                            path.display(),
+                            reason
+                        )
                     }
                     Ok(p) => {
                         self.add_path(p)?;
@@ -136,21 +143,21 @@ impl Watch {
         }
     }
 
-    fn log_event(event: &notify::Event) {
-        debug!("Watch Event: {:#?}", event);
+    fn log_event(&self, event: &notify::Event) {
+        debug!(self.logger, "Watch Event: {:#?}", event);
         match &event.kind {
             notify::event::EventKind::Remove(_) if !event.paths.is_empty() => {
-                info!("identified removal: {:?}", &event.paths);
+                info!(self.logger, "identified removal: {:?}", &event.paths);
             }
             _ => {
-                debug!("watch event"; "event" => ?event);
+                debug!(self.logger, "watch event"; "event" => ?event);
             }
         }
     }
 
     fn add_path(&mut self, path: PathBuf) -> Result<(), notify::Error> {
         if !self.watches.contains(&path) {
-            debug!("watching path"; "path" => path.to_str());
+            debug!(self.logger, "watching path"; "path" => path.to_str());
 
             self.notify.watch(&path, RecursiveMode::NonRecursive)?;
             self.watches.insert(path.clone());
@@ -158,7 +165,7 @@ impl Watch {
 
         if let Some(parent) = path.parent() {
             if !self.watches.contains(parent) {
-                debug!("watching parent path"; "parent_path" => parent.to_str());
+                debug!(self.logger, "watching parent path"; "parent_path" => parent.to_str());
 
                 self.notify.watch(&parent, RecursiveMode::NonRecursive)?;
             }
@@ -167,8 +174,13 @@ impl Watch {
         Ok(())
     }
 
-    fn path_is_interesting(watches: &HashSet<PathBuf>, path: &Path, kind: &EventKind) -> bool {
-        path_match(watches, path)
+    fn path_is_interesting(
+        watches: &HashSet<PathBuf>,
+        path: &Path,
+        kind: &EventKind,
+        logger: &slog::Logger,
+    ) -> bool {
+        path_match(watches, path, logger)
             && match kind {
                 // We ignore metadata modification events for the profiles directory
                 // tree as it is a symlink forest that is used to keep track of
@@ -182,7 +194,7 @@ impl Watch {
                 // ability to correctly watch for channel changes.
                 EventKind::Modify(ModifyKind::Metadata(_)) => {
                     if path.starts_with(Path::new("/nix/var/nix/profiles/per-user")) {
-                        debug!("ignoring spurious metadata change event within the profiles dir"; "path" => path.to_str());
+                        debug!(logger, "ignoring spurious metadata change event within the profiles dir"; "path" => path.to_str());
                         false
                     } else {
                         true
@@ -258,12 +270,13 @@ fn walk_path_topo(path: PathBuf) -> Result<Vec<PathBuf>, std::io::Error> {
 ///     list
 ///   - the event's path's parent names a canonicalized path in our
 ///     watch list
-fn path_match(watched_paths: &HashSet<PathBuf>, event_path: &Path) -> bool {
+fn path_match(watched_paths: &HashSet<PathBuf>, event_path: &Path, logger: &slog::Logger) -> bool {
     let event_parent = event_path.parent();
 
     let matches = |watched: &Path| {
         if event_path == watched {
             debug!(
+                logger,
                 "event path directly matches watched path";
                 "event_path" => event_path.to_str());
 
@@ -273,6 +286,7 @@ fn path_match(watched_paths: &HashSet<PathBuf>, event_path: &Path) -> bool {
         if let Some(parent) = event_parent {
             if parent == watched {
                 debug!(
+                    logger,
                     "event path parent matches watched path";
                     "event_path" => event_path.to_str(), "parent_path" => parent.to_str());
                 return true;
@@ -379,7 +393,8 @@ mod tests {
 
     #[test]
     fn trivial_watch_whole_directory() {
-        let mut watcher = Watch::try_new().expect("failed creating Watch");
+        let mut watcher =
+            Watch::try_new(crate::logging::test_logger()).expect("failed creating Watch");
         let temp = tempdir().unwrap();
 
         expect_bash(r#"mkdir -p "$1"/foo"#, &[temp.path().as_os_str()]);
@@ -399,7 +414,8 @@ mod tests {
 
     #[test]
     fn trivial_watch_directory_not_recursively() {
-        let mut watcher = Watch::try_new().expect("failed creating Watch");
+        let mut watcher =
+            Watch::try_new(crate::logging::test_logger()).expect("failed creating Watch");
         let temp = tempdir().unwrap();
 
         expect_bash(r#"mkdir -p "$1"/foo"#, &[temp.path().as_os_str()]);
@@ -419,7 +435,8 @@ mod tests {
 
     #[test]
     fn trivial_watch_specific_file() {
-        let mut watcher = Watch::try_new().expect("failed creating Watch");
+        let mut watcher =
+            Watch::try_new(crate::logging::test_logger()).expect("failed creating Watch");
         let temp = tempdir().unwrap();
 
         expect_bash(r#"mkdir -p "$1""#, &[temp.path().as_os_str()]);
@@ -437,7 +454,8 @@ mod tests {
     #[test]
     fn rename_over_vim() {
         // Vim renames files in to place for atomic writes
-        let mut watcher = Watch::try_new().expect("failed creating Watch");
+        let mut watcher =
+            Watch::try_new(crate::logging::test_logger()).expect("failed creating Watch");
         let temp = tempdir().unwrap();
 
         expect_bash(r#"mkdir -p "$1""#, &[temp.path().as_os_str()]);
