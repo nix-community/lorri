@@ -1,4 +1,4 @@
-use lorri::cli::{Arguments, Command, Internal_};
+use lorri::cli::{Verbosity, Arguments, Command, Internal_};
 use lorri::constants;
 use lorri::locate_file;
 use lorri::logging;
@@ -21,10 +21,17 @@ fn main() {
     let exit_code = {
         let opts = Arguments::from_args();
 
+        let verbosity = match opts.verbosity {
+            // -v flag was given 0 times
+            0 => Verbosity::DefaultInfo,
+            // -v flag was specified one or more times, we log everything
+            _n => Verbosity::Debug,
+        };
+
         // This logger is asynchronous. It is guaranteed to be flushed upon destruction. By tying
         // its lifetime to this smaller scope, we ensure that it is destroyed before
         // 'std::process::exit' gets called.
-        let log = logging::root(opts.verbosity, &opts.command);
+        let log = logging::root(verbosity, &opts.command);
         debug!(log, "input options"; "options" => ?opts);
 
         match run_command(log.clone(), opts) {
