@@ -13,9 +13,9 @@ let
   cargoLorri =
     (
       pkgs.callPackage ./Cargo.nix {
-        cratesIO = pkgs.callPackage ./nix/carnix/crates-io.nix {};
+        inherit pkgs;
       }
-    ).lorri {};
+    ).rootCrate.build;
 
 in
 cargoLorri.override {
@@ -37,8 +37,9 @@ cargoLorri.override {
       RUN_TIME_CLOSURE = pkgs.callPackage ./nix/runtime.nix {};
       NIX_PATH = "nixpkgs=${./nix/bogus-nixpkgs}";
 
-      # required by human-panic, because carnix doesn’t
-      # set the cargo environment variables correctly.
+      # required by human-panic, because the nix generator doesn’t
+      # set the cargo environment variables correctly
+      # (TODO: does crate2nix do it? carnix didn’t.)
       # see https://doc.rust-lang.org/cargo/reference/environment-variables.html
       homepage = "https://github.com/nix-community/lorri";
 

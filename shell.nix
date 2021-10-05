@@ -53,7 +53,7 @@ let
     pkgs.rustfmt
     pkgs.git
     pkgs.direnv
-    pkgs.carnix
+    pkgs.crate2nix
     pkgs.nix-prefetch-git
     pkgs.nixpkgs-fmt
 
