@@ -155,21 +155,13 @@ let
     };
 
     # TODO: it would be good to sandbox this (it changes files in the tree)
-    # but somehow carnix needs to compile the whole friggin binary in order
-    # to generate a few measly nix files …
-    carnix = {
-      description = "check carnix up-to-date";
-      test = writeExecline "lint-carnix" {}
-        (cargoEnvironment
-        ++ pathPrependBins [
-             pkgs.carnix
-             # TODO: nix-prefetch-* should be patched into carnix
-             pkgs.nix-prefetch-scripts
-             # nix-prefetch-url, which itself requires tar and gzip
-             pkgs.nix pkgs.gnutar pkgs.gzip
-           ]
+    # can crate2nix generate nix files without any compilation?
+    crate2nix = {
+      description = "check crate2nix up-to-date";
+      test = writeExecline "lint-crate2nix" {}
+        (pathPrependBins [pkgs.crate2nix]
         ++ [
-          "if" [ pkgs.runtimeShell "${LORRI_ROOT}/nix/update-carnix.sh" ]
+          "if" [ pkgs.runtimeShell "${LORRI_ROOT}/nix/update-nix.sh" ]
           bins.git "diff" "--exit-code"
         ]);
     };
