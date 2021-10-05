@@ -102,7 +102,10 @@ rec {
       serde."${deps.lorri."1.5.0".serde}".default = true;
       serde_derive."${deps.lorri."1.5.0".serde_derive}".default = true;
       serde_json."${deps.lorri."1.5.0".serde_json}".default = true;
-      slog."${deps.lorri."1.5.0".slog}".default = true;
+      slog = fold recursiveUpdate {} [
+        { "${deps.lorri."1.5.0".slog}"."release_max_level_debug" = true; }
+        { "${deps.lorri."1.5.0".slog}".default = true; }
+      ];
       slog_scope."${deps.lorri."1.5.0".slog_scope}".default = true;
       slog_term."${deps.lorri."1.5.0".slog_term}".default = true;
       structopt = fold recursiveUpdate {} [

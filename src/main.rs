@@ -1,4 +1,4 @@
-use lorri::cli::{Verbosity, Arguments, Command, Internal_};
+use lorri::cli::{Arguments, Command, Internal_, Verbosity};
 use lorri::constants;
 use lorri::locate_file;
 use lorri::logging;
