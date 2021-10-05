@@ -16,13 +16,22 @@ use std::path::PathBuf;
 /// arguments will be to sub-commands.
 pub struct Arguments {
     /// Activate debug logging. Multiple occurrences are accepted for backwards compatibility, but
-    /// have no effect.
+    /// have no effect. This will display all messages lorri logs.
     #[structopt(short = "v", long = "verbose", parse(from_occurrences))]
     pub verbosity: u8,
 
     /// Sub-command to execute
     #[structopt(subcommand)]
     pub command: Command,
+}
+
+#[derive(Copy, Clone, Debug)]
+/// Verbosity options lorri supports;
+pub enum Verbosity {
+    /// Default verbosity, print info and up
+    DefaultInfo,
+    /// Debug verbosity, print all messages
+    Debug
 }
 
 #[derive(StructOpt, Debug)]

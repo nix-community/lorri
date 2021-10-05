@@ -37,8 +37,8 @@ structopt.features = [
     "no_cargo",
     # "doc" (enables yaml)
   ]
-# logging
-slog = "2.7.0"
+# logging;
+slog = { version = "2.7.0", features = ["release_max_level_debug"] } # enable debug messages in the release so that --verbose still works
 slog-scope = "4.3.0"
 slog-term = "2.5.0"
 fastrand = "1.4.0"
