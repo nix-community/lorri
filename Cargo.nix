@@ -3172,18 +3172,14 @@ rec {
       };
       "vec1" = rec {
         crateName = "vec1";
-        version = "1.8.0";
+        version = "1.6.0";
         edition = "2018";
-        sha256 = "0cv1b88k9fac0wlg3yzbkrwdxvyb8w9f14big5q9a3sgfwf67haz";
+        sha256 = "15zy2p7i62as0c283xrqdp71dx3hvvpn9kjwc86dbn5ggc8zvzzj";
         authors = [
           "Philipp Korber <philipp@korber.dev>"
         ];
         features = {
-          "default" = [ "std" ];
-          "smallvec-v1" = [ "smallvec_v1_" ];
-          "smallvec-v1-write" = [ "std" "smallvec_v1_/write" ];
         };
-        resolvedDefaultFeatures = [ "default" "std" ];
       };
       "void" = rec {
         crateName = "void";

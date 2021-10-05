@@ -32,6 +32,5 @@ function prefetch-nixpkgs-channel () {
 
 # lorri should always build with the current NixOS stable branch.
 prefetch-nixpkgs-channel "nixos-21.05" ./nix/nixpkgs-stable.json
-# lorri should also build with 19.09 (the first release with `rustPackages`,
-# which we use for e.g. clippy).
-prefetch-nixpkgs-channel "nixos-19.09" ./nix/nixpkgs-1909.json
+# lorri should also build with 20.09 (bumped from originally 19.09 because some rust dependencies didn’t keep backwards compat)
+prefetch-nixpkgs-channel "nixos-20.09" ./nix/nixpkgs-20_09.json

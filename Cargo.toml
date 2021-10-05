@@ -53,7 +53,7 @@ ctrlc = { version = "3.1.8", features = ["termination"] }
 directories = "3.0.1"
 lazy_static = "1.4.0"
 md5 = "0.7.0"
-vec1 = "1.1.0"
+vec1 = ">= 1.1.0, <1.7.0"
 human-panic = { path = "vendor/human-panic" }
 
 [dev-dependencies]

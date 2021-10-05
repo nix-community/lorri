@@ -1,4 +1,4 @@
-{ pkgs ? import ../../nix/nixpkgs-stable.nix }:
+{ pkgs ? import ../../nix/nixpkgs-stable.nix {} }:
 let
   checkout = { fetch-depth ? null }: {
     name = "Checkout";
@@ -100,10 +100,10 @@ let
       };
     };
 
-    nixos-19_09 = { runs-on }: {
-      name = "nix-build_1909-${runs-on}";
+    nixos-20_09 = { runs-on }: {
+      name = "nix-build_20_09-${runs-on}";
       value = {
-        name = "nix-build [nixos 19.09] (${runs-on})";
+        name = "nix-build [nixos 20.09] (${runs-on})";
         inherit runs-on;
         steps = [
           (checkout {})
@@ -111,7 +111,7 @@ let
           setup-cachix
           {
             name = "Build";
-            run = "nix-build --arg nixpkgs ./nix/nixpkgs-1909.nix";
+            run = "nix-build --arg nixpkgs ./nix/nixpkgs-20_09.nix";
           }
         ];
       };
@@ -127,8 +127,8 @@ let
           setup-nix
           setup-cachix
           {
-            name = "Build w/ overlay (19.09)";
-            run = "nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-1909.json";
+            name = "Build w/ overlay (20.09)";
+            run = "nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-20_09.json";
           }
           {
             name = "Build w/ overlay (stable)";
@@ -153,8 +153,8 @@ let
         (builds.rust { runs-on = githubRunners.macos; })
         (builds.stable { runs-on = githubRunners.ubuntu; })
         (builds.stable { runs-on = githubRunners.macos; })
-        (builds.nixos-19_09 { runs-on = githubRunners.ubuntu; })
-        (builds.nixos-19_09 { runs-on = githubRunners.macos; })
+        (builds.nixos-20_09 { runs-on = githubRunners.ubuntu; })
+        (builds.nixos-20_09 { runs-on = githubRunners.macos; })
         (builds.overlay { runs-on = githubRunners.ubuntu; })
         (builds.overlay { runs-on = githubRunners.macos; })
       ];
