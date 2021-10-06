@@ -65,6 +65,7 @@ let
     pkgs.darwin.Security
     pkgs.darwin.apple_sdk.frameworks.CoreServices
     pkgs.darwin.apple_sdk.frameworks.CoreFoundation
+    pkgs.libiconv
   ];
 
 in
