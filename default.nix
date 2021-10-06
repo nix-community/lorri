@@ -60,6 +60,7 @@ cargoLorri.override {
       ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
         pkgs.darwin.Security
         pkgs.darwin.apple_sdk.frameworks.CoreServices
+        pkgs.libiconv
       ];
 
       # copy the docs to the $man and $doc outputs
