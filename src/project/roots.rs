@@ -14,7 +14,8 @@ use thiserror::Error;
 pub struct Roots {
     /// The GC root directory in the lorri user cache dir
     gc_root_path: AbsPathBuf,
-    id: String,
+    /// Unique ID generated from a project’s path, which can be used as a directory name.
+    project_id: String,
 }
 
 /// A path to a gc root.
@@ -44,14 +45,20 @@ impl Roots {
     pub fn from_project(project: &Project) -> Roots {
         Roots {
             gc_root_path: project.gc_root_path.clone(),
-            id: project.hash().to_string(),
+            project_id: project.hash().to_string(),
         }
+    }
+
+    // final path in the `self.gc_root_path` directory,
+    // the symlink which points to the lorri-keep-env-hack-nix-shell drv (see ./logged-evaluation.nix)
+    fn shell_gc_root(&self) -> AbsPathBuf {
+        self.gc_root_path.join("shell_gc_root")
     }
 
     /// Return the filesystem paths for these roots.
     pub fn paths(&self) -> OutputPath<RootPath> {
         OutputPath {
-            shell_gc_root: RootPath(self.gc_root_path.join("shell_gc_root")),
+            shell_gc_root: RootPath(self.shell_gc_root()),
         }
     }
 
@@ -65,19 +72,20 @@ impl Roots {
         logger: &slog::Logger,
     ) -> Result<OutputPath<RootPath>, AddRootError>
 where {
-        let root_name = "shell_gc_root";
         let store_path = &path.path;
 
-        // final path in the `self.gc_root_path` directory
-        let path = self.gc_root_path.join(root_name);
-
-        debug!(logger, "adding root"; "from" => store_path.as_path().to_str(), "to" => path.display());
-        std::fs::remove_file(&path)
-            .or_else(|e| AddRootError::remove(e, &path.as_absolute_path()))?;
+        debug!(logger, "adding root"; "from" => store_path.as_path().to_str(), "to" => self.shell_gc_root().display());
+        std::fs::remove_file(&self.shell_gc_root())
+            .or_else(|e| AddRootError::remove(e, &self.shell_gc_root().as_absolute_path()))?;
 
         // the forward GC root that points from the store path to our cache gc_roots dir
-        std::os::unix::fs::symlink(store_path.as_path(), &path)
-            .map_err(|e| AddRootError::symlink(e, store_path.as_path(), path.as_absolute_path()))?;
+        std::os::unix::fs::symlink(store_path.as_path(), &self.shell_gc_root()).map_err(|e| {
+            AddRootError::symlink(
+                e,
+                store_path.as_path(),
+                self.shell_gc_root().as_absolute_path(),
+            )
+        })?;
 
         // the reverse GC root that points from nix to our cache gc_roots dir
         let mut root = if let Ok(path) = env::var("NIX_STATE_DIR") {
@@ -100,17 +108,20 @@ where {
             })?
         }
 
-        root.push(format!("{}-{}", self.id, root_name));
+        // We register a garbage collection root, which points back to our `~/.cache/lorri/gc_roots` directory,
+        // so that nix won’t delete our shell environment.
+        root.push(format!("{}-{}", self.project_id, "shell_gc_root"));
 
-        debug!(logger, "connecting root"; "from" => path.display(), "to" => root.to_str());
+        debug!(logger, "connecting root"; "from" => self.shell_gc_root().display(), "to" => root.to_str());
         std::fs::remove_file(&root).or_else(|e| AddRootError::remove(e, &root))?;
 
-        std::os::unix::fs::symlink(&path, &root)
-            .map_err(|e| AddRootError::symlink(e, path.as_absolute_path(), &root))?;
+        std::os::unix::fs::symlink(&self.shell_gc_root(), &root).map_err(|e| {
+            AddRootError::symlink(e, self.shell_gc_root().as_absolute_path(), &root)
+        })?;
 
         // TODO: don’t return the RootPath here
         Ok(OutputPath {
-            shell_gc_root: RootPath(path),
+            shell_gc_root: RootPath(self.shell_gc_root()),
         })
     }
 }
