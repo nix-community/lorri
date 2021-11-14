@@ -20,7 +20,7 @@ use crate::nix::options::NixOptions;
 use crate::nix::CallOpts;
 use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
 use crate::ops::error::{ok, ExitAs, ExitError, ExitErrorType, OpResult};
-use crate::project::{roots::Roots, Project};
+use crate::project::Project;
 use crate::run_async::Async;
 use crate::socket::path::SocketPath;
 use crate::NixFile;
@@ -100,7 +100,7 @@ pub fn direnv<W: std::io::Write>(
 ) -> OpResult {
     check_direnv_version()?;
 
-    let root_paths = Roots::from_project(&project).paths();
+    let root_paths = project.root_paths();
     let paths_are_cached: bool = root_paths.all_exist();
 
     let ping_sent = {
@@ -223,7 +223,7 @@ where
 /// See the documentation for lorri::cli::Command::Info for more
 /// details.
 pub fn info(project: Project) -> OpResult {
-    let root_paths = Roots::from_project(&project).paths();
+    let root_paths = project.root_paths();
     let OutputPath { shell_gc_root } = &root_paths;
     if root_paths.all_exist() {
         println!(
@@ -418,7 +418,7 @@ fn build_root(
         })?
         .result;
 
-    Ok(Roots::from_project(&project)
+    Ok(project
         .create_roots(run_result, &logger2)
         .map_err(|e| {
             ExitError::temporary(anyhow::Error::new(e).context("rooting the environment failed"))
@@ -430,7 +430,7 @@ fn build_root(
 }
 
 fn cached_root(project: &Project) -> Result<PathBuf, ExitError> {
-    let root_paths = Roots::from_project(&project).paths();
+    let root_paths = project.root_paths();
     if !root_paths.all_exist() {
         Err(ExitError::temporary(anyhow::anyhow!(
             "project has not previously been built successfully",

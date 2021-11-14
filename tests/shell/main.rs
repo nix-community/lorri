@@ -1,10 +1,6 @@
 use lorri::{
-    builder,
-    cas::ContentAddressable,
-    nix::options::NixOptions,
-    ops,
-    project::{roots::Roots, Project},
-    AbsPathBuf, NixFile,
+    builder, cas::ContentAddressable, nix::options::NixOptions, ops, project::Project, AbsPathBuf,
+    NixFile,
 };
 use std::env;
 use std::fs;
@@ -85,7 +81,7 @@ fn project(name: &str, cache_dir: &AbsPathBuf) -> Project {
 }
 
 fn build(project: &Project, logger: &slog::Logger) -> PathBuf {
-    Roots::from_project(&project)
+    project
         .create_roots(
             builder::run(
                 &project.nix_file,

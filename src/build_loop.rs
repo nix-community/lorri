@@ -5,9 +5,7 @@ use crate::builder::{self, BuildError};
 use crate::daemon::LoopHandlerEvent;
 use crate::nix::options::NixOptions;
 use crate::pathreduction::reduce_paths;
-use crate::project::roots;
-use crate::project::roots::Roots;
-use crate::project::Project;
+use crate::project::{self, Project};
 use crate::run_async::Async;
 use crate::watch::{Watch, WatchPathBuf};
 use crate::NixFile;
@@ -46,7 +44,7 @@ pub enum EventI<NixFile, Reason, OutputPath, BuildError> {
 }
 
 /// Builder events sent back over `BuildLoop.tx`.
-pub type Event = EventI<NixFile, Reason, builder::OutputPath<roots::RootPath>, BuildError>;
+pub type Event = EventI<NixFile, Reason, builder::OutputPath<project::RootPath>, BuildError>;
 
 impl<NixFile, Reason, OutputPath, BuildError> EventI<NixFile, Reason, OutputPath, BuildError> {
     /// Map over the inner types.
@@ -313,7 +311,7 @@ impl<'a> BuildLoop<'a> {
     ///
     /// This will create GC roots and expand the file watch list for
     /// the evaluation.
-    pub fn once(&mut self) -> Result<builder::OutputPath<roots::RootPath>, BuildError> {
+    pub fn once(&mut self) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
         let nix_file = self.project.nix_file.clone();
         let cas = self.project.cas.clone();
         let extra_nix_options = self.extra_nix_options.clone();
@@ -329,7 +327,7 @@ impl<'a> BuildLoop<'a> {
     fn handle_run_result(
         &mut self,
         run_result: Result<builder::RunResult, BuildError>,
-    ) -> Result<builder::OutputPath<roots::RootPath>, BuildError> {
+    ) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
         let run_result = run_result?;
         self.register_paths(&run_result.referenced_paths)?;
         self.root_result(run_result.result)
@@ -349,9 +347,8 @@ impl<'a> BuildLoop<'a> {
     fn root_result(
         &mut self,
         build: builder::RootedPath,
-    ) -> Result<builder::OutputPath<roots::RootPath>, BuildError> {
-        let roots = Roots::from_project(&self.project);
-        roots
+    ) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
+        self.project
             .create_roots(build, &self.logger.clone())
             .map_err(BuildError::io)
     }

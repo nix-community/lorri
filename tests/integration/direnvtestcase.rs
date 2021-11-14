@@ -7,7 +7,7 @@ use lorri::builder::BuildError;
 use lorri::cas::ContentAddressable;
 use lorri::nix::options::NixOptions;
 use lorri::ops;
-use lorri::project::roots;
+use lorri::project;
 use lorri::project::Project;
 use lorri::AbsPathBuf;
 use lorri::NixFile;
@@ -51,7 +51,7 @@ impl DirenvTestCase {
     }
 
     /// Execute the build loop one time
-    pub fn evaluate(&mut self) -> Result<builder::OutputPath<roots::RootPath>, BuildError> {
+    pub fn evaluate(&mut self) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
         BuildLoop::new(&self.project, NixOptions::empty(), self.logger.clone())
             .expect("could not set up build loop")
             .once()
