@@ -171,12 +171,14 @@ fn instrumented_instantiation(
         return Err(BuildError::exit(&cmd, exec_result, log_lines));
     }
 
-    assert!(
-        build_products.len() == 1,
-        "got more or less than one build product from logged_evaluation.nix: {:#?}",
-        build_products
-    );
-    let shell_gc_root = build_products.pop().unwrap();
+    let shell_gc_root = match build_products.len() {
+        0 => panic!("logged_evaluation.nix did not return a build product."),
+        1 => build_products.pop().unwrap(),
+        n => panic!(
+            "got more than one build product ({}) from logged_evaluation.nix: {:#?}",
+            n, build_products
+        ),
+    };
 
     Ok(InstantiateOutput {
         referenced_paths: paths,
