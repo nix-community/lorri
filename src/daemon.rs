@@ -228,7 +228,7 @@ impl Daemon {
                                 tx_build_events
                                     .send(LoopHandlerEvent::BuildEvent(Event::Failure {
                                         nix_file: project.nix_file.clone(),
-                                        failure: crate::error::BuildError::Io {
+                                        failure: crate::builder::BuildError::Io {
                                             msg: err
                                                 .context(format!(
                                                     "could not start the watcher for {}",

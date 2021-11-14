@@ -30,7 +30,7 @@
 //! );
 //! ```
 
-use crate::error::BuildError;
+use crate::builder::BuildError;
 use crate::osstrlines;
 use crossbeam_channel as chan;
 use slog::debug;
@@ -261,7 +261,7 @@ impl<'a> CallOpts<'a> {
     /// ```rust
     /// extern crate lorri;
     /// use lorri::nix;
-    /// use lorri::error::BuildError;
+    /// use lorri::builder::BuildError;
     /// use std::path::{Path, PathBuf};
     /// # use std::env;
     /// # env::set_var("NIX_PATH", "nixpkgs=./nix/bogus-nixpkgs/");

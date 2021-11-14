@@ -1,10 +1,17 @@
 //! Implement a wrapper around setup and tear-down of Direnv-based test
 //! cases.
 
-use lorri::{
-    build_loop::BuildLoop, builder, cas::ContentAddressable, error::BuildError,
-    nix::options::NixOptions, ops, project::roots, project::Project, AbsPathBuf, NixFile,
-};
+use lorri::build_loop::BuildLoop;
+use lorri::builder;
+use lorri::builder::BuildError;
+use lorri::cas::ContentAddressable;
+use lorri::nix::options::NixOptions;
+use lorri::ops;
+use lorri::project::roots;
+use lorri::project::Project;
+use lorri::AbsPathBuf;
+use lorri::NixFile;
+
 use std::collections::HashMap;
 use std::fs::File;
 use std::iter::FromIterator;

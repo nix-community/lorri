@@ -1,9 +1,8 @@
 //! Uses `builder` and filesystem watch code to repeatedly
 //! evaluate and build a given Nix file.
 
-use crate::builder;
+use crate::builder::{self, BuildError};
 use crate::daemon::LoopHandlerEvent;
-use crate::error::BuildError;
 use crate::nix::options::NixOptions;
 use crate::pathreduction::reduce_paths;
 use crate::project::roots;
