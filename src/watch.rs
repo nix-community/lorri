@@ -6,6 +6,7 @@ use notify::event::ModifyKind;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use slog::{debug, info};
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -311,14 +312,63 @@ fn path_match(watched_paths: &HashSet<PathBuf>, event_path: &Path, logger: &slog
     })
 }
 
+/// Command must be static because it guarantees there is no user
+/// interpolation of shell commands.
+///
+/// The command string is intentionally difficult to interpolate code
+/// in to, for safety. Instead, pass variable arguments in `args` and
+/// refer to them as `"$1"`, `"$2"`, etc.
+///
+/// Watch your quoting, though, as you can still hurt yourself there.
+///
+/// # Examples
+///
+///     use lorri::watch::expect_bash;
+///
+///     expect_bash(r#"exit "$1""#, &["0"]);
+///
+/// Make sure to properly quote your variables in the command string,
+/// so bash can properly escape your code. This is safe, despite the
+/// attempt at pwning my machine:
+///
+///     use lorri::watch::expect_bash;
+///
+///     expect_bash(r#"echo "$1""#, &[r#"hi"; touch ./pwnd"#]);
+///
+pub fn expect_bash<I, S>(command: &'static str, args: I)
+where
+    I: IntoIterator<Item = S> + std::fmt::Debug,
+    S: AsRef<OsStr>,
+{
+    let ret = std::process::Command::new("bash")
+        .args(&["-euc", command, "--"])
+        .args(args)
+        .status()
+        .expect("bash should start properly, regardless of exit code");
+
+    if !ret.success() {
+        panic!("{:#?}", ret);
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Watch, WatchPathBuf};
-    use crate::bash::expect_bash;
+    use super::{expect_bash, Watch, WatchPathBuf};
     use std::path::PathBuf;
     use std::thread::sleep;
     use std::time::Duration;
     use tempfile::tempdir;
+
+    #[test]
+    #[should_panic]
+    fn expect_bash_can_fail() {
+        expect_bash(r#"exit "$1""#, &["1"]);
+    }
+
+    #[test]
+    fn expect_bash_can_pass() {
+        expect_bash(r#"exit "$1""#, &["0"]);
+    }
 
     /// upper bound of watcher (if it’s hit, something is broken)
     fn upper_watcher_timeout() -> Duration {

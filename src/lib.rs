@@ -18,7 +18,6 @@ extern crate structopt;
 #[macro_use]
 extern crate serde_derive;
 
-pub mod bash;
 pub mod build_loop;
 pub mod builder;
 pub mod cas;
