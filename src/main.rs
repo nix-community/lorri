@@ -1,11 +1,10 @@
 use lorri::cli::{Arguments, Command, Internal_, Verbosity};
-use lorri::constants;
-use lorri::locate_file;
 use lorri::logging;
 use lorri::ops;
 use lorri::ops::error::{ExitError, OpResult};
 use lorri::project::Project;
 use lorri::NixFile;
+use lorri::{constants, AbsPathBuf};
 use slog::{debug, error, o};
 use std::env;
 use std::path::Path;
@@ -69,17 +68,17 @@ fn install_signal_handler() {
 /// that instructs the user how to write a minimal `shell.nix`.
 fn find_nix_file(shellfile: &Path) -> Result<NixFile, ExitError> {
     // use shell.nix from cwd
-    Ok(NixFile::from(locate_file::in_cwd(shellfile).map_err(
-        |_| {
-            ExitError::user_error(anyhow::anyhow!(
-                "`{}` does not exist\n\
+    match is_file_in_current_directory(shellfile) {
+        Err(err) => Err(ExitError::temporary(err)),
+        Ok(None) => Err(ExitError::user_error(anyhow::anyhow!(
+            "`{}` does not exist\n\
                  You can use the following minimal `shell.nix` to get started:\n\n\
                  {}",
-                shellfile.display(),
-                TRIVIAL_SHELL_SRC
-            ))
-        },
-    )?))
+            shellfile.display(),
+            TRIVIAL_SHELL_SRC
+        ))),
+        Ok(Some(file)) => Ok(NixFile::from(file)),
+    }
 }
 
 fn create_project(paths: &constants::Paths, shell_nix: NixFile) -> Result<Project, ExitError> {
@@ -137,10 +136,31 @@ fn run_command(logger: &slog::Logger, opts: Arguments) -> OpResult {
     }
 }
 
+/// Search for `name` in the current directory.
+/// If `name` is an absolute path and a file, it returns the file.
+/// If it doesn’t exist, returns `None`.
+pub fn is_file_in_current_directory(name: &Path) -> anyhow::Result<Option<AbsPathBuf>> {
+    let path = AbsPathBuf::new(env::current_dir()?)
+        .unwrap_or_else(|orig| {
+            panic!(
+                "Expected `env::current_dir` to return an absolute path, but was {}",
+                orig.display()
+            )
+        })
+        .join(name);
+    Ok(if path.as_absolute_path().is_file() {
+        Some(path)
+    } else {
+        None
+    })
+}
+
 #[cfg(test)]
 mod tests {
+    use lorri::AbsPathBuf;
+
     use super::*;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     /// Try instantiating the trivial shell file we provide the user.
     #[test]
@@ -182,5 +202,21 @@ mod tests {
         //         ),
         //     Err(nix::InstantiateError::Io(io)) => Err(io)
         // }
+    }
+    #[test]
+    fn test_locate_config_file() {
+        let mut path = PathBuf::from("shell.nix");
+        let result = is_file_in_current_directory(&path);
+        assert_eq!(
+            result
+                .unwrap()
+                .expect("Should find the shell.nix in this projects' root"),
+            AbsPathBuf::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")))
+                .unwrap()
+                .join("shell.nix")
+        );
+        path.pop();
+        path.push("this-lorri-specific-file-probably-does-not-exist");
+        assert_eq!(None, is_file_in_current_directory(&path).unwrap());
     }
 }

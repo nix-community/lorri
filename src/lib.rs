@@ -26,7 +26,6 @@ pub mod changelog;
 pub mod cli;
 pub mod constants;
 pub mod daemon;
-pub mod locate_file;
 pub mod logging;
 pub mod nix;
 pub mod ops;
