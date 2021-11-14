@@ -80,7 +80,7 @@ impl SocketPath {
     /// The lock file is released automatically when the returned `BindLock` is dropped.
     ///
     /// Uses the `flock(2)` trick decribed in
-    /// https://gavv.github.io/articles/unix-socket-reuse/
+    /// <https://gavv.github.io/articles/unix-socket-reuse/>
     pub fn bind(&self) -> Result<(UnixListener, BindLock), BindError> {
         // - try to lock lockfile (open and flock exclusive nonblocking)
         let lock = self.lock()?;

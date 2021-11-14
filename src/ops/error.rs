@@ -3,7 +3,7 @@
 /// Non-zero exit status from an op.
 ///
 /// Based in part on the execline convention
-/// (see https://skarnet.org/software/execline/exitcodes.html).
+/// (see <https://skarnet.org/software/execline/exitcodes.html>).
 ///
 /// All these commands exit
 /// - 1 if they encounter an expected error

@@ -248,7 +248,7 @@ impl<'a, R, W> ReadWriter<'a, R, W> {
     }
 }
 
-/// Wrap a socket with a timeout. Inspired by https://docs.rs/crate/timeout-readwrite/0.2.0/.
+/// Wrap a socket with a timeout. Inspired by <https://docs.rs/crate/timeout-readwrite/0.2.0/>.
 mod timeout {
     extern crate nix;
 
@@ -260,7 +260,7 @@ mod timeout {
 
     /// Wait until `to_fd` receives the poll event from `events`, up to `timeout` length
     /// of time.
-    /// Copied from https://docs.rs/crate/timeout-readwrite/0.2.0/source/src/utils.rs
+    /// Copied from <https://docs.rs/crate/timeout-readwrite/0.2.0/source/src/utils.rs>
     /// written by Jonathan Creekmore and published under Apache-2.0.
     fn wait_until_ready<R: AsRawFd>(
         timeout: libc::c_int,
