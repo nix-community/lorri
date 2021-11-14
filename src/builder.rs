@@ -135,37 +135,34 @@ fn instrumented_instantiation(
     // meaning we don’t have to keep the outputs in memory (fold directly)
 
     // iterate over all lines, parsing out the ones we are interested in
-    let (paths, log_lines): (Vec<WatchPathBuf>, Vec<OsString>) =
-        results
-            .into_iter()
-            .fold((vec![], vec![]), |(mut paths, mut log_lines), result| {
-                match result {
-                    LogDatum::CopiedSource(src) | LogDatum::ReadRecursively(src) => {
-                        paths.push(WatchPathBuf::Recursive(src));
-                    }
-                    LogDatum::ReadDir(src) => {
-                        paths.push(WatchPathBuf::Normal(src));
-                    }
-                    LogDatum::NixSourceFile(mut src) => {
-                        // We need to emulate nix’s `default.nix` mechanism here.
-                        // That is, if the user uses something like
-                        // `import ./foo`
-                        // and `foo` is a directory, nix will actually import
-                        // `./foo/default.nix`
-                        // but still print `./foo`.
-                        // Since this is the only time directories are printed,
-                        // we can just manually re-implement that behavior.
-                        if src.is_dir() {
-                            src.push("default.nix");
-                        }
-                        paths.push(WatchPathBuf::Normal(src));
-                    }
-                    LogDatum::Text(line) => log_lines.push(OsString::from(line)),
-                    LogDatum::NonUtf(line) => log_lines.push(line),
-                };
-
-                (paths, log_lines)
-            });
+    let mut paths: Vec<WatchPathBuf> = vec![];
+    let mut log_lines: Vec<OsString> = vec![];
+    for result in results {
+        match result {
+            LogDatum::CopiedSource(src) | LogDatum::ReadRecursively(src) => {
+                paths.push(WatchPathBuf::Recursive(src));
+            }
+            LogDatum::ReadDir(src) => {
+                paths.push(WatchPathBuf::Normal(src));
+            }
+            LogDatum::NixSourceFile(mut src) => {
+                // We need to emulate nix’s `default.nix` mechanism here.
+                // That is, if the user uses something like
+                // `import ./foo`
+                // and `foo` is a directory, nix will actually import
+                // `./foo/default.nix`
+                // but still print `./foo`.
+                // Since this is the only time directories are printed,
+                // we can just manually re-implement that behavior.
+                if src.is_dir() {
+                    src.push("default.nix");
+                }
+                paths.push(WatchPathBuf::Normal(src));
+            }
+            LogDatum::Text(line) => log_lines.push(OsString::from(line)),
+            LogDatum::NonUtf(line) => log_lines.push(line),
+        };
+    }
 
     if !exec_result.success() {
         return Err(BuildError::exit(&cmd, exec_result, log_lines));
