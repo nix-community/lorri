@@ -21,14 +21,6 @@ pub struct ExitError {
     error: anyhow::Error,
 }
 
-/// Final result from a CLI operation
-pub type OpResult = Result<(), ExitError>;
-
-/// Return an OpResult producing a silent exit 0
-pub fn ok() -> OpResult {
-    Ok(())
-}
-
 impl ExitError {
     /// Exit 1 to signify a generic expected error
     /// (e.g. something that sometimes just goes wrong, like a nix build).

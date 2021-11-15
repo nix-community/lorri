@@ -1,7 +1,7 @@
 use lorri::cli::{Arguments, Command, Internal_, Verbosity};
 use lorri::logging;
 use lorri::ops;
-use lorri::ops::error::{ExitError, OpResult};
+use lorri::ops::error::ExitError;
 use lorri::project::Project;
 use lorri::NixFile;
 use lorri::{constants, AbsPathBuf};
@@ -41,8 +41,8 @@ fn main() {
         }
     };
 
-    // TODO: Once the 'Termination' trait has been stabilised, 'OpResult' should implement
-    // 'Termination' and 'main' should return 'OpResult'.
+    // TODO: Once the 'Termination' trait has been stabilised, 'Result<(), ExitError>' should implement
+    // 'Termination' and 'main' should return 'Result<(), ExitError>'.
     // https://doc.rust-lang.org/std/process/trait.Termination.html
     // https://github.com/rust-lang/rfcs/blob/master/text/1937-ques-in-main.md
     std::process::exit(exit_code);
@@ -88,7 +88,7 @@ fn create_project(paths: &constants::Paths, shell_nix: NixFile) -> Result<Projec
 }
 
 /// Run the main function of the relevant command.
-fn run_command(logger: &slog::Logger, opts: Arguments) -> OpResult {
+fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> {
     let paths = lorri::ops::get_paths()?;
 
     let with_project = |nix_file| -> std::result::Result<(Project, slog::Logger), ExitError> {
