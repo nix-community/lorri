@@ -98,35 +98,51 @@ where {
         })?;
 
         // the reverse GC root that points from nix to our cache gc_roots dir
-        let mut root = if let Ok(path) = std::env::var("NIX_STATE_DIR") {
-            PathBuf::from(path)
-        } else {
-            PathBuf::from("/nix/var/nix/")
-        };
-        root.push("gcroots");
-        root.push("per-user");
-
-        // TODO: check on start of lorri
-        root.push(user.0);
+        // TODO: check nix state dir at startup, like USER.
+        let nix_var_nix = || AbsPathBuf::new_unchecked(PathBuf::from("/nix/var/nix/"));
+        let nix_gc_root_user_dir = std::env::var_os("NIX_STATE_DIR")
+            .map_or_else(
+                || Ok(nix_var_nix()),
+                |path| AbsPathBuf::new(PathBuf::from(path)),
+            )
+            .unwrap_or_else(|_pb| nix_var_nix())
+            .join(PathBuf::from("gcroots/per-user"))
+            .join(user.0);
 
         // The user directory sometimes doesn’t exist,
         // but we can create it (it’s root but `rwxrwxrwx`)
-        if !root.is_dir() {
-            std::fs::create_dir_all(&root).map_err(|source| AddRootError {
-                source,
-                msg: format!("Failed to recursively create directory {}", root.display()),
+        if !nix_gc_root_user_dir.as_absolute_path().is_dir() {
+            std::fs::create_dir_all(&nix_gc_root_user_dir.as_absolute_path()).map_err(|source| {
+                AddRootError {
+                    source,
+                    msg: format!(
+                        "Failed to create missing nix user gc directory: {}",
+                        nix_gc_root_user_dir.display()
+                    ),
+                }
             })?
         }
 
         // We register a garbage collection root, which points back to our `~/.cache/lorri/gc_roots` directory,
         // so that nix won’t delete our shell environment.
-        root.push(format!("{}-{}", self.hash(), "shell_gc_root"));
+        let nix_gc_root_user_dir_root =
+            nix_gc_root_user_dir.join(format!("{}-{}", self.hash(), "shell_gc_root"));
 
-        debug!(logger, "connecting root"; "from" => self.shell_gc_root().display(), "to" => root.to_str());
-        std::fs::remove_file(&root).or_else(|e| AddRootError::remove(e, &root))?;
+        debug!(logger, "connecting root"; "from" => self.shell_gc_root().display(), "to" => nix_gc_root_user_dir_root.display());
+        std::fs::remove_file(&nix_gc_root_user_dir_root.as_absolute_path()).or_else(|err| {
+            AddRootError::remove(err, &nix_gc_root_user_dir_root.as_absolute_path())
+        })?;
 
-        std::os::unix::fs::symlink(&self.shell_gc_root(), &root).map_err(|e| {
-            AddRootError::symlink(e, self.shell_gc_root().as_absolute_path(), &root)
+        std::os::unix::fs::symlink(
+            &self.shell_gc_root(),
+            &nix_gc_root_user_dir_root.as_absolute_path(),
+        )
+        .map_err(|e| {
+            AddRootError::symlink(
+                e,
+                self.shell_gc_root().as_absolute_path(),
+                &nix_gc_root_user_dir_root.as_absolute_path(),
+            )
         })?;
 
         // TODO: don’t return the RootPath here
