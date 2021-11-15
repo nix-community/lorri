@@ -86,15 +86,11 @@ where {
 
         debug!(logger, "adding root"; "from" => store_path.as_path().to_str(), "to" => self.shell_gc_root().display());
         std::fs::remove_file(&self.shell_gc_root())
-            .or_else(|e| AddRootError::remove(e, &self.shell_gc_root().as_absolute_path()))?;
+            .or_else(|e| AddRootError::remove(e, &self.shell_gc_root().as_path()))?;
 
         // the forward GC root that points from the store path to our cache gc_roots dir
         std::os::unix::fs::symlink(store_path.as_path(), &self.shell_gc_root()).map_err(|e| {
-            AddRootError::symlink(
-                e,
-                store_path.as_path(),
-                self.shell_gc_root().as_absolute_path(),
-            )
+            AddRootError::symlink(e, store_path.as_path(), self.shell_gc_root().as_path())
         })?;
 
         // the reverse GC root that points from nix to our cache gc_roots dir
@@ -111,8 +107,8 @@ where {
 
         // The user directory sometimes doesn’t exist,
         // but we can create it (it’s root but `rwxrwxrwx`)
-        if !nix_gc_root_user_dir.as_absolute_path().is_dir() {
-            std::fs::create_dir_all(&nix_gc_root_user_dir.as_absolute_path()).map_err(|source| {
+        if !nix_gc_root_user_dir.as_path().is_dir() {
+            std::fs::create_dir_all(&nix_gc_root_user_dir.as_path()).map_err(|source| {
                 AddRootError {
                     source,
                     msg: format!(
@@ -129,21 +125,17 @@ where {
             nix_gc_root_user_dir.join(format!("{}-{}", self.hash(), "shell_gc_root"));
 
         debug!(logger, "connecting root"; "from" => self.shell_gc_root().display(), "to" => nix_gc_root_user_dir_root.display());
-        std::fs::remove_file(&nix_gc_root_user_dir_root.as_absolute_path()).or_else(|err| {
-            AddRootError::remove(err, &nix_gc_root_user_dir_root.as_absolute_path())
-        })?;
+        std::fs::remove_file(&nix_gc_root_user_dir_root.as_path())
+            .or_else(|err| AddRootError::remove(err, &nix_gc_root_user_dir_root.as_path()))?;
 
-        std::os::unix::fs::symlink(
-            &self.shell_gc_root(),
-            &nix_gc_root_user_dir_root.as_absolute_path(),
-        )
-        .map_err(|e| {
-            AddRootError::symlink(
-                e,
-                self.shell_gc_root().as_absolute_path(),
-                &nix_gc_root_user_dir_root.as_absolute_path(),
-            )
-        })?;
+        std::os::unix::fs::symlink(&self.shell_gc_root(), &nix_gc_root_user_dir_root.as_path())
+            .map_err(|e| {
+                AddRootError::symlink(
+                    e,
+                    self.shell_gc_root().as_path(),
+                    &nix_gc_root_user_dir_root.as_path(),
+                )
+            })?;
 
         // TODO: don’t return the RootPath here
         Ok(OutputPath {
@@ -168,7 +160,7 @@ impl OutputPath<RootPath> {
     pub fn all_exist(&self) -> bool {
         let crate::builder::OutputPath { shell_gc_root } = self;
 
-        shell_gc_root.0.as_absolute_path().exists()
+        shell_gc_root.0.as_path().exists()
     }
 }
 

@@ -67,7 +67,7 @@ impl AbsPathBuf {
     }
 
     /// The absolute path, as `&Path`.
-    pub fn as_absolute_path(&self) -> &Path {
+    pub fn as_path(&self) -> &Path {
         &self.0
     }
 
@@ -93,7 +93,7 @@ impl AbsPathBuf {
 
 impl AsRef<Path> for AbsPathBuf {
     fn as_ref(&self) -> &Path {
-        self.as_absolute_path()
+        self.as_path()
     }
 }
 
@@ -106,7 +106,7 @@ pub struct NixFile(AbsPathBuf);
 impl NixFile {
     /// Absolute path of this file.
     pub fn as_absolute_path(&self) -> &Path {
-        &self.0.as_absolute_path()
+        &self.0.as_path()
     }
 }
 

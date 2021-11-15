@@ -110,7 +110,7 @@ pub fn direnv<W: std::io::Write>(
 
     let ping_sent = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
-        debug!(logger, "connecting to socket"; "socket" => address.as_absolute_path().display());
+        debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
         client::create::<client::Ping>(client::Timeout::from_millis(500), logger)
             .and_then(|c| {
                 c.write(&client::Ping {
@@ -167,7 +167,7 @@ watch_file "$EVALUATION_ROOT"
         root_paths.shell_gc_root.display(),
         crate::ops::get_paths()?
             .daemon_socket_file()
-            .as_absolute_path()
+            .as_path()
             .to_str()
             .expect("Socket path is not UTF-8 clean!"),
         include_str!("./ops/direnv/envrc.bash")
@@ -438,7 +438,7 @@ fn build_root(
         })?
         .shell_gc_root
         .0
-        .as_absolute_path()
+        .as_path()
         .to_owned())
 }
 
@@ -449,7 +449,7 @@ fn cached_root(project: &Project) -> Result<PathBuf, ExitError> {
             "project has not previously been built successfully",
         )))
     } else {
-        Ok(root_paths.shell_gc_root.0.as_absolute_path().to_owned())
+        Ok(root_paths.shell_gc_root.0.as_path().to_owned())
     }
 }
 
@@ -479,7 +479,7 @@ EVALUATION_ROOT="{}"
     cmd.env(
         "BASH_ENV",
         init_file
-            .as_absolute_path()
+            .as_path()
             .to_str()
             .expect("script file path not UTF-8 clean"),
     );
@@ -527,7 +527,7 @@ PS1="(lorri) $PS1"
             cmd.args(&[
                 "--rcfile",
                 rcfile
-                    .as_absolute_path()
+                    .as_path()
                     .to_str()
                     .expect("file path not UTF-8 clean"),
             ]);
@@ -634,7 +634,7 @@ pub fn stream_events(kind: EventKind, logger: &slog::Logger) -> Result<(), ExitE
 
     let thread = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
-        debug!(logger, "connecting to socket"; "socket" => address.as_absolute_path().display());
+        debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
         let logger2 = logger.clone();
         // This async will not block when it is dropped,
         // since it only reads messages and don’t want to block exit in the Snapshot case.
@@ -806,7 +806,7 @@ pub fn upgrade(
             UpgradeSource::Local(ref p) => println!("Upgrading from local path: {}", p.display()),
         }
 
-        let mut expr = nix::CallOpts::file(&upgrade_expr.as_absolute_path());
+        let mut expr = nix::CallOpts::file(&upgrade_expr.as_path());
 
         match src {
             UpgradeSource::Branch(b) => {

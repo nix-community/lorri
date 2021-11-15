@@ -113,7 +113,7 @@ impl SocketPath {
         self.0.with_file_name({
             let mut s = self
                 .0
-                .as_absolute_path()
+                .as_path()
                 .file_name()
                 .unwrap_or_else(|| panic!("Socket file ({:?}) must end in a file name", self.0))
                 .to_owned();

@@ -257,7 +257,7 @@ fn instrumented_instantiation(
     cmd.args(&[
         // instrumented by `./logged-evaluation.nix`
         OsStr::new("--"),
-        &logged_evaluation_nix.as_absolute_path().as_os_str(),
+        &logged_evaluation_nix.as_path().as_os_str(),
     ])
     .stdin(Stdio::null())
     .stdout(Stdio::piped())

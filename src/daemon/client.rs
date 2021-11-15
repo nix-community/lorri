@@ -17,7 +17,7 @@ where
     H: Handler,
 {
     let address = crate::ops::get_paths()?.daemon_socket_file().clone();
-    debug!(logger, "connecting to socket"; "socket" => address.as_absolute_path().display());
+    debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
 
     let client = communicate::client::new::<H>(timeout).connect(&SocketPath::from(address))?;
 

@@ -98,6 +98,6 @@ fn build(project: &Project, logger: &slog::Logger) -> PathBuf {
         .unwrap()
         .shell_gc_root
         .0
-        .as_absolute_path()
+        .as_path()
         .to_owned()
 }

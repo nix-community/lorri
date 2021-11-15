@@ -148,7 +148,7 @@ pub fn is_file_in_current_directory(name: &Path) -> anyhow::Result<Option<AbsPat
             )
         })
         .join(name);
-    Ok(if path.as_absolute_path().is_file() {
+    Ok(if path.as_path().is_file() {
         Some(path)
     } else {
         None
