@@ -1,3 +1,4 @@
+use lorri::project;
 use lorri::{
     builder, cas::ContentAddressable, nix::options::NixOptions, ops, project::Project, AbsPathBuf,
     NixFile,
@@ -91,6 +92,7 @@ fn build(project: &Project, logger: &slog::Logger) -> PathBuf {
             )
             .unwrap()
             .result,
+            project::Username::from_env_var().unwrap(),
             logger,
         )
         .unwrap()

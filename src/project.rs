@@ -6,6 +6,7 @@ use thiserror::Error;
 use crate::builder::{OutputPath, RootedPath};
 use crate::cas::ContentAddressable;
 use crate::{AbsPathBuf, NixFile};
+use std::ffi::OsString;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
@@ -77,6 +78,7 @@ impl Project {
         // roots to `StorePath`, not to `DrvFile`, because we have
         // no use case for creating GC roots for drv files.
         path: RootedPath,
+        user: Username,
         logger: &slog::Logger,
     ) -> Result<OutputPath<RootPath>, AddRootError>
 where {
@@ -105,7 +107,7 @@ where {
         root.push("per-user");
 
         // TODO: check on start of lorri
-        root.push(std::env::var("USER").expect("env var 'USER' must be set"));
+        root.push(user.0);
 
         // The user directory sometimes doesn’t exist,
         // but we can create it (it’s root but `rwxrwxrwx`)
@@ -151,6 +153,19 @@ impl OutputPath<RootPath> {
         let crate::builder::OutputPath { shell_gc_root } = self;
 
         shell_gc_root.0.as_absolute_path().exists()
+    }
+}
+
+/// Username of the logged in (OS) user.
+#[derive(Clone)]
+pub struct Username(OsString);
+
+impl Username {
+    /// Read the username from the `USER` env var.
+    pub fn from_env_var() -> anyhow::Result<Username> {
+        std::env::var_os("USER")
+            .ok_or_else(|| anyhow::anyhow!("Environment variable 'USER' must be set"))
+            .map(Username)
     }
 }
 

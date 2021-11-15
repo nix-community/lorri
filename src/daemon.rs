@@ -8,7 +8,7 @@ use crate::nix::options::NixOptions;
 use crate::ops::error::ExitError;
 use crate::socket::communicate;
 use crate::socket::path::SocketPath;
-use crate::{AbsPathBuf, NixFile};
+use crate::{project, AbsPathBuf, NixFile};
 use crossbeam_channel as chan;
 use slog::debug;
 use std::collections::HashMap;
@@ -71,6 +71,7 @@ impl Daemon {
         socket_path: &SocketPath,
         gc_root_dir: &AbsPathBuf,
         cas: crate::cas::ContentAddressable,
+        user: project::Username,
         logger: &slog::Logger,
     ) -> Result<(), ExitError> {
         let (tx_activity, rx_activity): (
@@ -109,6 +110,7 @@ impl Daemon {
                 rx_activity,
                 &gc_root_dir,
                 cas,
+                user,
                 &logger3,
             );
             Ok(())
@@ -174,6 +176,7 @@ impl Daemon {
         rx_activity: chan::Receiver<IndicateActivity>,
         gc_root_dir: &AbsPathBuf,
         cas: crate::cas::ContentAddressable,
+        user: project::Username,
         logger: &slog::Logger,
     ) {
         // A thread for each `BuildLoop`, keyed by the nix files listened on.
@@ -207,6 +210,7 @@ impl Daemon {
                     // messages from all builders.
                     let tx_build_events = tx_build_events.clone();
                     let extra_nix_options = extra_nix_options.clone();
+                    let user = user.clone();
                     let logger = logger.clone();
                     let logger2 = logger.clone();
                     // TODO: how to use the pool here?
@@ -218,7 +222,7 @@ impl Daemon {
                     // thread when you get a message” that could work!
                     // pool.spawn(format!("build_loop for {}", nix_file.display()),
                     let _ = std::thread::spawn(move || {
-                        match BuildLoop::new(&project, extra_nix_options, logger) {
+                        match BuildLoop::new(&project, extra_nix_options, user, logger) {
                             Ok(mut build_loop) => {
                                 build_loop.forever(tx_build_events, rx_ping).never()
                             }

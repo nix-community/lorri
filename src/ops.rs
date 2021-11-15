@@ -5,7 +5,6 @@ pub mod error;
 
 use crate::build_loop::BuildLoop;
 use crate::build_loop::{Event, EventI, ReasonI};
-use crate::builder;
 use crate::builder::OutputPath;
 use crate::cas::ContentAddressable;
 use crate::changelog;
@@ -25,7 +24,9 @@ use crate::run_async::Async;
 use crate::socket::path::SocketPath;
 use crate::NixFile;
 use crate::VERSION_BUILD_REV;
+use crate::{builder, project};
 
+use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::Write;
@@ -40,6 +41,7 @@ use std::time::Duration;
 use std::time::Instant;
 use std::{env, fs, io, thread};
 
+use anyhow::Context;
 use crossbeam_channel as chan;
 
 use slog::{debug, info, warn};
@@ -67,6 +69,8 @@ pub fn daemon(opts: crate::cli::DaemonOptions, logger: &slog::Logger) -> OpResul
         },
     };
 
+    let user = project::Username::from_env_var().map_err(ExitError::environment_problem)?;
+
     let (mut daemon, build_rx) = Daemon::new(extra_nix_options);
     let logger2 = logger.clone();
     let build_handle = std::thread::spawn(move || {
@@ -81,6 +85,7 @@ pub fn daemon(opts: crate::cli::DaemonOptions, logger: &slog::Logger) -> OpResul
         &SocketPath::from(paths.daemon_socket_file().clone()),
         paths.gc_root_dir(),
         paths.cas_store().clone(),
+        user,
         &logger,
     )?;
     build_handle
@@ -313,14 +318,21 @@ pub fn ping(nix_file: NixFile, logger: &slog::Logger) -> OpResult {
 /// marked (*) must be adjusted, and only in case we want to customize the shell, e.g. changing the
 /// way the prompt looks.
 pub fn shell(project: Project, opts: ShellOptions, logger: &slog::Logger) -> OpResult {
-    let lorri = env::current_exe().expect("failed to determine lorri executable's path");
-    let shell = env::var("SHELL").expect("lorri shell requires $SHELL to be set");
+    let lorri = env::current_exe()
+        .with_context(|| "failed to determine lorri executable's path")
+        .map_err(ExitError::environment_problem)?;
+    let shell = env::var_os("SHELL").ok_or_else(|| {
+        ExitError::environment_problem(anyhow::anyhow!(
+            "`lorri shell` requires the `SHELL` environment variable to be set"
+        ))
+    })?;
+    let user = project::Username::from_env_var().map_err(ExitError::environment_problem)?;
     let cached = cached_root(&project);
     let mut bash_cmd = bash_cmd(
         if opts.cached {
             cached?
         } else {
-            build_root(&project, cached.is_ok(), logger)?
+            build_root(&project, cached.is_ok(), user, logger)?
         },
         &project.cas,
         logger,
@@ -329,18 +341,14 @@ pub fn shell(project: Project, opts: ShellOptions, logger: &slog::Logger) -> OpR
     debug!(logger, "bash_cmd : {:?}", bash_cmd);
     let status = bash_cmd
         .args(&[
-            "-c",
-            "exec \"$1\" internal start-user-shell --shell-path=\"$2\" --shell-file=\"$3\"",
-            "--",
-            &lorri
-                .to_str()
-                .expect("lorri executable path not UTF-8 clean"),
+            OsStr::new("-c"),
+            OsStr::new(
+                "exec \"$1\" internal start-user-shell --shell-path=\"$2\" --shell-file=\"$3\"",
+            ),
+            OsStr::new("--"),
+            &lorri.as_os_str(),
             &shell,
-            project
-                .nix_file
-                .as_absolute_path()
-                .to_str()
-                .expect("Nix file path not UTF-8 clean"),
+            project.nix_file.as_absolute_path().as_os_str(),
         ])
         .status()
         .expect("failed to execute bash");
@@ -358,6 +366,7 @@ pub fn shell(project: Project, opts: ShellOptions, logger: &slog::Logger) -> OpR
 fn build_root(
     project: &Project,
     cached: bool,
+    user: project::Username,
     logger: &slog::Logger,
 ) -> Result<PathBuf, ExitError> {
     let building = Arc::new(AtomicBool::new(true));
@@ -419,7 +428,7 @@ fn build_root(
         .result;
 
     Ok(project
-        .create_roots(run_result, &logger2)
+        .create_roots(run_result, user, &logger2)
         .map_err(|e| {
             ExitError::temporary(anyhow::Error::new(e).context("rooting the environment failed"))
         })?
@@ -857,16 +866,17 @@ pub fn upgrade(
 /// See the documentation for lorri::cli::Command::Shell for more
 /// details.
 pub fn watch(project: Project, opts: WatchOptions, logger: &slog::Logger) -> OpResult {
+    let user = project::Username::from_env_var().map_err(ExitError::temporary)?;
     if opts.once {
-        main_run_once(project, logger)
+        main_run_once(project, user, logger)
     } else {
-        main_run_forever(project, logger)
+        main_run_forever(project, user, logger)
     }
 }
 
-fn main_run_once(project: Project, logger: &slog::Logger) -> OpResult {
+fn main_run_once(project: Project, user: project::Username, logger: &slog::Logger) -> OpResult {
     // TODO: add the ability to pass extra_nix_options to watch
-    let mut build_loop = BuildLoop::new(&project, NixOptions::empty(), logger.clone())
+    let mut build_loop = BuildLoop::new(&project, NixOptions::empty(), user, logger.clone())
         .map_err(ExitError::temporary)?;
     match build_loop.once() {
         Ok(msg) => {
@@ -885,14 +895,14 @@ fn main_run_once(project: Project, logger: &slog::Logger) -> OpResult {
     }
 }
 
-fn main_run_forever(project: Project, logger: &slog::Logger) -> OpResult {
+fn main_run_forever(project: Project, user: project::Username, logger: &slog::Logger) -> OpResult {
     let (tx_build_results, rx_build_results) = chan::unbounded();
     let (tx_ping, rx_ping) = chan::unbounded();
     let logger2 = logger.clone();
     // TODO: add the ability to pass extra_nix_options to watch
     let build_thread = {
         Async::run(logger, move || {
-            match BuildLoop::new(&project, NixOptions::empty(), logger2) {
+            match BuildLoop::new(&project, NixOptions::empty(), user, logger2) {
                 Ok(mut bl) => bl.forever(tx_build_results, rx_ping).never(),
                 Err(e) => Err(ExitError::temporary(e)),
             }
