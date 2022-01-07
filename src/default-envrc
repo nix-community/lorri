@@ -1,0 +1,6 @@
+if type -P lorri &>/dev/null; then
+  eval \"$(lorri direnv)\"
+else
+  echo "consider using lorri: https://github.com/nix-community/lorri"
+  use nix
+fi
