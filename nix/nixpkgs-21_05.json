@@ -1,0 +1,6 @@
+{
+  "nixpkgs-channel": "nixos-21.05",
+  "date": "Wed Jun 29 09:59:40 PM UTC 2022",
+  "url": "https://github.com/nixos/nixpkgs/archive/046ee4af7a9f016a364f8f78eeaa356ba524ac31.tar.gz",
+  "sha256": "0ck6g4dpnvswn32ilb561k50xl9yyzvvw5zgxgq81fgk0vn7zzdd"
+}
