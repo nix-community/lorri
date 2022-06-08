@@ -1,3 +1,5 @@
+# Usage:
+# nix-build ./ci.nix; ./result
 { pkgs ? import ../../nix/nixpkgs-stable.nix {} }:
 let
   checkout = { fetch-depth ? null }: {
@@ -144,6 +146,7 @@ let
     on = {
       pull_request = { branches = [ "**" ]; };
       push = { branches = [ "master" ]; };
+      workflow_dispatch = {};
     };
     env = { LORRI_NO_INSTALL_PANIC_HANDLER = "absolutely"; };
 
