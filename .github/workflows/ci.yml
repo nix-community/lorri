@@ -1,52 +1,52 @@
 env:
   LORRI_NO_INSTALL_PANIC_HANDLER: absolutely
 jobs:
-  nix-build_20_09-macos-latest:
-    name: nix-build [nixos 20.09] (macos-latest)
+  nix-build_21_05-macos-latest:
+    name: nix-build [nixos 21.05] (macos-latest)
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: null
       - name: Nix
-        uses: cachix/install-nix-action@v12
+        uses: cachix/install-nix-action@v14.1
       - name: Cachix
-        uses: cachix/cachix-action@v8
+        uses: cachix/cachix-action@v10
         with:
           name: nix-community
           signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
       - name: Build
-        run: nix-build --arg nixpkgs ./nix/nixpkgs-20_09.nix
-  nix-build_20_09-ubuntu-latest:
-    name: nix-build [nixos 20.09] (ubuntu-latest)
+        run: nix-build --arg nixpkgs ./nix/nixpkgs-21_05.nix
+  nix-build_21_05-ubuntu-latest:
+    name: nix-build [nixos 21.05] (ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: null
       - name: Nix
-        uses: cachix/install-nix-action@v12
+        uses: cachix/install-nix-action@v14.1
       - name: Cachix
-        uses: cachix/cachix-action@v8
+        uses: cachix/cachix-action@v10
         with:
           name: nix-community
           signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
       - name: Build
-        run: nix-build --arg nixpkgs ./nix/nixpkgs-20_09.nix
+        run: nix-build --arg nixpkgs ./nix/nixpkgs-21_05.nix
   nix-build_stable-macos-latest:
     name: nix-build [nixos stable] (macos-latest)
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
       - name: Nix
-        uses: cachix/install-nix-action@v12
+        uses: cachix/install-nix-action@v14.1
       - name: Cachix
-        uses: cachix/cachix-action@v8
+        uses: cachix/cachix-action@v10
         with:
           name: nix-community
           signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
@@ -61,13 +61,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
       - name: Nix
-        uses: cachix/install-nix-action@v12
+        uses: cachix/install-nix-action@v14.1
       - name: Cachix
-        uses: cachix/cachix-action@v8
+        uses: cachix/cachix-action@v10
         with:
           name: nix-community
           signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
@@ -82,18 +82,18 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: null
       - name: Nix
-        uses: cachix/install-nix-action@v12
+        uses: cachix/install-nix-action@v14.1
       - name: Cachix
-        uses: cachix/cachix-action@v8
+        uses: cachix/cachix-action@v10
         with:
           name: nix-community
           signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
-      - name: Build w/ overlay (20.09)
-        run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-20_09.json
+      - name: Build w/ overlay (21.05)
+        run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-21_05.json
       - name: Build w/ overlay (stable)
         run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
   overlay-ubuntu-latest:
@@ -101,18 +101,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: null
       - name: Nix
-        uses: cachix/install-nix-action@v12
+        uses: cachix/install-nix-action@v14.1
       - name: Cachix
-        uses: cachix/cachix-action@v8
+        uses: cachix/cachix-action@v10
         with:
           name: nix-community
           signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
-      - name: Build w/ overlay (20.09)
-        run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-20_09.json
+      - name: Build w/ overlay (21.05)
+        run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-21_05.json
       - name: Build w/ overlay (stable)
         run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
   rust-macos-latest:
@@ -120,13 +120,13 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: null
       - name: Nix
-        uses: cachix/install-nix-action@v12
+        uses: cachix/install-nix-action@v14.1
       - name: Cachix
-        uses: cachix/cachix-action@v8
+        uses: cachix/cachix-action@v10
         with:
           name: nix-community
           signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
@@ -138,7 +138,7 @@ jobs:
       - name: print PATH
         run: printenv PATH
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v1.2.0
+        uses: Swatinem/rust-cache@v1.3.0
       - name: CI tests
         run: |
           nix-build \
@@ -152,13 +152,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: null
       - name: Nix
-        uses: cachix/install-nix-action@v12
+        uses: cachix/install-nix-action@v14.1
       - name: Cachix
-        uses: cachix/cachix-action@v8
+        uses: cachix/cachix-action@v10
         with:
           name: nix-community
           signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
@@ -170,7 +170,7 @@ jobs:
       - name: print PATH
         run: printenv PATH
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v1.2.0
+        uses: Swatinem/rust-cache@v1.3.0
       - name: CI tests
         run: |
           nix-build \

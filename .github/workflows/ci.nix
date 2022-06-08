@@ -4,18 +4,18 @@
 let
   checkout = { fetch-depth ? null }: {
     name = "Checkout";
-    uses = "actions/checkout@v2";
+    uses = "actions/checkout@v3";
     "with" = {
       inherit fetch-depth;
     };
   };
   setup-nix = {
     name = "Nix";
-    uses = "cachix/install-nix-action@v12";
+    uses = "cachix/install-nix-action@v14.1";
   };
   setup-cachix = {
     name = "Cachix";
-    uses = "cachix/cachix-action@v8";
+    uses = "cachix/cachix-action@v10";
     "with" = {
       name = "nix-community";
       signingKey = "\${{ secrets.CACHIX_SIGNING_KEY }}";
@@ -36,7 +36,7 @@ let
   };
   rust-cache = {
     name = "Rust Cache";
-    uses = "Swatinem/rust-cache@v1.2.0";
+    uses = "Swatinem/rust-cache@v1.3.0";
   };
 
   githubRunners = {
@@ -102,10 +102,10 @@ let
       };
     };
 
-    nixos-20_09 = { runs-on }: {
-      name = "nix-build_20_09-${runs-on}";
+    nixos-21_05 = { runs-on }: {
+      name = "nix-build_21_05-${runs-on}";
       value = {
-        name = "nix-build [nixos 20.09] (${runs-on})";
+        name = "nix-build [nixos 21.05] (${runs-on})";
         inherit runs-on;
         steps = [
           (checkout {})
@@ -113,7 +113,7 @@ let
           setup-cachix
           {
             name = "Build";
-            run = "nix-build --arg nixpkgs ./nix/nixpkgs-20_09.nix";
+            run = "nix-build --arg nixpkgs ./nix/nixpkgs-21_05.nix";
           }
         ];
       };
@@ -129,8 +129,8 @@ let
           setup-nix
           setup-cachix
           {
-            name = "Build w/ overlay (20.09)";
-            run = "nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-20_09.json";
+            name = "Build w/ overlay (21.05)";
+            run = "nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-21_05.json";
           }
           {
             name = "Build w/ overlay (stable)";
@@ -156,8 +156,8 @@ let
         (builds.rust { runs-on = githubRunners.macos; })
         (builds.stable { runs-on = githubRunners.ubuntu; })
         (builds.stable { runs-on = githubRunners.macos; })
-        (builds.nixos-20_09 { runs-on = githubRunners.ubuntu; })
-        (builds.nixos-20_09 { runs-on = githubRunners.macos; })
+        (builds.nixos-21_05 { runs-on = githubRunners.ubuntu; })
+        (builds.nixos-21_05 { runs-on = githubRunners.macos; })
         (builds.overlay { runs-on = githubRunners.ubuntu; })
         (builds.overlay { runs-on = githubRunners.macos; })
       ];
