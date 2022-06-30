@@ -128,10 +128,10 @@ let
           (checkout {})
           setup-nix
           setup-cachix
-          {
-            name = "Build w/ overlay (21.05)";
-            run = "nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-21_05.json";
-          }
+        # {
+        #   name = "Build w/ overlay (21.05)";
+        #   run = "nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-21_05.json";
+        # }
           {
             name = "Build w/ overlay (stable)";
             run = "nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json";
@@ -156,8 +156,8 @@ let
         (builds.rust { runs-on = githubRunners.macos; })
         (builds.stable { runs-on = githubRunners.ubuntu; })
         (builds.stable { runs-on = githubRunners.macos; })
-        (builds.nixos-21_05 { runs-on = githubRunners.ubuntu; })
-        (builds.nixos-21_05 { runs-on = githubRunners.macos; })
+        # (builds.nixos-21_05 { runs-on = githubRunners.ubuntu; })
+        # (builds.nixos-21_05 { runs-on = githubRunners.macos; })
         (builds.overlay { runs-on = githubRunners.ubuntu; })
         (builds.overlay { runs-on = githubRunners.macos; })
       ];
