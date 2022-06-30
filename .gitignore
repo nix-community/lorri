@@ -8,3 +8,4 @@ result*
 .bash_history
 crates-io.list
 *.rustfmt
+.extra-envrc
