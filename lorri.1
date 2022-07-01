@@ -41,12 +41,15 @@ integration for robust CLI and editor integration.
 .Pp
 .Nm
 is about experimenting with and improving the developer's experience with Nix.
-A particular focus is managing your project's external dependencies, editor integration, and quick feedback.
+A particular focus is managing your project's external dependencies, editor
+integration, and quick feedback.
 .Pp
 .Nm
-provides a daemon that automatically builds project environment whenever their nix files change, and the
+provides a daemon that automatically builds project environment whenever their
+nix files change, and the
 .Xr direnv 1
-integration instantly loads the project environment, in your shell and in your editor.
+integration instantly loads the project environment, in your shell and in your
+editor.
 .Pp
 .Nm
 supports Linux and macOS.
@@ -139,7 +142,8 @@ This uses
 internally, and will install the new
 .Nm
 to your user profile.
-It is intended as a quick way to update to latest canon, or to try out a specific branch.
+It is intended as a quick way to update to latest canon, or to try out a
+specific branch.
 .Pp
 .Ar local
 will use the
@@ -202,7 +206,8 @@ Will block on the evaluation of the
 .Pa shell.nix .
 If a dependency of the
 .Pa shell.nix
-changes, direnv will not pick it up, so you have to manually add them to the watch list with
+changes, direnv will not pick it up, so you have to manually add them to the
+watch list with
 .Sy watch_file .
 See
 .Xr direnv-stdlib 1 .
