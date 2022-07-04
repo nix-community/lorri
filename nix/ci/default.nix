@@ -1,4 +1,4 @@
-{ pkgs, LORRI_ROOT, BUILD_REV_COUNT, RUN_TIME_CLOSURE }:
+{ pkgs, lib, LORRI_ROOT, BUILD_REV_COUNT, RUN_TIME_CLOSURE }:
 let
 
   lorriBinDir = "${LORRI_ROOT}/target/debug";
@@ -268,6 +268,13 @@ let
     ];
   };
 
+  # Remove tests that cannot succeed
+  limitTests = if pkgs.stdenv.isLinux then n: v: true else n: v: !(builtins.elem n [
+    "cargo-clippy" # requires bubblewrap
+  ]);
+  limitedTests = lib.filterAttrs limitTests tests;
+
+
   # clean the environment;
   # this is the only way we can have a non-diverging
   # environment between developer machine and CI
@@ -276,7 +283,7 @@ let
       [ (runInEmptyEnv [ "USER" "HOME" "TERM" ]) test ];
 
   testsWithEmptyEnv = pkgs.lib.mapAttrs
-    (_: test: test // { test = emptyTestEnv test.test; }) tests;
+    (_: test: test // { test = emptyTestEnv test.test; }) limitedTests;
 
   # Write a attrset which looks like
   # { "test description" = test-script-derviation }
@@ -307,7 +314,7 @@ let
       ])
     ];
 
-  testsuite = batsScript "run-testsuite" tests;
+  testsuite = batsScript "run-testsuite" limitedTests;
 
 in {
   inherit testsuite;
