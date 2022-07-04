@@ -70,6 +70,7 @@ let
       pkgs.darwin.apple_sdk.frameworks.CoreServices
       pkgs.darwin.apple_sdk.frameworks.CoreFoundation
       pkgs.stdenv.cc.bintools.bintools
+      pkgs.libiconv
     ];
   };
 
@@ -103,7 +104,7 @@ let
         pkgs.cargo
     ])
     ++ [
-      "export" "RUST_BACKTRACE" "1"
+      "export" "RUST_BACKTRACE" "full"
       "export" "BUILD_REV_COUNT" (toString BUILD_REV_COUNT)
       "export" "RUN_TIME_CLOSURE" RUN_TIME_CLOSURE
     ];
@@ -138,7 +139,7 @@ let
       test = writeCargo "cargo-test"
         # the tests need bash and nix and direnv
         (pathPrependBins [ pkgs.coreutils pkgs.bash pkgs.nix pkgs.direnv ])
-        [ "test" ];
+        [ "test" "--no-fail-fast" ];
     };
 
     cargo-clippy = {
@@ -202,6 +203,17 @@ let
     };
 
   };
+
+  bisect = lib.foldl ( a: b: a //
+    {
+      "test ${b}" = {
+        description = "run cargo test ${b}";
+        test = writeCargo "cargo-test"
+        # the tests need bash and nix and direnv
+        (pathPrependBins [ pkgs.coreutils pkgs.bash pkgs.nix pkgs.direnv ])
+        [ "test" b ];
+      };
+    }) {} import ./troubled-tests.nix;
 
   # An offline check is a check that can be run inside a nix build.
   # But instead of crashing the nix build, it will write the result to $out
@@ -317,8 +329,10 @@ let
 
   testsuite = batsScript "run-testsuite" limitedTests;
 
+  testsuite-bisect = batsScript "bisect-tests" bisect;
+
 in {
-  inherit testsuite;
+  inherit testsuite testsuite-bisect;
   # we want the single test attributes to have their environment emptied as well.
   tests = testsWithEmptyEnv;
   inherit darwinImpureEnv;

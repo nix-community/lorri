@@ -6,7 +6,7 @@ let
   runInEmptyEnv = keepVars:
     let
         importas = pkgs.lib.concatMap (var: [ "importas" "-D" "" var var ]) keepVars;
-        # we have to explicitely call export here, because PATH is probably empty
+        # we have to explicitly call export here, because PATH is probably empty
         export = pkgs.lib.concatMap (var: [ "${pkgs.execline}/bin/export" var ''''${${var}}'' ]) keepVars;
     in writeExecline "empty-env" {}
          (importas ++ [ "emptyenv" ] ++ export ++ [ "${pkgs.execline}/bin/exec" "$@" ]);
