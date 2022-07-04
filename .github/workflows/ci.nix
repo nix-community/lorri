@@ -72,6 +72,33 @@ let
       };
     };
 
+    rust-bisect = { runs-on }: {
+      name = "rust-bisect-${runs-on}";
+      value = {
+        name = "Rust and CI tests (${runs-on})";
+        inherit runs-on;
+        steps = [
+          (checkout {})
+          setup-nix
+          setup-cachix
+          add-rustc-to-path
+          print-path
+          rust-cache
+          {
+            name = "CI tests";
+            run = ''
+              nix-build \
+                --out-link ./ci-tests \
+                --arg isDevelopmentShell false \
+                -A ci.testsuite-bisect \
+                shell.nix \
+                && ./ci-tests
+            '';
+          }
+        ];
+      };
+    };
+
     stable = { runs-on }: {
       name = "nix-build_stable-${runs-on}";
       value = {
@@ -148,22 +175,22 @@ let
       push = { branches = [ "master" ]; };
       workflow_dispatch = {};
     };
-    env = { LORRI_NO_INSTALL_PANIC_HANDLER = "absolutely"; };
+    env = { LORRI_NO_INSTALL_PANIC_HANDLER = "absolutely for sure"; };
 
     jobs = builtins.listToAttrs
-      [
-        (builds.rust { runs-on = githubRunners.ubuntu; })
-        (builds.rust { runs-on = githubRunners.macos; })
-        (builds.stable { runs-on = githubRunners.ubuntu; })
-        (builds.stable { runs-on = githubRunners.macos; })
-        # (builds.nixos-21_05 { runs-on = githubRunners.ubuntu; })
-        # (builds.nixos-21_05 { runs-on = githubRunners.macos; })
-        (builds.overlay { runs-on = githubRunners.ubuntu; })
-        (builds.overlay { runs-on = githubRunners.macos; })
-      ];
+    [
+      (builds.rust { runs-on = githubRunners.ubuntu; })
+      (builds.rust { runs-on = githubRunners.macos; })
+      (builds.rust-bisect { runs-on = githubRunners.macos; })
+      (builds.stable { runs-on = githubRunners.ubuntu; })
+      (builds.stable { runs-on = githubRunners.macos; })
+      (builds.overlay { runs-on = githubRunners.ubuntu; })
+      (builds.overlay { runs-on = githubRunners.macos; })
+    ];
   };
 
   yaml = pkgs.runCommand "ci.yml" {
+
     buildInputs = [ pkgs.yj ];
     passAsFile = [ "config" ];
     config = builtins.toJSON config;

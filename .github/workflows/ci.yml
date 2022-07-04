@@ -1,5 +1,5 @@
 env:
-  LORRI_NO_INSTALL_PANIC_HANDLER: absolutely
+  LORRI_NO_INSTALL_PANIC_HANDLER: absolutely for sure
 jobs:
   nix-build_stable-macos-latest:
     name: nix-build [nixos stable] (macos-latest)
@@ -77,6 +77,38 @@ jobs:
           signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
       - name: Build w/ overlay (stable)
         run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
+  rust-bisect-macos-latest:
+    name: Rust and CI tests (macos-latest)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: null
+      - name: Nix
+        uses: cachix/install-nix-action@v14.1
+      - name: Cachix
+        uses: cachix/cachix-action@v10
+        with:
+          name: nix-community
+          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+      - name: Add rustc to PATH
+        run: |
+          set -euo pipefail
+          rustc_path="$(nix-build -A rustc nix/nixpkgs-stable.nix)/bin"
+          echo "$rustc_path" >> "$GITHUB_PATH"
+      - name: print PATH
+        run: printenv PATH
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v1.3.0
+      - name: CI tests
+        run: |
+          nix-build \
+            --out-link ./ci-tests \
+            --arg isDevelopmentShell false \
+            -A ci.testsuite-bisect \
+            shell.nix \
+            && ./ci-tests
   rust-macos-latest:
     name: Rust and CI tests (macos-latest)
     runs-on: macos-latest
