@@ -1,6 +1,7 @@
-{ pkgs, lib, LORRI_ROOT, BUILD_REV_COUNT, RUN_TIME_CLOSURE }:
+{ pkgs, LORRI_ROOT, BUILD_REV_COUNT, RUN_TIME_CLOSURE }:
 let
 
+  lib = pkgs.lib;
   lorriBinDir = "${LORRI_ROOT}/target/debug";
 
   inherit (import ./execline.nix { inherit pkgs; })
