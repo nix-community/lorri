@@ -204,16 +204,66 @@ let
 
   };
 
-  bisect = lib.foldl ( a: b: a //
-    {
-      "test ${b}" = {
-        description = "run cargo test ${b}";
-        test = writeCargo "cargo-test"
+  justTest = {
+    cargo-test = {
+      description = "run cargo test";
+      test = writeCargo "cargo-test"
         # the tests need bash and nix and direnv
         (pathPrependBins [ pkgs.coreutils pkgs.bash pkgs.nix pkgs.direnv ])
-        [ "test" b ];
+        [ "test" "--no-fail-fast" ];
+    };
+  };
+
+  eachUnitTest = let
+    troubled = import ./troubled-tests.nix;
+
+    tests = lib.imap1 (idx: test: {
+      name = "test ${toString idx}";
+      value = {
+        description = "run cargo test ${test}";
+        test = writeCargo "cargo-test"
+          # the tests need bash and nix and direnv
+          (pathPrependBins [ pkgs.coreutils pkgs.bash pkgs.nix pkgs.direnv ])
+          [ "test" "--" test ];
+        };
+      }) troubled;
+  in
+    lib.listToAttrs tests;
+
+  bisect = let
+    troubled = import ./troubled-tests.nix;
+
+    sections = count: list: let
+      len = builtins.length list;
+      sectionLen = len / count;
+      section = n: lib.sublist (n * sectionLen) sectionLen list;
+    in
+      builtins.genList (n: section n) count;
+
+    quads = lib.traceValSeq (sections 4 troubled);
+
+    ranges = let
+      indexes = lib.cartesianProductOfSets {
+        left = lib.range 0 3;
+        right = lib.range 0 3;
       };
-    }) {} import ./troubled-tests.nix;
+      stripped = builtins.filter (p: p.left < p.right) indexes;
+    in
+      map (p: (builtins.elemAt quads p.left) ++ (builtins.elemAt quads p.right)) stripped;
+
+    bisections = lib.imap1 ( idx: rng:
+    {
+      name = "test ${toString idx}";
+      value = {
+        description = "run cargo test ${toString rng}";
+        test = writeCargo "cargo-test"
+          # the tests need bash and nix and direnv
+          (pathPrependBins [ pkgs.coreutils pkgs.bash pkgs.nix pkgs.direnv ])
+          ([ "test" "--" ] ++ rng);
+        };
+      }) ranges;
+  in
+    lib.listToAttrs bisections;
 
   # An offline check is a check that can be run inside a nix build.
   # But instead of crashing the nix build, it will write the result to $out
@@ -295,8 +345,8 @@ let
     writeExecline "${test.name}-empty-env" {}
       [ (runInEmptyEnv [ "USER" "HOME" "TERM" ]) test ];
 
-  testsWithEmptyEnv = pkgs.lib.mapAttrs
-    (_: test: test // { test = emptyTestEnv test.test; }) limitedTests;
+  testsWithEmptyEnv = tests: pkgs.lib.mapAttrs
+    (_: test: test // { test = emptyTestEnv test.test; }) tests;
 
   # Write a attrset which looks like
   # { "test description" = test-script-derviation }
@@ -310,7 +360,8 @@ let
         ++ [ "${pkgs.bats}/bin/bats" "$@" ]);
       # see https://github.com/bats-core/bats-core/blob/f3a08d5d004d34afb2df4d79f923d241b8c9c462/README.md#file-descriptor-3-read-this-if-bats-hangs
       closeFD3 = "3>&-";
-    in name: tests: pkgs.lib.pipe testsWithEmptyEnv [
+    in name: tests: pkgs.lib.pipe tests [
+      testsWithEmptyEnv
       (pkgs.lib.mapAttrsToList
         # a bats test looks like:
         # @test "name of test" {
@@ -327,12 +378,12 @@ let
       ])
     ];
 
-  testsuite = batsScript "run-testsuite" limitedTests;
-
-  testsuite-bisect = batsScript "bisect-tests" bisect;
-
 in {
-  inherit testsuite testsuite-bisect;
+  testsuite = batsScript "run-testsuite" limitedTests;
+  testsuite-bisect = batsScript "bisect-tests" bisect;
+  testsuite-justtest = batsScript "just-tests" justTest;
+  testsuite-eachunit = batsScript "each-unit-test" eachUnitTest;
+
   # we want the single test attributes to have their environment emptied as well.
   tests = testsWithEmptyEnv;
   inherit darwinImpureEnv;
