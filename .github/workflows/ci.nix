@@ -72,10 +72,10 @@ let
       };
     };
 
-    rust-bisect = { runs-on }: {
-      name = "rust-bisect-${runs-on}";
+    rust-justtest = { runs-on }: {
+      name = "rust-justtest-${runs-on}";
       value = {
-        name = "Rust and CI tests (${runs-on})";
+        name = "Rust unit tests (${runs-on})";
         inherit runs-on;
         steps = [
           (checkout {})
@@ -85,7 +85,61 @@ let
           print-path
           rust-cache
           {
-            name = "CI tests";
+            name = "CI bisection tests";
+            run = ''
+              nix-build \
+                --out-link ./ci-tests \
+                --arg isDevelopmentShell false \
+                -A ci.testsuite-justtest \
+                shell.nix \
+                && ./ci-tests
+            '';
+          }
+        ];
+      };
+    };
+
+    rust-each-unit-test = { runs-on }: {
+      name = "rust-each-unit-${runs-on}";
+      value = {
+        name = "Rust individual tests (${runs-on})";
+        inherit runs-on;
+        steps = [
+          (checkout {})
+          setup-nix
+          setup-cachix
+          add-rustc-to-path
+          print-path
+          rust-cache
+          {
+            name = "CI bisection tests";
+            run = ''
+              nix-build \
+                --out-link ./ci-tests \
+                --arg isDevelopmentShell false \
+                -A ci.testsuite-eachunit \
+                shell.nix \
+                && ./ci-tests
+            '';
+          }
+        ];
+      };
+    };
+
+    rust-bisect = { runs-on }: {
+      name = "rust-bisect-${runs-on}";
+      value = {
+        name = "Bisect Rust tests (${runs-on})";
+        inherit runs-on;
+        steps = [
+          (checkout {})
+          setup-nix
+          setup-cachix
+          add-rustc-to-path
+          print-path
+          rust-cache
+          {
+            name = "CI bisection tests";
             run = ''
               nix-build \
                 --out-link ./ci-tests \
@@ -181,6 +235,8 @@ let
     [
       (builds.rust { runs-on = githubRunners.ubuntu; })
       (builds.rust { runs-on = githubRunners.macos; })
+      (builds.rust-justtest { runs-on = githubRunners.macos; })
+      (builds.rust-each-unit-test { runs-on = githubRunners.macos; })
       (builds.rust-bisect { runs-on = githubRunners.macos; })
       (builds.stable { runs-on = githubRunners.ubuntu; })
       (builds.stable { runs-on = githubRunners.macos; })

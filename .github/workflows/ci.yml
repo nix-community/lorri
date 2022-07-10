@@ -78,7 +78,7 @@ jobs:
       - name: Build w/ overlay (stable)
         run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
   rust-bisect-macos-latest:
-    name: Rust and CI tests (macos-latest)
+    name: Bisect Rust tests (macos-latest)
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -101,12 +101,76 @@ jobs:
         run: printenv PATH
       - name: Rust Cache
         uses: Swatinem/rust-cache@v1.3.0
-      - name: CI tests
+      - name: CI bisection tests
         run: |
           nix-build \
             --out-link ./ci-tests \
             --arg isDevelopmentShell false \
             -A ci.testsuite-bisect \
+            shell.nix \
+            && ./ci-tests
+  rust-each-unit-macos-latest:
+    name: Rust individual tests (macos-latest)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: null
+      - name: Nix
+        uses: cachix/install-nix-action@v14.1
+      - name: Cachix
+        uses: cachix/cachix-action@v10
+        with:
+          name: nix-community
+          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+      - name: Add rustc to PATH
+        run: |
+          set -euo pipefail
+          rustc_path="$(nix-build -A rustc nix/nixpkgs-stable.nix)/bin"
+          echo "$rustc_path" >> "$GITHUB_PATH"
+      - name: print PATH
+        run: printenv PATH
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v1.3.0
+      - name: CI bisection tests
+        run: |
+          nix-build \
+            --out-link ./ci-tests \
+            --arg isDevelopmentShell false \
+            -A ci.testsuite-eachunit \
+            shell.nix \
+            && ./ci-tests
+  rust-justtest-macos-latest:
+    name: Rust unit tests (macos-latest)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: null
+      - name: Nix
+        uses: cachix/install-nix-action@v14.1
+      - name: Cachix
+        uses: cachix/cachix-action@v10
+        with:
+          name: nix-community
+          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+      - name: Add rustc to PATH
+        run: |
+          set -euo pipefail
+          rustc_path="$(nix-build -A rustc nix/nixpkgs-stable.nix)/bin"
+          echo "$rustc_path" >> "$GITHUB_PATH"
+      - name: print PATH
+        run: printenv PATH
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v1.3.0
+      - name: CI bisection tests
+        run: |
+          nix-build \
+            --out-link ./ci-tests \
+            --arg isDevelopmentShell false \
+            -A ci.testsuite-justtest \
             shell.nix \
             && ./ci-tests
   rust-macos-latest:
