@@ -210,7 +210,7 @@ let
       test = writeCargo "cargo-test"
         # the tests need bash and nix and direnv
         (pathPrependBins [ pkgs.coreutils pkgs.bash pkgs.nix pkgs.direnv ])
-        [ "test" "--no-fail-fast" ];
+        [ "test" "--no-fail-fast" "--" "--test-threads" "1"];
     };
   };
 

@@ -362,7 +362,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn expect_bash_can_fail() {
-        expect_bash(r#"exit "$1""#, &["1"]);
+        expect_bash(r#"false"#, &[""]);
     }
 
     #[test]
