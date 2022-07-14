@@ -204,16 +204,6 @@ let
 
   };
 
-  justTest = {
-    cargo-test = {
-      description = "run cargo test";
-      test = writeCargo "cargo-test"
-        # the tests need bash and nix and direnv
-        (pathPrependBins [ pkgs.coreutils pkgs.bash pkgs.nix pkgs.direnv ])
-        [ "test" "--no-fail-fast" "--" "--test-threads" "1"];
-    };
-  };
-
   eachUnitTest = let
     troubled = import ./troubled-tests.nix;
 
@@ -224,46 +214,11 @@ let
         test = writeCargo "cargo-test"
           # the tests need bash and nix and direnv
           (pathPrependBins [ pkgs.coreutils pkgs.bash pkgs.nix pkgs.direnv ])
-          [ "test" "--" test ];
+          [ "test" "--" "--include-ignored" test ];
         };
       }) troubled;
   in
     lib.listToAttrs tests;
-
-  bisect = let
-    troubled = import ./troubled-tests.nix;
-
-    sections = count: list: let
-      len = builtins.length list;
-      sectionLen = len / count;
-      section = n: lib.sublist (n * sectionLen) sectionLen list;
-    in
-      builtins.genList (n: section n) count;
-
-    quads = lib.traceValSeq (sections 4 troubled);
-
-    ranges = let
-      indexes = lib.cartesianProductOfSets {
-        left = lib.range 0 3;
-        right = lib.range 0 3;
-      };
-      stripped = builtins.filter (p: p.left < p.right) indexes;
-    in
-      map (p: (builtins.elemAt quads p.left) ++ (builtins.elemAt quads p.right)) stripped;
-
-    bisections = lib.imap1 ( idx: rng:
-    {
-      name = "test ${toString idx}";
-      value = {
-        description = "run cargo test ${toString rng}";
-        test = writeCargo "cargo-test"
-          # the tests need bash and nix and direnv
-          (pathPrependBins [ pkgs.coreutils pkgs.bash pkgs.nix pkgs.direnv ])
-          ([ "test" "--" ] ++ rng);
-        };
-      }) ranges;
-  in
-    lib.listToAttrs bisections;
 
   # An offline check is a check that can be run inside a nix build.
   # But instead of crashing the nix build, it will write the result to $out
@@ -380,8 +335,6 @@ let
 
 in {
   testsuite = batsScript "run-testsuite" limitedTests;
-  testsuite-bisect = batsScript "bisect-tests" bisect;
-  testsuite-justtest = batsScript "just-tests" justTest;
   testsuite-eachunit = batsScript "each-unit-test" eachUnitTest;
 
   # we want the single test attributes to have their environment emptied as well.
