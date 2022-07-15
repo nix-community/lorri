@@ -1,5 +1,5 @@
 env:
-  LORRI_NO_INSTALL_PANIC_HANDLER: absolutely for sure
+  LORRI_NO_INSTALL_PANIC_HANDLER: absolutely
 jobs:
   nix-build_stable-macos-latest:
     name: nix-build [nixos stable] (macos-latest)
