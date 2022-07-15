@@ -1,5 +1,5 @@
 let
-  srcDef = builtins.fromJSON (builtins.readFile ./nixpkgs-21_05.json);
+  srcDef = builtins.fromJSON (builtins.readFile ./nixpkgs-22_05.json);
   nixpkgs = builtins.fetchTarball {
     url = srcDef.url;
     sha256 = srcDef.sha256;

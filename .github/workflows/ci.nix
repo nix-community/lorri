@@ -129,10 +129,10 @@ let
       };
     };
 
-    nixos-21_05 = { runs-on }: {
-      name = "nix-build_21_05-${runs-on}";
+    nixos-22_05 = { runs-on }: {
+      name = "nix-build_22_05-${runs-on}";
       value = {
-        name = "nix-build [nixos 21.05] (${runs-on})";
+        name = "nix-build [nixos 22.05] (${runs-on})";
         inherit runs-on;
         steps = [
           (checkout {})
@@ -140,7 +140,7 @@ let
           setup-cachix
           {
             name = "Build";
-            run = "nix-build --arg nixpkgs ./nix/nixpkgs-21_05.nix";
+            run = "nix-build --arg nixpkgs ./nix/nixpkgs-22_05.nix";
           }
         ];
       };
@@ -156,8 +156,8 @@ let
           setup-nix
           setup-cachix
         # {
-        #   name = "Build w/ overlay (21.05)";
-        #   run = "nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-21_05.json";
+        #   name = "Build w/ overlay (22.05)";
+        #   run = "nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-22_05.json";
         # }
           {
             name = "Build w/ overlay (stable)";
@@ -175,7 +175,7 @@ let
       push = { branches = [ "master" ]; };
       workflow_dispatch = {};
     };
-    env = { LORRI_NO_INSTALL_PANIC_HANDLER = "absolutely for sure"; };
+    env = { LORRI_NO_INSTALL_PANIC_HANDLER = "absolutely"; };
 
     jobs = builtins.listToAttrs
     [
@@ -185,6 +185,10 @@ let
       (builds.rust-each-unit-test { runs-on = githubRunners.macos; })
       (builds.stable { runs-on = githubRunners.ubuntu; })
       (builds.stable { runs-on = githubRunners.macos; })
+      # XXX: At the moment, stable is 22.05. When a new stable NixOS is released,
+      # uncomment these
+      #(builds.nixos-22_05 { runs-on = githubRunners.ubuntu; })
+      #(builds.nixos-22_05 { runs-on = githubRunners.macos; })
       (builds.overlay { runs-on = githubRunners.ubuntu; })
       (builds.overlay { runs-on = githubRunners.macos; })
     ];
