@@ -1,0 +1,6 @@
+if type -P lorri &>/dev/null; then
+  eval \"$(lorri direnv)\"
+else
+  echo "while direnv evaluated .envrc, couldn't find the `lorri' command [https://github.com/nix-community/lorri]"
+  use nix
+fi

@@ -11,7 +11,7 @@ use std::path::Path;
 use structopt::StructOpt;
 
 const TRIVIAL_SHELL_SRC: &str = include_str!("./trivial-shell.nix");
-const DEFAULT_ENVRC: &str = "eval \"$(lorri direnv)\"\n";
+const DEFAULT_ENVRC: &str = include_str!("./default-envrc");
 
 fn main() {
     install_panic_handler();
