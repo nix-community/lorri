@@ -40,6 +40,7 @@ fn bug97_varmap_leak() {
         // Direnv State Vars
         "DIRENV_DIFF",
         "DIRENV_DIR",
+        "DIRENV_FILE",
         "DIRENV_WATCHES",
         // Lorri-set variables
         "IN_LORRI_SHELL",

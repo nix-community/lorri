@@ -1,6 +1,7 @@
 { pkgs, LORRI_ROOT, BUILD_REV_COUNT, RUN_TIME_CLOSURE }:
 let
 
+  lib = pkgs.lib;
   lorriBinDir = "${LORRI_ROOT}/target/debug";
 
   inherit (import ./execline.nix { inherit pkgs; })
@@ -69,6 +70,7 @@ let
       pkgs.darwin.apple_sdk.frameworks.CoreServices
       pkgs.darwin.apple_sdk.frameworks.CoreFoundation
       pkgs.stdenv.cc.bintools.bintools
+      pkgs.libiconv
     ];
   };
 
@@ -102,7 +104,7 @@ let
         pkgs.cargo
     ])
     ++ [
-      "export" "RUST_BACKTRACE" "1"
+      "export" "RUST_BACKTRACE" "full"
       "export" "BUILD_REV_COUNT" (toString BUILD_REV_COUNT)
       "export" "RUN_TIME_CLOSURE" RUN_TIME_CLOSURE
     ];
@@ -114,6 +116,7 @@ let
   # Tests should not depend on each other (or block if they do),
   # so that they can run in parallel.
   # If a test changes files in the repository, sandbox it.
+
   tests = {
 
     shellcheck =
@@ -136,7 +139,7 @@ let
       test = writeCargo "cargo-test"
         # the tests need bash and nix and direnv
         (pathPrependBins [ pkgs.coreutils pkgs.bash pkgs.nix pkgs.direnv ])
-        [ "test" ];
+        [ "test" "--no-fail-fast" ];
     };
 
     cargo-clippy = {
@@ -200,6 +203,22 @@ let
     };
 
   };
+
+  eachUnitTest = let
+    troubled = import ./troubled-tests.nix;
+
+    tests = lib.imap1 (idx: test: {
+      name = "test ${toString idx}";
+      value = {
+        description = "run cargo test ${test}";
+        test = writeCargo "cargo-test"
+          # the tests need bash and nix and direnv
+          (pathPrependBins [ pkgs.coreutils pkgs.bash pkgs.nix pkgs.direnv ])
+          [ "test" "--" "--include-ignored" test ];
+        };
+      }) troubled;
+  in
+    lib.listToAttrs tests;
 
   # An offline check is a check that can be run inside a nix build.
   # But instead of crashing the nix build, it will write the result to $out
@@ -267,6 +286,13 @@ let
     ];
   };
 
+  # Remove tests that cannot succeed
+  limitTests = if pkgs.stdenv.isLinux then n: v: true else n: v: !(builtins.elem n [
+    "cargo-clippy" # requires bubblewrap
+  ]);
+  limitedTests = lib.filterAttrs limitTests tests;
+
+
   # clean the environment;
   # this is the only way we can have a non-diverging
   # environment between developer machine and CI
@@ -274,7 +300,7 @@ let
     writeExecline "${test.name}-empty-env" {}
       [ (runInEmptyEnv [ "USER" "HOME" "TERM" ]) test ];
 
-  testsWithEmptyEnv = pkgs.lib.mapAttrs
+  testsWithEmptyEnv = tests: pkgs.lib.mapAttrs
     (_: test: test // { test = emptyTestEnv test.test; }) tests;
 
   # Write a attrset which looks like
@@ -289,7 +315,8 @@ let
         ++ [ "${pkgs.bats}/bin/bats" "$@" ]);
       # see https://github.com/bats-core/bats-core/blob/f3a08d5d004d34afb2df4d79f923d241b8c9c462/README.md#file-descriptor-3-read-this-if-bats-hangs
       closeFD3 = "3>&-";
-    in name: tests: pkgs.lib.pipe testsWithEmptyEnv [
+    in name: tests: pkgs.lib.pipe tests [
+      testsWithEmptyEnv
       (pkgs.lib.mapAttrsToList
         # a bats test looks like:
         # @test "name of test" {
@@ -306,10 +333,10 @@ let
       ])
     ];
 
-  testsuite = batsScript "run-testsuite" tests;
-
 in {
-  inherit testsuite;
+  testsuite = batsScript "run-testsuite" limitedTests;
+  testsuite-eachunit = batsScript "each-unit-test" eachUnitTest;
+
   # we want the single test attributes to have their environment emptied as well.
   tests = testsWithEmptyEnv;
   inherit darwinImpureEnv;

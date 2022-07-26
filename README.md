@@ -176,11 +176,12 @@ For pinning versions of software during development,
 ## Support & Questions
 
 Please use the [issue tracker](https://github.com/nix-community/lorri/issues)
-for any problems or bugs you encounter. We are on `#lorri` on
-`libera` ([Webchat][]), though we might not be responsive at all
-times.
+for any problems or bugs you encounter.
 
-[Webchat]: https://kiwiirc.com/nextclient/#irc://irc.libera.chat:+6697/#lorri
+* We have monthly [Office Hours](https://calendar.google.com/calendar/ical/s9gbabv28b8mbnb1kfegbplf1c%40group.calendar.google.com/public/basic.ics) on [Google Meet](https://meet.google.com/phf-bfdq-ypp)
+* We are on IRC/Matrix, `libera/#lorri` ([Webchat][]), though we might not be responsive at all times.
+
+[Webchat]: https://matrix.to/#/#lorri:libera.chat
 
 ### Why is lorri not on [crates.io][]?
 
