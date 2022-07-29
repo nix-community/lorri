@@ -28,6 +28,7 @@ fn gc() -> std::io::Result<()> {
     let testdir = tempfile::tempdir().expect("tempdirfailed");
     let project = testdir.path().join("project");
     std::fs::create_dir(&project).expect("mkdir project");
+    let project = project.canonicalize().expect("canonicalize project");
     let nix_file = project.join("shell.nix");
     std::fs::write(
         &nix_file,
@@ -50,6 +51,8 @@ derivation {
     .expect("writing builder.sh");
 
     let home = testdir.path().join("home");
+    std::fs::create_dir(&home).expect("mkdir home");
+    let home = home.canonicalize().expect("canonicalize home");
     std::env::set_var("HOME", &home);
     std::env::remove_var("XDG_CONFIG_HOME");
     std::env::remove_var("XDG_CACHE_HOME");
@@ -62,7 +65,11 @@ derivation {
     //look for the gc root
     let pd = ProjectDirs::from("com.github.nix-community.lorri", "lorri", "lorri")
         .expect("determining project directory");
-    let gc_roots = pd.cache_dir().join("gc_roots");
+    let gc_roots = pd
+        .cache_dir()
+        .canonicalize()
+        .expect("canonicalize gc_root dir")
+        .join("gc_roots");
     let mut subdirs = std::fs::read_dir(&gc_roots)
         .expect("readdir")
         .into_iter()
