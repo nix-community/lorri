@@ -1,3 +1,5 @@
+use directories::ProjectDirs;
+
 fn cargo_bin(name: &str) -> std::path::PathBuf {
     std::env::current_exe()
         .ok()
@@ -58,7 +60,9 @@ derivation {
         .contains(&"done"));
 
     //look for the gc root
-    let gc_roots = home.join(".cache").join("lorri").join("gc_roots");
+    let pd = ProjectDirs::from("com.github.nix-community.lorri", "lorri", "lorri")
+        .expect("determining project directory");
+    let gc_roots = pd.cache_dir().join("gc_roots");
     let mut subdirs = std::fs::read_dir(&gc_roots)
         .expect("readdir")
         .into_iter()
