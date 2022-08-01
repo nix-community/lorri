@@ -102,6 +102,7 @@ fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> 
             let (project, _logger) = with_project(&opts.nix_file)?;
             ops::info(project)
         }
+        Command::Gc(opts) => ops::gc(logger, opts),
         Command::Direnv(opts) => {
             let (project, logger) = with_project(&opts.nix_file)?;
             ops::direnv(project, /* shell_output */ std::io::stdout(), &logger)

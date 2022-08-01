@@ -45,6 +45,30 @@ impl Project {
 
         std::fs::create_dir_all(&project_gc_root)?;
 
+        let nix_file_symlink = project_gc_root.clone().join("nix_file");
+        let (remove, create) = match std::fs::read_link(&nix_file_symlink) {
+            Ok(path) => {
+                if path == nix_file.as_absolute_path() {
+                    (false, false)
+                } else {
+                    (true, true)
+                }
+            }
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    (false, true)
+                } else {
+                    (true, true)
+                }
+            }
+        };
+        if remove {
+            std::fs::remove_file(&nix_file_symlink)?;
+        }
+        if create {
+            std::os::unix::fs::symlink(nix_file.as_absolute_path(), nix_file_symlink)?;
+        }
+
         Ok(Project {
             nix_file,
             gc_root_path: project_gc_root,

@@ -6,10 +6,17 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
-        version = 889;
+        version = 900;
         changes = ''
-          Fix another file descriptor leak in the daemon.
+          Add a `lorri gc` command to allow the gc to operate on old or removed
+          projects.
         '';
+      }
+      {
+       version = 889;
+       changes = ''
+         Fix another file descriptor leak in the daemon.
+       '';
       }
       {
         version = 886;

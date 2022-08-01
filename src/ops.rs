@@ -27,8 +27,6 @@ use crate::VERSION_BUILD_REV;
 use crate::{builder, project};
 
 use std::ffi::OsStr;
-use std::fmt::Debug;
-use std::fs::File;
 use std::io::Write;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -39,7 +37,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
+use std::{collections::HashSet, fs::File, time::SystemTime};
 use std::{env, fs, io, thread};
+use std::{fmt::Debug, fs::remove_dir_all};
 
 use anyhow::Context;
 use crossbeam_channel as chan;
@@ -901,6 +901,174 @@ fn main_run_once(
             }
         }
     }
+}
+
+#[derive(Serialize)]
+/// Represents a gc root along with some metadata, used for json output of lorri gc info
+struct GcRootInfo {
+    /// directory where root is stored
+    gc_dir: PathBuf,
+    /// nix file from which the root originates. If None, then the root is considered dead.
+    nix_file: Option<PathBuf>,
+    /// timestamp of the last build
+    timestamp: SystemTime,
+    /// whether `nix_file` still exists
+    alive: bool,
+}
+
+/// Returns a list of existing gc roots along with some metadata
+fn list_roots(logger: &slog::Logger) -> Result<Vec<GcRootInfo>, ExitError> {
+    let paths = crate::ops::get_paths()?;
+    let mut res = Vec::new();
+    let gc_root_dir = paths.gc_root_dir();
+    for entry in std::fs::read_dir(gc_root_dir)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            debug!(
+                logger,
+                "Skipping {} which should be a directory",
+                entry.path().display()
+            );
+            continue;
+        }
+        let gc_dir = entry.path();
+        let gc_root_dir = gc_dir.join("gc_root");
+        if !std::fs::metadata(&gc_root_dir).map_or(false, |m| m.is_dir()) {
+            debug!(
+                logger,
+                "Skipping {} which should be a directory",
+                gc_root_dir.display()
+            );
+            continue;
+        };
+        let timestamp = match std::fs::symlink_metadata(gc_root_dir.join("shell_gc_root")) {
+            Err(_) => {
+                // no gc root, so nothing to report
+                continue;
+            }
+            Ok(m) => m.modified().unwrap_or(std::time::UNIX_EPOCH),
+        };
+        let nix_file_symlink = gc_root_dir.join("nix_file");
+        let nix_file = std::fs::read_link(&nix_file_symlink);
+        let alive = match &nix_file {
+            Err(_) => false,
+            Ok(path) => match std::fs::metadata(path) {
+                Ok(m) => m.is_file(),
+                Err(_) => false,
+            },
+        };
+        let nix_file = match nix_file {
+            Err(_) => None,
+            Ok(p) => Some(p),
+        };
+        res.push(GcRootInfo {
+            gc_dir,
+            nix_file,
+            timestamp,
+            alive,
+        });
+    }
+    Ok(res)
+}
+
+#[derive(Serialize)]
+/// How removing a gc root went, for json ouput
+struct RemovalStatus {
+    /// What error was encountered, or success
+    error: Option<String>,
+    /// The root we tried to remove
+    root: GcRootInfo,
+}
+
+/// Print or remove gc roots depending on cli options.
+pub fn gc(logger: &slog::Logger, opts: crate::cli::GcOptions) -> Result<(), ExitError> {
+    let infos = list_roots(logger)?;
+    match opts.action {
+        cli::GcSubcommand::Info => {
+            if opts.json {
+                serde_json::to_writer(std::io::stdout(), &infos)
+                    .expect("could not serialize gc roots");
+            } else {
+                for info in infos {
+                    let target = match info.nix_file {
+                        Some(p) => p.display().to_string(),
+                        None => "(?)".to_owned(),
+                    };
+                    let age = match info.timestamp.elapsed() {
+                        Err(_) => "future".to_owned(),
+                        Ok(d) => {
+                            let days = d.as_secs() / (24 * 60 * 60);
+                            format!("{} days ago", days)
+                        }
+                    };
+                    let alive = if info.alive { "" } else { "[dead]" };
+                    println!(
+                        "{} -> {} {} ({})",
+                        info.gc_dir.display(),
+                        target,
+                        alive,
+                        age
+                    );
+                }
+            }
+        }
+        cli::GcSubcommand::Rm {
+            shell_file,
+            all,
+            older_than,
+        } => {
+            let files_to_remove: HashSet<PathBuf> = shell_file.into_iter().collect();
+            let to_remove: Vec<GcRootInfo> = infos
+                .into_iter()
+                .filter(|root| {
+                    all || !root.alive
+                        || root
+                            .nix_file
+                            .as_ref()
+                            .map_or(false, |p| files_to_remove.contains(p))
+                        || older_than.map_or(false, |limit| {
+                            root.timestamp
+                                .elapsed()
+                                .map_or(false, |actual| actual > limit)
+                        })
+                })
+                .collect();
+            let mut result = Vec::new();
+            let n = to_remove.len();
+            for info in to_remove {
+                match remove_dir_all(&info.gc_dir) {
+                    Ok(_) => {
+                        if opts.json {
+                            result.push(RemovalStatus {
+                                error: None,
+                                root: info,
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        if opts.json {
+                            result.push(RemovalStatus {
+                                error: Some(e.to_string()),
+                                root: info,
+                            });
+                        } else {
+                            eprintln!("Error: could not remove {}: {}", info.gc_dir.display(), e);
+                        }
+                    }
+                }
+            }
+            if opts.json {
+                serde_json::to_writer(std::io::stdout(), &result)
+                    .expect("failed to serialize result");
+            } else {
+                println!("Removed {} gc roots.", n);
+                if n > 0 {
+                    println!("Remember to run nix-collect-garbage to actually free space.");
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn main_run_forever(

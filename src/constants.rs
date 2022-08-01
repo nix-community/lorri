@@ -52,13 +52,18 @@ impl Paths {
             std::fs::create_dir_all(&dir).and(Ok(dir))
         };
 
-        let abs_cache_dir =
-            crate::AbsPathBuf::new(pd.cache_dir().to_owned()).unwrap_or_else(|cd| {
-                panic!(
-                    "Your cache directory is not an absolute path! It is: {}",
-                    cd.display()
-                )
-            });
+        let cache_dir = pd.cache_dir();
+        // canonicalize is used to make tests easier
+        let canon_cache_dir = match cache_dir.canonicalize() {
+            Ok(c) => c,
+            Err(_) => cache_dir.to_owned(),
+        };
+        let abs_cache_dir = crate::AbsPathBuf::new(canon_cache_dir).unwrap_or_else(|cd| {
+            panic!(
+                "Your cache directory is not an absolute path! It is: {}",
+                cd.display()
+            )
+        });
 
         let gc_root_dir = abs_cache_dir.join("gc_roots");
         let cas_dir = abs_cache_dir.join("cas");
