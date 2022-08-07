@@ -1,10 +1,7 @@
+use lorri::project;
 use lorri::{
-    builder,
-    cas::ContentAddressable,
-    nix::options::NixOptions,
-    ops,
-    project::{roots::Roots, Project},
-    AbsPathBuf, NixFile,
+    builder, cas::ContentAddressable, nix::options::NixOptions, ops, project::Project, AbsPathBuf,
+    NixFile,
 };
 use std::env;
 use std::fs;
@@ -50,7 +47,9 @@ fn loads_env() {
         .expect("fail to run lorri shell");
     assert!(res.status.success(), "lorri shell command failed");
 
-    let output = ops::bash_cmd(build(&project), &project.cas)
+    let logger = lorri::logging::test_logger();
+
+    let output = ops::bash_cmd(build(&project, &logger), &project.cas, &logger)
         .unwrap()
         .args(&["-c", "echo $MY_ENV_VAR"])
         .output()
@@ -82,16 +81,23 @@ fn project(name: &str, cache_dir: &AbsPathBuf) -> Project {
     .unwrap()
 }
 
-fn build(project: &Project) -> PathBuf {
-    Roots::from_project(&project)
+fn build(project: &Project, logger: &slog::Logger) -> PathBuf {
+    project
         .create_roots(
-            builder::run(&project.nix_file, &project.cas, &NixOptions::empty())
-                .unwrap()
-                .result,
+            builder::run(
+                &project.nix_file,
+                &project.cas,
+                &NixOptions::empty(),
+                logger,
+            )
+            .unwrap()
+            .result,
+            project::Username::from_env_var().unwrap(),
+            logger,
         )
         .unwrap()
         .shell_gc_root
         .0
-        .as_absolute_path()
+        .as_path()
         .to_owned()
 }

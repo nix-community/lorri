@@ -8,7 +8,7 @@
 //
 // See MAINTAINERS.md for details on internal and non-internal commands.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "lorri")]
@@ -16,13 +16,22 @@ use std::path::PathBuf;
 /// arguments will be to sub-commands.
 pub struct Arguments {
     /// Activate debug logging. Multiple occurrences are accepted for backwards compatibility, but
-    /// have no effect.
+    /// have no effect. This will display all messages lorri logs.
     #[structopt(short = "v", long = "verbose", parse(from_occurrences))]
     pub verbosity: u8,
 
     /// Sub-command to execute
     #[structopt(subcommand)]
     pub command: Command,
+}
+
+#[derive(Copy, Clone, Debug)]
+/// Verbosity options lorri supports;
+pub enum Verbosity {
+    /// Default verbosity, print info and up
+    DefaultInfo,
+    /// Debug verbosity, print all messages
+    Debug,
 }
 
 #[derive(StructOpt, Debug)]
@@ -32,6 +41,10 @@ pub enum Command {
     /// direnv)"`
     #[structopt(name = "direnv")]
     Direnv(DirenvOptions),
+
+    /// Remove lorri garbage collection roots that point to removed shell.nix files
+    #[structopt(name = "gc")]
+    Gc(GcOptions),
 
     /// Show information about a lorri project
     #[structopt(name = "info")]
@@ -83,6 +96,93 @@ pub struct InfoOptions {
     // file was causing problems when they submit a bug report.
     #[structopt(long = "shell-file", parse(from_os_str))]
     pub nix_file: PathBuf,
+}
+
+/// Parses a duration from a timestamp like 30d, 2m.
+fn human_friendly_duration(s: &str) -> Result<Duration, String> {
+    let multiplier = if s.ends_with("d") {
+        24 * 60 * 60
+    } else if s.ends_with("m") {
+        30 * 24 * 60 * 60
+    } else if s.ends_with("y") {
+        365 * 24 * 60 * 60
+    } else {
+        return Err(format!(
+            "Invalid duration: «{}» should end with d, m or y.",
+            s
+        ));
+    };
+    let integer_part = match s.get(0..(s.len() - 1)) {
+        Some(x) => x,
+        None => return Err(format!("Invalid duration: «{}» has no integer part.", s)),
+    };
+    let n: Result<u64, std::num::ParseIntError> = integer_part.parse();
+    match n {
+        Ok(n) => Ok(Duration::from_secs(n * multiplier)),
+        Err(e) => Err(format!(
+            "Invalid duration: «{}» is not an integer: {}",
+            integer_part, e
+        )),
+    }
+}
+
+#[test]
+fn test_human_friendly_duration() {
+    assert_eq!(
+        human_friendly_duration("1d"),
+        Ok(Duration::from_secs(24 * 60 * 60))
+    );
+    assert_eq!(
+        human_friendly_duration("2d"),
+        Ok(Duration::from_secs(2 * 24 * 60 * 60))
+    );
+    assert_eq!(
+        human_friendly_duration("2m"),
+        Ok(Duration::from_secs(2 * 30 * 24 * 60 * 60))
+    );
+    assert_eq!(
+        human_friendly_duration("2y"),
+        Ok(Duration::from_secs(2 * 365 * 24 * 60 * 60))
+    );
+    assert!(human_friendly_duration("1").is_err());
+    assert!(human_friendly_duration("1dd").is_err());
+    assert!(human_friendly_duration("dd").is_err());
+    assert!(human_friendly_duration("d").is_err());
+    assert!(human_friendly_duration("1j").is_err());
+    assert!(human_friendly_duration("é").is_err());
+}
+
+/// Options for the `gc` subcommand.
+#[derive(StructOpt, Debug)]
+pub struct GcOptions {
+    /// Machine readable output
+    #[structopt(long)]
+    pub json: bool,
+
+    #[structopt(subcommand)]
+    /// Subcommand for lorri gc
+    pub action: GcSubcommand,
+}
+
+#[derive(Debug, StructOpt)]
+/// Subcommand for lorri gc
+pub enum GcSubcommand {
+    /// Prints the gc roots that lorri created.
+    #[structopt(name = "info")]
+    Info,
+    /// Removes the gc roots associated to projects whose nix file vanished.
+    #[structopt(name = "rm")]
+    Rm {
+        /// Also delete the root associated with these shell files
+        #[structopt(long = "shell-file")]
+        shell_file: Vec<PathBuf>,
+        /// Delete the root of all projects
+        #[structopt(long)]
+        all: bool,
+        /// Also delete the root of projects that were last built before this amount of time, e.g. 30d.
+        #[structopt(long = "older-than", parse(try_from_str = "human_friendly_duration"))]
+        older_than: Option<Duration>,
+    },
 }
 
 /// Options for the `shell` subcommand.

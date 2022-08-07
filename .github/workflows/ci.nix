@@ -1,19 +1,21 @@
-{ pkgs ? import ../../nix/nixpkgs-stable.nix }:
+# Usage:
+# nix-build ./ci.nix; ./result
+{ pkgs ? import ../../nix/nixpkgs-stable.nix {} }:
 let
   checkout = { fetch-depth ? null }: {
     name = "Checkout";
-    uses = "actions/checkout@v2";
+    uses = "actions/checkout@v3";
     "with" = {
       inherit fetch-depth;
     };
   };
   setup-nix = {
     name = "Nix";
-    uses = "cachix/install-nix-action@v12";
+    uses = "cachix/install-nix-action@v14.1";
   };
   setup-cachix = {
     name = "Cachix";
-    uses = "cachix/cachix-action@v8";
+    uses = "cachix/cachix-action@v10";
     "with" = {
       name = "nix-community";
       signingKey = "\${{ secrets.CACHIX_SIGNING_KEY }}";
@@ -34,7 +36,7 @@ let
   };
   rust-cache = {
     name = "Rust Cache";
-    uses = "Swatinem/rust-cache@v1.2.0";
+    uses = "Swatinem/rust-cache@v1.3.0";
   };
 
   githubRunners = {
@@ -62,6 +64,33 @@ let
                 --out-link ./ci-tests \
                 --arg isDevelopmentShell false \
                 -A ci.testsuite \
+                shell.nix \
+                && ./ci-tests
+            '';
+          }
+        ];
+      };
+    };
+
+    rust-each-unit-test = { runs-on }: {
+      name = "rust-each-unit-${runs-on}";
+      value = {
+        name = "Rust individual tests (${runs-on})";
+        inherit runs-on;
+        steps = [
+          (checkout {})
+          setup-nix
+          setup-cachix
+          add-rustc-to-path
+          print-path
+          rust-cache
+          {
+            name = "CI bisection tests";
+            run = ''
+              nix-build \
+                --out-link ./ci-tests \
+                --arg isDevelopmentShell false \
+                -A ci.testsuite-eachunit \
                 shell.nix \
                 && ./ci-tests
             '';
@@ -100,10 +129,10 @@ let
       };
     };
 
-    nixos-19_09 = { runs-on }: {
-      name = "nix-build_1909-${runs-on}";
+    nixos-22_05 = { runs-on }: {
+      name = "nix-build_22_05-${runs-on}";
       value = {
-        name = "nix-build [nixos 19.09] (${runs-on})";
+        name = "nix-build [nixos 22.05] (${runs-on})";
         inherit runs-on;
         steps = [
           (checkout {})
@@ -111,7 +140,7 @@ let
           setup-cachix
           {
             name = "Build";
-            run = "nix-build --arg nixpkgs ./nix/nixpkgs-1909.nix";
+            run = "nix-build --arg nixpkgs ./nix/nixpkgs-22_05.nix";
           }
         ];
       };
@@ -126,10 +155,10 @@ let
           (checkout {})
           setup-nix
           setup-cachix
-          {
-            name = "Build w/ overlay (19.09)";
-            run = "nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-1909.json";
-          }
+        # {
+        #   name = "Build w/ overlay (22.05)";
+        #   run = "nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-22_05.json";
+        # }
           {
             name = "Build w/ overlay (stable)";
             run = "nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json";
@@ -144,23 +173,29 @@ let
     on = {
       pull_request = { branches = [ "**" ]; };
       push = { branches = [ "master" ]; };
+      workflow_dispatch = {};
     };
     env = { LORRI_NO_INSTALL_PANIC_HANDLER = "absolutely"; };
 
     jobs = builtins.listToAttrs
-      [
-        (builds.rust { runs-on = githubRunners.ubuntu; })
-        (builds.rust { runs-on = githubRunners.macos; })
-        (builds.stable { runs-on = githubRunners.ubuntu; })
-        (builds.stable { runs-on = githubRunners.macos; })
-        (builds.nixos-19_09 { runs-on = githubRunners.ubuntu; })
-        (builds.nixos-19_09 { runs-on = githubRunners.macos; })
-        (builds.overlay { runs-on = githubRunners.ubuntu; })
-        (builds.overlay { runs-on = githubRunners.macos; })
-      ];
+    [
+      (builds.rust { runs-on = githubRunners.ubuntu; })
+      (builds.rust { runs-on = githubRunners.macos; })
+      # This is meant to cover the one weird panicy test in src/watch.rs
+      (builds.rust-each-unit-test { runs-on = githubRunners.macos; })
+      (builds.stable { runs-on = githubRunners.ubuntu; })
+      (builds.stable { runs-on = githubRunners.macos; })
+      # XXX: At the moment, stable is 22.05. When a new stable NixOS is released,
+      # uncomment these
+      #(builds.nixos-22_05 { runs-on = githubRunners.ubuntu; })
+      #(builds.nixos-22_05 { runs-on = githubRunners.macos; })
+      (builds.overlay { runs-on = githubRunners.ubuntu; })
+      (builds.overlay { runs-on = githubRunners.macos; })
+    ];
   };
 
   yaml = pkgs.runCommand "ci.yml" {
+
     buildInputs = [ pkgs.yj ];
     passAsFile = [ "config" ];
     config = builtins.toJSON config;

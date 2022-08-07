@@ -1,20 +1,18 @@
-use lorri::cli::{Arguments, Command, Internal_};
-use lorri::constants;
-use lorri::locate_file;
+use lorri::cli::{Arguments, Command, Internal_, Verbosity};
 use lorri::logging;
 use lorri::ops;
-use lorri::ops::error::{ExitError, OpResult};
+use lorri::ops::error::ExitError;
 use lorri::project::Project;
 use lorri::NixFile;
+use lorri::{constants, AbsPathBuf};
 use slog::{debug, error, o};
-use slog_scope::GlobalLoggerGuard;
 use std::env;
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
 const TRIVIAL_SHELL_SRC: &str = include_str!("./trivial-shell.nix");
 const FLAKE_COMPAT_SHELL_SRC: &str = include_str!("./flake-compat-shell.nix");
-const DEFAULT_ENVRC: &str = "eval \"$(lorri direnv)\"\n";
+const DEFAULT_ENVRC: &str = include_str!("./default-envrc");
 
 fn main() {
     install_panic_handler();
@@ -22,23 +20,30 @@ fn main() {
     let exit_code = {
         let opts = Arguments::from_args();
 
+        let verbosity = match opts.verbosity {
+            // -v flag was given 0 times
+            0 => Verbosity::DefaultInfo,
+            // -v flag was specified one or more times, we log everything
+            _n => Verbosity::Debug,
+        };
+
         // This logger is asynchronous. It is guaranteed to be flushed upon destruction. By tying
         // its lifetime to this smaller scope, we ensure that it is destroyed before
         // 'std::process::exit' gets called.
-        let log = logging::root(opts.verbosity, &opts.command);
-        debug!(log, "input options"; "options" => ?opts);
+        let logger = logging::root(verbosity, &opts.command);
+        debug!(logger, "input options"; "options" => ?opts);
 
-        match run_command(log.clone(), opts) {
+        match run_command(&logger, opts) {
             Err(err) => {
-                error!(log, "{}", err.message());
+                error!(logger, "{}", err.message());
                 err.exitcode()
             }
             Ok(()) => 0,
         }
     };
 
-    // TODO: Once the 'Termination' trait has been stabilised, 'OpResult' should implement
-    // 'Termination' and 'main' should return 'OpResult'.
+    // TODO: Once the 'Termination' trait has been stabilised, 'Result<(), ExitError>' should implement
+    // 'Termination' and 'main' should return 'Result<(), ExitError>'.
     // https://doc.rust-lang.org/std/process/trait.Termination.html
     // https://github.com/rust-lang/rfcs/blob/master/text/1937-ques-in-main.md
     std::process::exit(exit_code);
@@ -64,9 +69,11 @@ fn install_signal_handler() {
 /// that instructs the user how to write a minimal `shell.nix`.
 fn find_nix_file(shellfile: &Path) -> Result<NixFile, ExitError> {
     // use shell.nix from cwd
-    Ok(NixFile::from(locate_file::in_cwd(shellfile).map_err(
-        |_| {
-            ExitError::user_error(if PathBuf::from("flake.nix").exists() {
+
+    match is_file_in_current_directory(shellfile) {
+        Err(err) => Err(ExitError::temporary(err)),
+        Ok(None) => {
+            Err(ExitError::user_error(if PathBuf::from("flake.nix").exists() {
                 anyhow::anyhow!(
                     "lorri does not currently natively support flakes.\nYou can use the following compatibility `shell.nix` to use lorri with flakes:\n\n\
                     {}",
@@ -80,9 +87,10 @@ fn find_nix_file(shellfile: &Path) -> Result<NixFile, ExitError> {
                     shellfile.display(),
                     TRIVIAL_SHELL_SRC
                 )
-            })
+            }))
         },
-    )?))
+        Ok(Some(file)) => Ok(NixFile::from(file)),
+    }
 }
 
 fn create_project(paths: &constants::Paths, shell_nix: NixFile) -> Result<Project, ExitError> {
@@ -92,72 +100,80 @@ fn create_project(paths: &constants::Paths, shell_nix: NixFile) -> Result<Projec
 }
 
 /// Run the main function of the relevant command.
-fn run_command(log: slog::Logger, opts: Arguments) -> OpResult {
+fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> {
     let paths = lorri::ops::get_paths()?;
 
-    // `without_project` and `with_project` set up the slog_scope global logger. Make sure to use
-    // one of them so the logger gets set up correctly.
-    let without_project = || slog_scope::set_global_logger(log.clone());
-    let with_project = |nix_file| -> std::result::Result<(Project, GlobalLoggerGuard), ExitError> {
+    let with_project = |nix_file| -> std::result::Result<(Project, slog::Logger), ExitError> {
         let project = create_project(&lorri::ops::get_paths()?, find_nix_file(nix_file)?)?;
-        let guard =
-            slog_scope::set_global_logger(log.new(o!("nix_file" => project.nix_file.clone())));
-        Ok((project, guard))
+        let logger = logger.new(o!("nix_file" => project.nix_file.clone()));
+        Ok((project, logger))
     };
 
     match opts.command {
         Command::Info(opts) => {
-            let (project, _guard) = with_project(&opts.nix_file)?;
+            let (project, _logger) = with_project(&opts.nix_file)?;
             ops::info(project)
         }
+        Command::Gc(opts) => ops::gc(logger, opts),
         Command::Direnv(opts) => {
-            let (project, _guard) = with_project(&opts.nix_file)?;
-            ops::direnv(project, /* shell_output */ std::io::stdout())
+            let (project, logger) = with_project(&opts.nix_file)?;
+            ops::direnv(project, /* shell_output */ std::io::stdout(), &logger)
         }
         Command::Shell(opts) => {
-            let (project, _guard) = with_project(&opts.nix_file)?;
-            ops::shell(project, opts)
+            let (project, logger) = with_project(&opts.nix_file)?;
+            ops::shell(project, opts, &logger)
         }
 
         Command::Watch(opts) => {
-            let (project, _guard) = with_project(&opts.nix_file)?;
-            ops::watch(project, opts)
+            let (project, logger) = with_project(&opts.nix_file)?;
+            ops::watch(project, opts, &logger)
         }
         Command::Daemon(opts) => {
             install_signal_handler();
-            let _guard = without_project();
-            ops::daemon(opts)
+            ops::daemon(opts, logger)
         }
-        Command::Upgrade(opts) => {
-            let _guard = without_project();
-            ops::upgrade(opts, paths.cas_store())
-        }
-        Command::Init => {
-            let _guard = without_project();
-            ops::init(TRIVIAL_SHELL_SRC, DEFAULT_ENVRC)
-        }
+        Command::Upgrade(opts) => ops::upgrade(opts, paths.cas_store(), logger),
+        Command::Init => ops::init(TRIVIAL_SHELL_SRC, DEFAULT_ENVRC, logger),
 
         Command::Internal { command } => match command {
             Internal_::Ping_(opts) => {
-                let _guard = without_project();
-                find_nix_file(&opts.nix_file).and_then(ops::ping)
+                let nix_file = find_nix_file(&opts.nix_file)?;
+                ops::ping(nix_file, logger)
             }
             Internal_::StartUserShell_(opts) => {
-                let (project, _guard) = with_project(&opts.nix_file)?;
+                let (project, _logger) = with_project(&opts.nix_file)?;
                 ops::start_user_shell(project, opts)
             }
-            Internal_::StreamEvents_(se) => {
-                let _guard = without_project();
-                ops::stream_events(se.kind)
-            }
+            Internal_::StreamEvents_(se) => ops::stream_events(se.kind, logger),
         },
     }
 }
 
+/// Search for `name` in the current directory.
+/// If `name` is an absolute path and a file, it returns the file.
+/// If it doesn’t exist, returns `None`.
+pub fn is_file_in_current_directory(name: &Path) -> anyhow::Result<Option<AbsPathBuf>> {
+    let path = AbsPathBuf::new(env::current_dir()?)
+        .unwrap_or_else(|orig| {
+            panic!(
+                "Expected `env::current_dir` to return an absolute path, but was {}",
+                orig.display()
+            )
+        })
+        .join(name);
+    Ok(if path.as_path().is_file() {
+        Some(path)
+    } else {
+        None
+    })
+}
+
 #[cfg(test)]
 mod tests {
+    use lorri::AbsPathBuf;
+
     use super::*;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     /// Try instantiating the trivial shell file we provide the user.
     #[test]
@@ -199,5 +215,21 @@ mod tests {
         //         ),
         //     Err(nix::InstantiateError::Io(io)) => Err(io)
         // }
+    }
+    #[test]
+    fn test_locate_config_file() {
+        let mut path = PathBuf::from("shell.nix");
+        let result = is_file_in_current_directory(&path);
+        assert_eq!(
+            result
+                .unwrap()
+                .expect("Should find the shell.nix in this projects' root"),
+            AbsPathBuf::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")))
+                .unwrap()
+                .join("shell.nix")
+        );
+        path.pop();
+        path.push("this-lorri-specific-file-probably-does-not-exist");
+        assert_eq!(None, is_file_in_current_directory(&path).unwrap());
     }
 }

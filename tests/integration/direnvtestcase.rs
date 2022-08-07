@@ -1,10 +1,17 @@
 //! Implement a wrapper around setup and tear-down of Direnv-based test
 //! cases.
 
-use lorri::{
-    build_loop::BuildLoop, builder, cas::ContentAddressable, error::BuildError,
-    nix::options::NixOptions, ops, project::roots, project::Project, AbsPathBuf, NixFile,
-};
+use lorri::build_loop::BuildLoop;
+use lorri::builder;
+use lorri::builder::BuildError;
+use lorri::cas::ContentAddressable;
+use lorri::nix::options::NixOptions;
+use lorri::ops;
+use lorri::project;
+use lorri::project::Project;
+use lorri::AbsPathBuf;
+use lorri::NixFile;
+
 use std::collections::HashMap;
 use std::fs::File;
 use std::iter::FromIterator;
@@ -18,6 +25,7 @@ pub struct DirenvTestCase {
     #[allow(dead_code)]
     pub cachedir: TempDir,
     project: Project,
+    logger: slog::Logger,
 }
 
 impl DirenvTestCase {
@@ -38,21 +46,27 @@ impl DirenvTestCase {
             projectdir,
             cachedir: cachedir_tmp,
             project,
+            logger: lorri::logging::test_logger(),
         }
     }
 
     /// Execute the build loop one time
-    pub fn evaluate(&mut self) -> Result<builder::OutputPath<roots::RootPath>, BuildError> {
-        BuildLoop::new(&self.project, NixOptions::empty())
-            .expect("could not set up build loop")
-            .once()
+    pub fn evaluate(&mut self) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
+        BuildLoop::new(
+            &self.project,
+            NixOptions::empty(),
+            project::Username::from_env_var().unwrap(),
+            self.logger.clone(),
+        )
+        .expect("could not set up build loop")
+        .once()
     }
 
     /// Run `direnv allow` and then `direnv export json`, and return
     /// the environment DirEnv would produce.
     pub fn get_direnv_variables(&self) -> DirenvEnv {
         let envrc = File::create(self.projectdir.path().join(".envrc")).unwrap();
-        ops::direnv(self.project.clone(), envrc).unwrap();
+        ops::direnv(self.project.clone(), envrc, &self.logger).unwrap();
 
         {
             let mut allow = self.direnv_cmd();

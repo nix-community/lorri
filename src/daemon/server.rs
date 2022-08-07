@@ -7,7 +7,7 @@ use crate::socket::communicate::{CommunicationType, Ping, StreamEvents};
 use crate::socket::path::{BindError, SocketPath};
 use crate::Never;
 use crossbeam_channel as chan;
-use slog_scope::{debug, info};
+use slog::{debug, info};
 use std::collections::HashMap;
 use std::thread;
 
@@ -30,25 +30,30 @@ impl Server {
     }
 
     /// Listen for incoming clients. Goes into an accept() loop, thus blocks.
-    pub fn listen(&self, socket_path: &SocketPath) -> Result<Never, BindError> {
+    pub fn listen(
+        &self,
+        socket_path: &SocketPath,
+        logger: &slog::Logger,
+    ) -> Result<Never, BindError> {
         let listener = Listener::new(socket_path)?;
 
         // We have to continuously be joining threads,
         // otherwise they turn into zombies and we eventually run out of processes on linux.
         let (tx_new_thread, rx_new_thread) = chan::unbounded();
         let (tx_done_thread, rx_done_thread) = chan::unbounded();
-        let _joiner = Async::run(slog_scope::logger(), || {
-            join_continuously(rx_new_thread, rx_done_thread)
+        let logger2 = logger.clone();
+        let _joiner = Async::run(&logger, move || {
+            join_continuously(rx_new_thread, rx_done_thread, &logger2)
         });
 
         loop {
             let tx_done_thread = tx_done_thread.clone();
             match listener.accept() {
                 Ok(connection) => {
-                    self.handle_client(connection, tx_new_thread.clone(), tx_done_thread)
+                    self.handle_client(connection, tx_new_thread.clone(), tx_done_thread, &logger)
                 }
                 Err(accept_err) => {
-                    info!("Failed accepting a client connection"; "accept_error" => format!("{:?}", accept_err));
+                    info!(logger, "Failed accepting a client connection"; "accept_error" => format!("{:?}", accept_err));
                     // If we hit an error like `too many open file descriptors`, avoid retrying
                     // immediately and hogging the CPU in a busy loop.
                     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -62,6 +67,7 @@ impl Server {
         conn: Connection,
         tx_new_thread: chan::Sender<(String, CommunicationType, std::thread::JoinHandle<()>)>,
         tx_done_thread: chan::Sender<std::thread::ThreadId>,
+        logger: &slog::Logger,
     ) {
         let Connection {
             handlers,
@@ -76,17 +82,13 @@ impl Server {
 
         let tx_activity = self.tx_activity.clone();
         let tx_build = self.tx_build.clone();
+        let logger = logger.clone();
 
         let new_thread = std::thread::spawn(move || {
             let id = thread::current().id();
-            debug!("New client connection accepted"; "message_type" => format!("{:?}", communication_type), "thread_id" => &display_id);
+            debug!(&logger, "New client connection accepted"; "message_type" => format!("{:?}", communication_type), "thread_id" => &display_id);
 
-            fn err<E>(ct: CommunicationType, e: E)
-            where
-                E: std::fmt::Debug,
-            {
-                debug!("Unable to communicate with client"; "communication_type" => format!("{:?}", ct), "error" => format!("{:?}", e))
-            }
+            let err = |ct, e| debug!(logger, "Unable to communicate with client"; "communication_type" => format!("{:?}", ct), "error" => format!("{:?}", e));
 
             // catch any panics that happen, to be able to send a done message in any case
             let res = std::panic::catch_unwind(|| {
@@ -113,7 +115,9 @@ impl Server {
                                     match rw.write(communicate::DEFAULT_READ_TIMEOUT, &event) {
                                         Ok(()) => {}
                                         Err(err) => {
-                                            debug!("client vanished"; "communication_type" => format!("{:?}", communication_type), "error" => format!("{:?}", err))
+                                            debug!(logger, "client vanished, closing socket"; "communication_type" => format!("{:?}", communication_type), "error" => format!("{:?}", err));
+                                            // break out of the loop or the handler is not stopped
+                                            break;
                                         }
                                     }
                                 }
@@ -134,7 +138,7 @@ impl Server {
                 Ok(()) => {}
             }
 
-            debug!("Client connection handled"; "message_type" => format!("{:?}", communication_type), "thread_id" => &display_id);
+            debug!(logger, "Client connection handled"; "message_type" => format!("{:?}", communication_type), "thread_id" => &display_id);
         });
 
         tx_new_thread
@@ -150,6 +154,7 @@ impl Server {
 fn join_continuously(
     rx_new: chan::Receiver<(String, CommunicationType, std::thread::JoinHandle<()>)>,
     rx_done: chan::Receiver<thread::ThreadId>,
+    logger: &slog::Logger,
 ) {
     let mut running = HashMap::new();
     loop {
@@ -169,9 +174,9 @@ fn join_continuously(
                         let display_id = thread.0.clone();
                         match thread.2.join() {
                             Ok(()) => {},
-                            Err(_panic) => info!("Server::accept: a connect thread panicked"; "message_type" => message_type, "thread_id" => &display_id),
+                            Err(_panic) => info!(logger, "Server::accept: a connect thread panicked"; "message_type" => message_type, "thread_id" => &display_id),
                         }
-                        debug!("joined thread"; "thread_id" => &display_id);
+                        debug!(logger, "joined thread"; "thread_id" => &display_id);
                     },
                     None => panic!("Server::accept: join_continuously was sent a threadId it did not know about."),
                 },

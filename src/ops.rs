@@ -5,7 +5,6 @@ pub mod error;
 
 use crate::build_loop::BuildLoop;
 use crate::build_loop::{Event, EventI, ReasonI};
-use crate::builder;
 use crate::builder::OutputPath;
 use crate::cas::ContentAddressable;
 use crate::changelog;
@@ -19,15 +18,15 @@ use crate::nix;
 use crate::nix::options::NixOptions;
 use crate::nix::CallOpts;
 use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
-use crate::ops::error::{ok, ExitAs, ExitError, ExitErrorType, OpResult};
-use crate::project::{roots::Roots, Project};
+use crate::ops::error::{ExitAs, ExitError, ExitErrorType};
+use crate::project::Project;
 use crate::run_async::Async;
 use crate::socket::path::SocketPath;
 use crate::NixFile;
 use crate::VERSION_BUILD_REV;
+use crate::{builder, project};
 
-use std::fmt::Debug;
-use std::fs::File;
+use std::ffi::OsStr;
 use std::io::Write;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -38,11 +37,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
+use std::{collections::HashSet, fs::File, time::SystemTime};
 use std::{env, fs, io, thread};
+use std::{fmt::Debug, fs::remove_dir_all};
 
+use anyhow::Context;
 use crossbeam_channel as chan;
 
-use slog_scope::{debug, info, warn};
+use slog::{debug, info, warn};
 use thiserror::Error;
 
 /// Set up necessary directories or fail.
@@ -58,7 +60,7 @@ pub fn get_paths() -> Result<crate::constants::Paths, error::ExitError> {
 /// Can be used together with `direnv`.
 
 /// See the documentation for lorri::cli::Command::Daemon for details.
-pub fn daemon(opts: crate::cli::DaemonOptions) -> OpResult {
+pub fn daemon(opts: crate::cli::DaemonOptions, logger: &slog::Logger) -> Result<(), ExitError> {
     let extra_nix_options = match opts.extra_nix_options {
         None => NixOptions::empty(),
         Some(v) => NixOptions {
@@ -67,40 +69,49 @@ pub fn daemon(opts: crate::cli::DaemonOptions) -> OpResult {
         },
     };
 
+    let user = project::Username::from_env_var().map_err(ExitError::environment_problem)?;
+
     let (mut daemon, build_rx) = Daemon::new(extra_nix_options);
-    let build_handle = std::thread::spawn(|| {
+    let logger2 = logger.clone();
+    let build_handle = std::thread::spawn(move || {
         for msg in build_rx {
-            info!("build status"; "message" => ?msg);
+            info!(logger2, "build status"; "message" => ?msg);
         }
     });
-    info!("ready");
+    info!(logger, "ready");
 
     let paths = crate::ops::get_paths()?;
     daemon.serve(
         &SocketPath::from(paths.daemon_socket_file().clone()),
         paths.gc_root_dir(),
         paths.cas_store().clone(),
+        user,
+        &logger,
     )?;
     build_handle
         .join()
         .expect("failed to join build status thread");
-    ok()
+    Ok(())
 }
 
 /// Emit shell script intended to be evaluated as part of direnv's .envrc
 ///
 /// See the documentation for lorri::cli::Command::Direnv for more
 /// details.
-pub fn direnv<W: std::io::Write>(project: Project, mut shell_output: W) -> OpResult {
+pub fn direnv<W: std::io::Write>(
+    project: Project,
+    mut shell_output: W,
+    logger: &slog::Logger,
+) -> Result<(), ExitError> {
     check_direnv_version()?;
 
-    let root_paths = Roots::from_project(&project).paths();
+    let root_paths = project.root_paths();
     let paths_are_cached: bool = root_paths.all_exist();
 
     let ping_sent = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
-        debug!("connecting to socket"; "socket" => address.as_absolute_path().display());
-        client::create::<client::Ping>(client::Timeout::from_millis(500))
+        debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
+        client::create::<client::Ping>(client::Timeout::from_millis(500), logger)
             .and_then(|c| {
                 c.write(&client::Ping {
                     nix_file: project.nix_file,
@@ -119,6 +130,7 @@ pub fn direnv<W: std::io::Write>(project: Project, mut shell_output: W) -> OpRes
         // the direnv environment will be updated automatically.
         (true, false) =>
             info!(
+                logger,
                 "lorri has not completed an evaluation for this project yet"
             ),
 
@@ -126,6 +138,7 @@ pub fn direnv<W: std::io::Write>(project: Project, mut shell_output: W) -> OpRes
         // When the daemon is started, we'll send a fresh ping.
         (false, true) =>
             info!(
+                logger,
                 "lorri daemon is not running, loading a cached environment"
             ),
 
@@ -133,7 +146,7 @@ pub fn direnv<W: std::io::Write>(project: Project, mut shell_output: W) -> OpRes
         // but when the daemon in started we'll send a ping and eventually
         // load a fresh environment.
         (false, false) =>
-            warn!("lorri daemon is not running and this project has not yet been evaluated, please run `lorri daemon`"),
+            warn!(logger, "lorri daemon is not running and this project has not yet been evaluated, please run `lorri daemon`"),
     }
 
     // direnv interprets stdout as a script that it evaluates. That is why (1) the logger for
@@ -154,7 +167,7 @@ watch_file "$EVALUATION_ROOT"
         root_paths.shell_gc_root.display(),
         crate::ops::get_paths()?
             .daemon_socket_file()
-            .as_absolute_path()
+            .as_path()
             .to_str()
             .expect("Socket path is not UTF-8 clean!"),
         include_str!("./ops/direnv/envrc.bash")
@@ -164,14 +177,14 @@ watch_file "$EVALUATION_ROOT"
     // direnv provides us with an environment variable if we are inside of its envrc execution.
     // Thus we can show a warning if the user runs it on their command line.
     if std::env::var("DIRENV_IN_ENVRC") != Ok(String::from("1")) {
-        warn!("`lorri direnv` should be executed by direnv from within an `.envrc` file. Run `lorri init` to get started.")
+        warn!(logger, "`lorri direnv` should be executed by direnv from within an `.envrc` file. Run `lorri init` to get started.")
     }
 
-    ok()
+    Ok(())
 }
 
 /// Checks `direnv version` against the minimal version lorri requires.
-fn check_direnv_version() -> OpResult {
+fn check_direnv_version() -> Result<(), ExitError> {
     let out = with_command("direnv", |mut cmd| cmd.arg("version").output())?;
     let version = std::str::from_utf8(&out.stdout)
         .map_err(|_| ())
@@ -188,7 +201,7 @@ fn check_direnv_version() -> OpResult {
             MIN_DIRENV_VERSION
         )))
     } else {
-        ok()
+        Ok(())
     }
 }
 
@@ -214,8 +227,8 @@ where
 ///
 /// See the documentation for lorri::cli::Command::Info for more
 /// details.
-pub fn info(project: Project) -> OpResult {
-    let root_paths = Roots::from_project(&project).paths();
+pub fn info(project: Project) -> Result<(), ExitError> {
+    let root_paths = project.root_paths();
     let OutputPath { shell_gc_root } = &root_paths;
     if root_paths.all_exist() {
         println!(
@@ -225,18 +238,23 @@ pub fn info(project: Project) -> OpResult {
     } else {
         println!("GC roots do not exist. Has the project been built with lorri yet?",);
     }
-    ok()
+    Ok(())
 }
 
 /// Bootstrap a new lorri project
 ///
 /// See the documentation for lorri::cli::Command::Init for
 /// more details
-pub fn init(default_shell: &str, default_envrc: &str) -> OpResult {
+pub fn init(
+    default_shell: &str,
+    default_envrc: &str,
+    logger: &slog::Logger,
+) -> Result<(), ExitError> {
     create_if_missing(
         Path::new("./shell.nix"),
         default_shell,
         "Make sure shell.nix is of a form that works with nix-shell.",
+        logger,
     )
     .map_err(ExitError::user_error)?;
 
@@ -244,21 +262,27 @@ pub fn init(default_shell: &str, default_envrc: &str) -> OpResult {
         Path::new("./.envrc"),
         default_envrc,
         "Please add 'eval \"$(lorri direnv)\"' to .envrc to set up lorri support.",
+        logger,
     )
     .map_err(ExitError::user_error)?;
 
-    info!("done");
-    ok()
+    info!(logger, "done");
+    Ok(())
 }
 
-fn create_if_missing(path: &Path, contents: &str, msg: &str) -> Result<(), io::Error> {
+fn create_if_missing(
+    path: &Path,
+    contents: &str,
+    msg: &str,
+    logger: &slog::Logger,
+) -> Result<(), io::Error> {
     if path.exists() {
-        info!("file already exists, skipping"; "path" => path.to_str(), "message" => msg);
+        info!(logger, "file already exists, skipping"; "path" => path.to_str(), "message" => msg);
         Ok(())
     } else {
         let mut f = File::create(path)?;
         f.write_all(contents.as_bytes())?;
-        info!("wrote file"; "path" => path.to_str());
+        info!(logger, "wrote file"; "path" => path.to_str());
         Ok(())
     }
 }
@@ -267,8 +291,8 @@ fn create_if_missing(path: &Path, contents: &str, msg: &str) -> Result<(), io::E
 ///
 /// Can be used together with `direnv`.
 /// See the documentation for lorri::cli::Command::Ping_ for details.
-pub fn ping(nix_file: NixFile) -> OpResult {
-    client::create(client::Timeout::from_millis(500))?.write(&client::Ping {
+pub fn ping(nix_file: NixFile, logger: &slog::Logger) -> Result<(), ExitError> {
+    client::create(client::Timeout::from_millis(500), logger)?.write(&client::Ping {
         nix_file,
         rebuild: client::Rebuild::Always,
     })?;
@@ -297,34 +321,38 @@ pub fn ping(nix_file: NixFile) -> OpResult {
 /// This setup allows lorri to support almost any shell with minimal additional work. Only the step
 /// marked (*) must be adjusted, and only in case we want to customize the shell, e.g. changing the
 /// way the prompt looks.
-pub fn shell(project: Project, opts: ShellOptions) -> OpResult {
-    let lorri = env::current_exe().expect("failed to determine lorri executable's path");
-    let shell = env::var("SHELL").expect("lorri shell requires $SHELL to be set");
+pub fn shell(project: Project, opts: ShellOptions, logger: &slog::Logger) -> Result<(), ExitError> {
+    let lorri = env::current_exe()
+        .with_context(|| "failed to determine lorri executable's path")
+        .map_err(ExitError::environment_problem)?;
+    let shell = env::var_os("SHELL").ok_or_else(|| {
+        ExitError::environment_problem(anyhow::anyhow!(
+            "`lorri shell` requires the `SHELL` environment variable to be set"
+        ))
+    })?;
+    let user = project::Username::from_env_var().map_err(ExitError::environment_problem)?;
     let cached = cached_root(&project);
     let mut bash_cmd = bash_cmd(
         if opts.cached {
             cached?
         } else {
-            build_root(&project, cached.is_ok())?
+            build_root(&project, cached.is_ok(), user, logger)?
         },
         &project.cas,
+        logger,
     )?;
 
-    debug!("bash_cmd : {:?}", bash_cmd);
+    debug!(logger, "bash_cmd : {:?}", bash_cmd);
     let status = bash_cmd
         .args(&[
-            "-c",
-            "exec \"$1\" internal start-user-shell --shell-path=\"$2\" --shell-file=\"$3\"",
-            "--",
-            &lorri
-                .to_str()
-                .expect("lorri executable path not UTF-8 clean"),
+            OsStr::new("-c"),
+            OsStr::new(
+                "exec \"$1\" internal start-user-shell --shell-path=\"$2\" --shell-file=\"$3\"",
+            ),
+            OsStr::new("--"),
+            &lorri.as_os_str(),
             &shell,
-            project
-                .nix_file
-                .as_absolute_path()
-                .to_str()
-                .expect("Nix file path not UTF-8 clean"),
+            project.nix_file.as_absolute_path().as_os_str(),
         ])
         .status()
         .expect("failed to execute bash");
@@ -339,10 +367,16 @@ pub fn shell(project: Project, opts: ShellOptions) -> OpResult {
     }
 }
 
-fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
+fn build_root(
+    project: &Project,
+    cached: bool,
+    user: project::Username,
+    logger: &slog::Logger,
+) -> Result<PathBuf, ExitError> {
     let building = Arc::new(AtomicBool::new(true));
     let building_clone = building.clone();
-    let progress_thread = Async::run(slog_scope::logger(), move || {
+    let logger2 = logger.clone();
+    let progress_thread = Async::run(logger, move || {
         // Keep track of the start time to display a hint to the user that they can use `--cached`,
         // but only if a cached version of the environment exists
         let mut start = if cached { Some(Instant::now()) } else { None };
@@ -373,6 +407,7 @@ fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
         &project.nix_file,
         &project.cas,
         &crate::nix::options::NixOptions::empty(),
+        &logger2,
     );
     building.store(false, Ordering::SeqCst);
     progress_thread.block();
@@ -396,30 +431,34 @@ fn build_root(project: &Project, cached: bool) -> Result<PathBuf, ExitError> {
         })?
         .result;
 
-    Ok(Roots::from_project(&project)
-        .create_roots(run_result)
+    Ok(project
+        .create_roots(run_result, user, &logger2)
         .map_err(|e| {
             ExitError::temporary(anyhow::Error::new(e).context("rooting the environment failed"))
         })?
         .shell_gc_root
         .0
-        .as_absolute_path()
+        .as_path()
         .to_owned())
 }
 
 fn cached_root(project: &Project) -> Result<PathBuf, ExitError> {
-    let root_paths = Roots::from_project(&project).paths();
+    let root_paths = project.root_paths();
     if !root_paths.all_exist() {
         Err(ExitError::temporary(anyhow::anyhow!(
             "project has not previously been built successfully",
         )))
     } else {
-        Ok(root_paths.shell_gc_root.0.as_absolute_path().to_owned())
+        Ok(root_paths.shell_gc_root.0.as_path().to_owned())
     }
 }
 
 /// Instantiates a `Command` to start bash.
-pub fn bash_cmd(project_root: PathBuf, cas: &ContentAddressable) -> Result<Command, ExitError> {
+pub fn bash_cmd(
+    project_root: PathBuf,
+    cas: &ContentAddressable,
+    logger: &slog::Logger,
+) -> Result<Command, ExitError> {
     let init_file = cas
         .file_from_string(&format!(
             r#"
@@ -431,7 +470,7 @@ EVALUATION_ROOT="{}"
         ))
         .expect("failed to write shell output");
 
-    debug!("building bash via runtime closure"; "closure" => crate::RUN_TIME_CLOSURE);
+    debug!(logger,"building bash via runtime closure"; "closure" => crate::RUN_TIME_CLOSURE);
     let bash_path = CallOpts::expression(&format!("(import {}).path", crate::RUN_TIME_CLOSURE))
         .value::<PathBuf>()
         .expect("failed to get runtime closure path");
@@ -440,7 +479,7 @@ EVALUATION_ROOT="{}"
     cmd.env(
         "BASH_ENV",
         init_file
-            .as_absolute_path()
+            .as_path()
             .to_str()
             .expect("script file path not UTF-8 clean"),
     );
@@ -450,7 +489,7 @@ EVALUATION_ROOT="{}"
 /// Helper command to create a user shell
 ///
 /// See the documentation for `crate::ops::shell`.
-pub fn start_user_shell(project: Project, opts: StartUserShellOptions_) -> OpResult {
+pub fn start_user_shell(project: Project, opts: StartUserShellOptions_) -> Result<(), ExitError> {
     // This temporary directory will not be cleaned up by lorri because we exec into the shell
     // process, which means that destructors will not be run. However, (1) the temporary files
     // lorri creates in this directory are only a few hundred bytes long; (2) the directory will be
@@ -488,7 +527,7 @@ PS1="(lorri) $PS1"
             cmd.args(&[
                 "--rcfile",
                 rcfile
-                    .as_absolute_path()
+                    .as_path()
                     .to_str()
                     .expect("file path not UTF-8 clean"),
             ]);
@@ -590,19 +629,20 @@ struct StreamBuildError {
 ///
 /// See the documentation for lorri::cli::Command::StreamEvents_ for more
 /// details.
-pub fn stream_events(kind: EventKind) -> OpResult {
+pub fn stream_events(kind: EventKind, logger: &slog::Logger) -> Result<(), ExitError> {
     let (tx_event, rx_event) = chan::unbounded::<Event>();
 
     let thread = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
-        debug!("connecting to socket"; "socket" => address.as_absolute_path().display());
-
+        debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
+        let logger2 = logger.clone();
         // This async will not block when it is dropped,
         // since it only reads messages and don’t want to block exit in the Snapshot case.
-        Async::<Result<(), ExitError>>::run_and_linger(slog_scope::logger(), move || {
+        Async::<Result<(), ExitError>>::run_and_linger(logger, move || {
             let client = client::create::<client::StreamEvents>(
                 // infinite timeout because we are listening indefinitely
                 client::Timeout::Infinite,
+                &logger2,
             )?;
 
             client.write(&client::StreamEvents {})?;
@@ -623,7 +663,7 @@ pub fn stream_events(kind: EventKind) -> OpResult {
         chan::select! {
             recv(rx_event) -> event => match event.expect("rx_event hung up!") {
                 Event::SectionEnd => {
-                    debug!("SectionEnd");
+                    debug!(logger, "SectionEnd");
                     match kind {
                         // If we only want the snapshot, quit the program
                         EventKind::Snapshot => break Ok(()),
@@ -743,7 +783,11 @@ impl UpgradeSource {
 ///
 /// Originally it was used as pre-release, that’s why there is support
 /// for updating to a special rolling-release branch.
-pub fn upgrade(upgrade_target: cli::UpgradeTo, cas: &ContentAddressable) -> OpResult {
+pub fn upgrade(
+    upgrade_target: cli::UpgradeTo,
+    cas: &ContentAddressable,
+    logger: &slog::Logger,
+) -> Result<(), ExitError> {
     /*
     1. nix-instantiate the expression
     2. get all the changelog entries from <currentnumber> to <maxnumber>
@@ -762,7 +806,7 @@ pub fn upgrade(upgrade_target: cli::UpgradeTo, cas: &ContentAddressable) -> OpRe
             UpgradeSource::Local(ref p) => println!("Upgrading from local path: {}", p.display()),
         }
 
-        let mut expr = nix::CallOpts::file(&upgrade_expr.as_absolute_path());
+        let mut expr = nix::CallOpts::file(&upgrade_expr.as_path());
 
         match src {
             UpgradeSource::Branch(b) => {
@@ -794,7 +838,7 @@ pub fn upgrade(upgrade_target: cli::UpgradeTo, cas: &ContentAddressable) -> OpRe
     }
 
     println!("Building ...");
-    match expr.clone().attribute("package").path() {
+    match expr.clone().attribute("package").path(logger) {
         Ok((build_result, gc_root)) => {
             let status = Command::new("nix-env")
                 .arg("--install")
@@ -806,8 +850,8 @@ pub fn upgrade(upgrade_target: cli::UpgradeTo, cas: &ContentAddressable) -> OpRe
             drop(gc_root);
 
             if status.success() {
-                info!("upgrade successful");
-                ok()
+                info!(logger, "upgrade successful");
+                Ok(())
             } else {
                 Err(ExitError::expected_error(anyhow::anyhow!(
                     "\nError: nix-env command was not successful!\n{:#?}",
@@ -825,22 +869,27 @@ pub fn upgrade(upgrade_target: cli::UpgradeTo, cas: &ContentAddressable) -> OpRe
 ///
 /// See the documentation for lorri::cli::Command::Shell for more
 /// details.
-pub fn watch(project: Project, opts: WatchOptions) -> OpResult {
+pub fn watch(project: Project, opts: WatchOptions, logger: &slog::Logger) -> Result<(), ExitError> {
+    let user = project::Username::from_env_var().map_err(ExitError::temporary)?;
     if opts.once {
-        main_run_once(project)
+        main_run_once(project, user, logger)
     } else {
-        main_run_forever(project)
+        main_run_forever(project, user, logger)
     }
 }
 
-fn main_run_once(project: Project) -> OpResult {
+fn main_run_once(
+    project: Project,
+    user: project::Username,
+    logger: &slog::Logger,
+) -> Result<(), ExitError> {
     // TODO: add the ability to pass extra_nix_options to watch
-    let mut build_loop =
-        BuildLoop::new(&project, NixOptions::empty()).map_err(ExitError::temporary)?;
+    let mut build_loop = BuildLoop::new(&project, NixOptions::empty(), user, logger.clone())
+        .map_err(ExitError::temporary)?;
     match build_loop.once() {
         Ok(msg) => {
-            print_build_message(msg);
-            ok()
+            info!(logger, "build message"; "message" => ?msg);
+            Ok(())
         }
         Err(e) => {
             if e.is_actionable() {
@@ -854,13 +903,186 @@ fn main_run_once(project: Project) -> OpResult {
     }
 }
 
-fn main_run_forever(project: Project) -> OpResult {
+#[derive(Serialize)]
+/// Represents a gc root along with some metadata, used for json output of lorri gc info
+struct GcRootInfo {
+    /// directory where root is stored
+    gc_dir: PathBuf,
+    /// nix file from which the root originates. If None, then the root is considered dead.
+    nix_file: Option<PathBuf>,
+    /// timestamp of the last build
+    timestamp: SystemTime,
+    /// whether `nix_file` still exists
+    alive: bool,
+}
+
+/// Returns a list of existing gc roots along with some metadata
+fn list_roots(logger: &slog::Logger) -> Result<Vec<GcRootInfo>, ExitError> {
+    let paths = crate::ops::get_paths()?;
+    let mut res = Vec::new();
+    let gc_root_dir = paths.gc_root_dir();
+    for entry in std::fs::read_dir(gc_root_dir)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            debug!(
+                logger,
+                "Skipping {} which should be a directory",
+                entry.path().display()
+            );
+            continue;
+        }
+        let gc_dir = entry.path();
+        let gc_root_dir = gc_dir.join("gc_root");
+        if !std::fs::metadata(&gc_root_dir).map_or(false, |m| m.is_dir()) {
+            debug!(
+                logger,
+                "Skipping {} which should be a directory",
+                gc_root_dir.display()
+            );
+            continue;
+        };
+        let timestamp = match std::fs::symlink_metadata(gc_root_dir.join("shell_gc_root")) {
+            Err(_) => {
+                // no gc root, so nothing to report
+                continue;
+            }
+            Ok(m) => m.modified().unwrap_or(std::time::UNIX_EPOCH),
+        };
+        let nix_file_symlink = gc_root_dir.join("nix_file");
+        let nix_file = std::fs::read_link(&nix_file_symlink);
+        let alive = match &nix_file {
+            Err(_) => false,
+            Ok(path) => match std::fs::metadata(path) {
+                Ok(m) => m.is_file(),
+                Err(_) => false,
+            },
+        };
+        let nix_file = match nix_file {
+            Err(_) => None,
+            Ok(p) => Some(p),
+        };
+        res.push(GcRootInfo {
+            gc_dir,
+            nix_file,
+            timestamp,
+            alive,
+        });
+    }
+    Ok(res)
+}
+
+#[derive(Serialize)]
+/// How removing a gc root went, for json ouput
+struct RemovalStatus {
+    /// What error was encountered, or success
+    error: Option<String>,
+    /// The root we tried to remove
+    root: GcRootInfo,
+}
+
+/// Print or remove gc roots depending on cli options.
+pub fn gc(logger: &slog::Logger, opts: crate::cli::GcOptions) -> Result<(), ExitError> {
+    let infos = list_roots(logger)?;
+    match opts.action {
+        cli::GcSubcommand::Info => {
+            if opts.json {
+                serde_json::to_writer(std::io::stdout(), &infos)
+                    .expect("could not serialize gc roots");
+            } else {
+                for info in infos {
+                    let target = match info.nix_file {
+                        Some(p) => p.display().to_string(),
+                        None => "(?)".to_owned(),
+                    };
+                    let age = match info.timestamp.elapsed() {
+                        Err(_) => "future".to_owned(),
+                        Ok(d) => {
+                            let days = d.as_secs() / (24 * 60 * 60);
+                            format!("{} days ago", days)
+                        }
+                    };
+                    let alive = if info.alive { "" } else { "[dead]" };
+                    println!(
+                        "{} -> {} {} ({})",
+                        info.gc_dir.display(),
+                        target,
+                        alive,
+                        age
+                    );
+                }
+            }
+        }
+        cli::GcSubcommand::Rm {
+            shell_file,
+            all,
+            older_than,
+        } => {
+            let files_to_remove: HashSet<PathBuf> = shell_file.into_iter().collect();
+            let to_remove: Vec<GcRootInfo> = infos
+                .into_iter()
+                .filter(|root| {
+                    all || !root.alive
+                        || root
+                            .nix_file
+                            .as_ref()
+                            .map_or(false, |p| files_to_remove.contains(p))
+                        || older_than.map_or(false, |limit| {
+                            root.timestamp
+                                .elapsed()
+                                .map_or(false, |actual| actual > limit)
+                        })
+                })
+                .collect();
+            let mut result = Vec::new();
+            let n = to_remove.len();
+            for info in to_remove {
+                match remove_dir_all(&info.gc_dir) {
+                    Ok(_) => {
+                        if opts.json {
+                            result.push(RemovalStatus {
+                                error: None,
+                                root: info,
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        if opts.json {
+                            result.push(RemovalStatus {
+                                error: Some(e.to_string()),
+                                root: info,
+                            });
+                        } else {
+                            eprintln!("Error: could not remove {}: {}", info.gc_dir.display(), e);
+                        }
+                    }
+                }
+            }
+            if opts.json {
+                serde_json::to_writer(std::io::stdout(), &result)
+                    .expect("failed to serialize result");
+            } else {
+                println!("Removed {} gc roots.", n);
+                if n > 0 {
+                    println!("Remember to run nix-collect-garbage to actually free space.");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn main_run_forever(
+    project: Project,
+    user: project::Username,
+    logger: &slog::Logger,
+) -> Result<(), ExitError> {
     let (tx_build_results, rx_build_results) = chan::unbounded();
     let (tx_ping, rx_ping) = chan::unbounded();
+    let logger2 = logger.clone();
     // TODO: add the ability to pass extra_nix_options to watch
     let build_thread = {
-        Async::run(slog_scope::logger(), move || {
-            match BuildLoop::new(&project, NixOptions::empty()) {
+        Async::run(logger, move || {
+            match BuildLoop::new(&project, NixOptions::empty(), user, logger2) {
                 Ok(mut bl) => bl.forever(tx_build_results, rx_ping).never(),
                 Err(e) => Err(ExitError::temporary(e)),
             }
@@ -871,16 +1093,8 @@ fn main_run_forever(project: Project) -> OpResult {
     tx_ping.send(()).expect("could not send ping to build_loop");
 
     for msg in rx_build_results {
-        print_build_message(msg);
+        info!(logger, "build message"; "message" => ?msg);
     }
 
     build_thread.block()
-}
-
-/// Print a build message to stdout and flush.
-fn print_build_message<A>(msg: A)
-where
-    A: Debug,
-{
-    info!("build message"; "message" => ?msg);
 }

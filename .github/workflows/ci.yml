@@ -1,52 +1,18 @@
 env:
   LORRI_NO_INSTALL_PANIC_HANDLER: absolutely
 jobs:
-  nix-build_1909-macos-latest:
-    name: nix-build [nixos 19.09] (macos-latest)
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: null
-      - name: Nix
-        uses: cachix/install-nix-action@v12
-      - name: Cachix
-        uses: cachix/cachix-action@v8
-        with:
-          name: nix-community
-          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
-      - name: Build
-        run: nix-build --arg nixpkgs ./nix/nixpkgs-1909.nix
-  nix-build_1909-ubuntu-latest:
-    name: nix-build [nixos 19.09] (ubuntu-latest)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: null
-      - name: Nix
-        uses: cachix/install-nix-action@v12
-      - name: Cachix
-        uses: cachix/cachix-action@v8
-        with:
-          name: nix-community
-          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
-      - name: Build
-        run: nix-build --arg nixpkgs ./nix/nixpkgs-1909.nix
   nix-build_stable-macos-latest:
     name: nix-build [nixos stable] (macos-latest)
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
       - name: Nix
-        uses: cachix/install-nix-action@v12
+        uses: cachix/install-nix-action@v14.1
       - name: Cachix
-        uses: cachix/cachix-action@v8
+        uses: cachix/cachix-action@v10
         with:
           name: nix-community
           signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
@@ -61,13 +27,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
       - name: Nix
-        uses: cachix/install-nix-action@v12
+        uses: cachix/install-nix-action@v14.1
       - name: Cachix
-        uses: cachix/cachix-action@v8
+        uses: cachix/cachix-action@v10
         with:
           name: nix-community
           signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
@@ -82,18 +48,16 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: null
       - name: Nix
-        uses: cachix/install-nix-action@v12
+        uses: cachix/install-nix-action@v14.1
       - name: Cachix
-        uses: cachix/cachix-action@v8
+        uses: cachix/cachix-action@v10
         with:
           name: nix-community
           signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
-      - name: Build w/ overlay (19.09)
-        run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-1909.json
       - name: Build w/ overlay (stable)
         run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
   overlay-ubuntu-latest:
@@ -101,32 +65,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: null
       - name: Nix
-        uses: cachix/install-nix-action@v12
+        uses: cachix/install-nix-action@v14.1
       - name: Cachix
-        uses: cachix/cachix-action@v8
+        uses: cachix/cachix-action@v10
         with:
           name: nix-community
           signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
-      - name: Build w/ overlay (19.09)
-        run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-1909.json
       - name: Build w/ overlay (stable)
         run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
-  rust-macos-latest:
-    name: Rust and CI tests (macos-latest)
+  rust-each-unit-macos-latest:
+    name: Rust individual tests (macos-latest)
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: null
       - name: Nix
-        uses: cachix/install-nix-action@v12
+        uses: cachix/install-nix-action@v14.1
       - name: Cachix
-        uses: cachix/cachix-action@v8
+        uses: cachix/cachix-action@v10
         with:
           name: nix-community
           signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
@@ -138,7 +100,39 @@ jobs:
       - name: print PATH
         run: printenv PATH
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v1.2.0
+        uses: Swatinem/rust-cache@v1.3.0
+      - name: CI bisection tests
+        run: |
+          nix-build \
+            --out-link ./ci-tests \
+            --arg isDevelopmentShell false \
+            -A ci.testsuite-eachunit \
+            shell.nix \
+            && ./ci-tests
+  rust-macos-latest:
+    name: Rust and CI tests (macos-latest)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: null
+      - name: Nix
+        uses: cachix/install-nix-action@v14.1
+      - name: Cachix
+        uses: cachix/cachix-action@v10
+        with:
+          name: nix-community
+          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+      - name: Add rustc to PATH
+        run: |
+          set -euo pipefail
+          rustc_path="$(nix-build -A rustc nix/nixpkgs-stable.nix)/bin"
+          echo "$rustc_path" >> "$GITHUB_PATH"
+      - name: print PATH
+        run: printenv PATH
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v1.3.0
       - name: CI tests
         run: |
           nix-build \
@@ -152,13 +146,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: null
       - name: Nix
-        uses: cachix/install-nix-action@v12
+        uses: cachix/install-nix-action@v14.1
       - name: Cachix
-        uses: cachix/cachix-action@v8
+        uses: cachix/cachix-action@v10
         with:
           name: nix-community
           signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
@@ -170,7 +164,7 @@ jobs:
       - name: print PATH
         run: printenv PATH
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v1.2.0
+        uses: Swatinem/rust-cache@v1.3.0
       - name: CI tests
         run: |
           nix-build \
@@ -187,3 +181,4 @@ name: CI
   push:
     branches:
       - master
+  workflow_dispatch: {}

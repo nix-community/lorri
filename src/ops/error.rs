@@ -3,7 +3,7 @@
 /// Non-zero exit status from an op.
 ///
 /// Based in part on the execline convention
-/// (see https://skarnet.org/software/execline/exitcodes.html).
+/// (see <https://skarnet.org/software/execline/exitcodes.html>).
 ///
 /// All these commands exit
 /// - 1 if they encounter an expected error
@@ -19,14 +19,6 @@ pub struct ExitError {
     exitcode: i32,
     /// The error
     error: anyhow::Error,
-}
-
-/// Final result from a CLI operation
-pub type OpResult = Result<(), ExitError>;
-
-/// Return an OpResult producing a silent exit 0
-pub fn ok() -> OpResult {
-    Ok(())
 }
 
 impl ExitError {

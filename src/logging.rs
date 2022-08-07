@@ -1,13 +1,16 @@
 //! Helps instantiate a root slog logger
 
-use crate::cli::Command;
+use crate::cli::{Command, Verbosity};
 use slog::Drain;
 
 /// Instantiate a root logger appropriate for the subcommand
-pub fn root(verbosity: u8, command: &Command) -> slog::Logger {
+pub fn root(verbosity: Verbosity, command: &Command) -> slog::Logger {
     let level = match verbosity {
-        0 => slog::Level::Info,
-        _ => slog::Level::Debug,
+        // log only up to info
+        Verbosity::DefaultInfo => slog::Level::Info,
+        // log everything; be advised that trace-messages are removed at compile time by default,
+        // see https://docs.rs/slog/2.7.0/slog/#notable-details
+        Verbosity::Debug => slog::Level::Trace,
     };
     let log_to = match command {
         // direnv swallows stdout, so we must log to stderr
@@ -18,9 +21,8 @@ pub fn root(verbosity: u8, command: &Command) -> slog::Logger {
 }
 
 /// Logger that can be used in tests
-#[cfg(test)]
 pub fn test_logger() -> slog::Logger {
-    lorri_logger(slog::Level::Debug, LogTo::Stderr)
+    lorri_logger(slog::Level::Trace, LogTo::Stderr)
 }
 
 /// output to log to

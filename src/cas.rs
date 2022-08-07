@@ -26,7 +26,7 @@ impl ContentAddressable {
     /// If it is a directory with some other data,
     /// the correctness cannot be guaranteed.
     pub fn new(store_dir: AbsPathBuf) -> std::io::Result<ContentAddressable> {
-        std::fs::create_dir_all(store_dir.as_absolute_path())?;
+        std::fs::create_dir_all(store_dir.as_path())?;
         Ok(ContentAddressable { store_dir })
     }
 
@@ -103,7 +103,7 @@ mod tests {
         // small check to check that the file lives in store_path
         assert_eq!(
             store_dir.path().to_owned(),
-            cas_file.as_absolute_path().parent().unwrap()
+            cas_file.as_path().parent().unwrap()
         );
         // the content should be the same in the file that was written
         Ok(assert_eq!(
@@ -121,12 +121,12 @@ mod tests {
         let cas = ContentAddressable::new(abs_path(&store_dir)).unwrap();
         let cas_file = cas.file_from_string(content).unwrap();
 
-        let first_mtime = cas_file.as_absolute_path().metadata()?.modified()?;
+        let first_mtime = cas_file.as_path().metadata()?.modified()?;
 
         // creating a cas for the same content doesn’t write to the file
         let cas_file_new = cas.file_from_string(content).unwrap();
 
-        let second_mtime = cas_file_new.as_absolute_path().metadata()?.modified()?;
+        let second_mtime = cas_file_new.as_path().metadata()?.modified()?;
 
         // if the mtimes are different, the file has been overwritten
         assert_eq!(first_mtime, second_mtime);

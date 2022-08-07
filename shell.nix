@@ -53,7 +53,7 @@ let
     pkgs.rustfmt
     pkgs.git
     pkgs.direnv
-    pkgs.carnix
+    pkgs.crate2nix
     pkgs.nix-prefetch-git
     pkgs.nixpkgs-fmt
 
@@ -65,6 +65,7 @@ let
     pkgs.darwin.Security
     pkgs.darwin.apple_sdk.frameworks.CoreServices
     pkgs.darwin.apple_sdk.frameworks.CoreFoundation
+    pkgs.libiconv
   ];
 
 in

@@ -58,7 +58,7 @@ does not in itself necessitate a major release.
 To cut a new release:
 1. Determine if this is a [minor or major release](#versioning-scheme) and
    change the `version` field in `Cargo.toml` accordingly.
-2. Build the project to update `Cargo.lock`, then run `nix/update-carnix.sh` to
+2. Build the project to update `Cargo.lock`, then run `nix/update-nix.sh` to
    update `Cargo.nix`.
 3. Go through all commits since the last release and cross-check against the
    release notes in `release.nix`. Add missing changes.
@@ -78,7 +78,7 @@ To cut a new release:
 ## Publishing a release on [nixpkgs][]
 
 lorri is available in the `nixos-unstable` and the stable release channels
-from 19.09, which correspond to the `master` and `release-<stable-release-date>`
+from 20.09, which correspond to the `master` and `release-<stable-release-date>`
 (example: `release-20.03`) branches in the [nixpkgs][] repository, respectively.
 
 The relevant directories and files in [nixpkgs][] are:
@@ -123,7 +123,7 @@ stable nixos version that is set in `./nix/update-dependencies.sh`.
 Afterwards, don’t forget to run `nix-shell` and `nix-build` to test
 whether everything still builds.
 
-Run `./nix/update-carnix.sh` to update Cargo's dependency list.
+Run `./nix/update-nix.sh` to update Cargo's dependency list.
 
 [nixos-stable-pr]: https://github.com/NixOS/nixpkgs/pull/77432
 [nixos-unstable-pr]: https://github.com/NixOS/nixpkgs/pull/77380

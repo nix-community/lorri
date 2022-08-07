@@ -1,6 +1,6 @@
 //! An implementation of BufRead's lines(), but for producing OsString
 //!
-//! See https://doc.rust-lang.org/src/std/io/mod.rs.html#2241 for
+//! See <https://doc.rust-lang.org/src/std/io/mod.rs.html#2241> for
 //! the reference implementation.
 
 use std::ffi::OsString;

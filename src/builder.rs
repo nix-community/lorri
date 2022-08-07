@@ -8,18 +8,188 @@
 //! `stderr`, like which source files are used by the evaluator.
 
 use crate::cas::ContentAddressable;
-use crate::error::BuildError;
 use crate::nix::{options::NixOptions, StorePath};
 use crate::osstrlines;
 use crate::watch::WatchPathBuf;
 use crate::{DrvFile, NixFile};
 use regex::Regex;
-use slog_scope::debug;
+use slog::debug;
 use std::ffi::{OsStr, OsString};
 use std::io::BufReader;
+use std::os::unix::prelude::OsStrExt;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
-use std::thread;
+use std::process::{Command, ExitStatus, Stdio};
+use std::{fmt, thread};
+
+/// An error that can occur during a build.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum BuildError {
+    /// A system-level IO error occurred during the build.
+    Io {
+        /// Error message of the underlying error. Stored as a string because we need `BuildError`
+        /// to implement `Copy`, but `io::Error` does not implement `Copy`.
+        msg: String,
+    },
+
+    /// An error occurred while spawning a Nix process.
+    ///
+    /// Usually this means that the relevant Nix executable was not on the $PATH.
+    Spawn {
+        /// The command that failed. Stored as a string because we need `BuildError` to implement
+        /// `Copy`, but `Command` does not implement `Copy`.
+        cmd: String,
+
+        /// Error message of the underlying error. Stored as a string because we need `BuildError`
+        /// to implement `Copy`, but `io::Error` does not implement `Copy`.
+        msg: String,
+    },
+
+    /// The Nix process returned with a non-zero exit code.
+    Exit {
+        /// The command that failed. Stored as a string because we need `BuildError` to implement
+        /// `Copy`, but `Command` does not implement `Copy`.
+        cmd: String,
+
+        /// The `ExitStatus` of the command. The smart constructor `BuildError::exit` asserts that
+        /// it is non-successful.
+        status: Option<i32>,
+
+        /// Error logs of the failed process.
+        logs: Vec<LogLine>,
+    },
+
+    /// There was something wrong with the output of the Nix command.
+    ///
+    /// This error may for example indicate that the wrong number of outputs was produced.
+    Output {
+        /// Error message explaining the nature of the output error.
+        msg: String,
+    },
+}
+
+impl From<std::io::Error> for BuildError {
+    fn from(e: std::io::Error) -> BuildError {
+        BuildError::io(e)
+    }
+}
+
+impl From<notify::Error> for BuildError {
+    fn from(e: notify::Error) -> BuildError {
+        BuildError::io(e)
+    }
+}
+
+impl From<serde_json::Error> for BuildError {
+    fn from(e: serde_json::Error) -> BuildError {
+        BuildError::io(e)
+    }
+}
+
+impl fmt::Display for BuildError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BuildError::Io { msg } => write!(f, "I/O error: {}", msg),
+            BuildError::Spawn { cmd, msg } => write!(
+                f,
+                "failed to spawn Nix process. Is Nix installed and on the $PATH?\n\
+                 $ {}\n\
+                 {}",
+                cmd, msg,
+            ),
+            BuildError::Exit { cmd, status, logs } => write!(
+                f,
+                "Nix process returned exit code {}.\n\
+                 $ {}\n\
+                 {}",
+                status.map_or("<unknown>".to_string(), |c| i32::to_string(&c)),
+                cmd,
+                LogLinesDisplay(logs)
+            ),
+            BuildError::Output { msg } => write!(f, "{}", msg),
+        }
+    }
+}
+
+// TODO: rethink these constructors
+impl BuildError {
+    /// Smart constructor for `BuildError::Io`
+    pub fn io<D>(e: D) -> BuildError
+    where
+        D: fmt::Debug,
+    {
+        BuildError::Io {
+            msg: format!("{:?}", e),
+        }
+    }
+
+    /// Smart constructor for `BuildError::Spawn`
+    pub fn spawn<D>(cmd: &Command, e: D) -> BuildError
+    where
+        D: fmt::Display,
+    {
+        BuildError::Spawn {
+            cmd: format!("{:?}", cmd),
+            msg: format!("{}", e),
+        }
+    }
+
+    /// Smart constructor for `BuildError::Exit`
+    pub fn exit(cmd: &Command, status: ExitStatus, logs: Vec<OsString>) -> BuildError {
+        assert!(
+            !status.success(),
+            "cannot create an exit error from a successful status code"
+        );
+        BuildError::Exit {
+            cmd: format!("{:?}", cmd),
+            status: status.code(),
+            logs: logs.iter().map(|l| LogLine::from(l.clone())).collect(),
+        }
+    }
+
+    /// Smart constructor for `BuildError::Output`
+    pub fn output(msg: String) -> BuildError {
+        BuildError::Output { msg }
+    }
+
+    /// Is there something the user can do about this error?
+    pub fn is_actionable(&self) -> bool {
+        match self {
+            BuildError::Io { .. } => false,
+            BuildError::Spawn { .. } => true, // install Nix or fix $PATH
+            BuildError::Exit { .. } => true,  // fix Nix expression
+            BuildError::Output { .. } => true, // fix Nix expression
+        }
+    }
+}
+
+/// A line from stderr log output.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogLine(pub OsString);
+
+impl From<OsString> for LogLine {
+    fn from(oss: OsString) -> Self {
+        LogLine(oss)
+    }
+}
+
+impl From<String> for LogLine {
+    fn from(s: String) -> Self {
+        LogLine(OsString::from(s))
+    }
+}
+
+struct LogLinesDisplay<'a>(&'a [LogLine]);
+
+impl<'a> fmt::Display for LogLinesDisplay<'a> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for l in self.0 {
+            let mut s = String::from_utf8_lossy(l.0.as_bytes()).into_owned();
+            s.push('\n');
+            formatter.write_str(&s)?;
+        }
+        Ok(())
+    }
+}
 
 struct RootedDrv {
     _gc_handle: GcRootTempDir,
@@ -47,6 +217,7 @@ fn instrumented_instantiation(
     nix_file: &NixFile,
     cas: &ContentAddressable,
     extra_nix_options: &NixOptions,
+    logger: &slog::Logger,
 ) -> Result<InstantiateOutput, BuildError> {
     // We're looking for log lines matching:
     //
@@ -86,13 +257,13 @@ fn instrumented_instantiation(
     cmd.args(&[
         // instrumented by `./logged-evaluation.nix`
         OsStr::new("--"),
-        &logged_evaluation_nix.as_absolute_path().as_os_str(),
+        &logged_evaluation_nix.as_path().as_os_str(),
     ])
     .stdin(Stdio::null())
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
 
-    debug!("nix-instantiate"; "command" => ?cmd);
+    debug!(logger, "nix-instantiate"; "command" => ?cmd);
 
     let mut child = cmd.spawn().map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => BuildError::spawn(&cmd, e),
@@ -134,48 +305,47 @@ fn instrumented_instantiation(
     // meaning we don’t have to keep the outputs in memory (fold directly)
 
     // iterate over all lines, parsing out the ones we are interested in
-    let (paths, log_lines): (Vec<WatchPathBuf>, Vec<OsString>) =
-        results
-            .into_iter()
-            .fold((vec![], vec![]), |(mut paths, mut log_lines), result| {
-                match result {
-                    LogDatum::CopiedSource(src) | LogDatum::ReadRecursively(src) => {
-                        paths.push(WatchPathBuf::Recursive(src));
-                    }
-                    LogDatum::ReadDir(src) => {
-                        paths.push(WatchPathBuf::Normal(src));
-                    }
-                    LogDatum::NixSourceFile(mut src) => {
-                        // We need to emulate nix’s `default.nix` mechanism here.
-                        // That is, if the user uses something like
-                        // `import ./foo`
-                        // and `foo` is a directory, nix will actually import
-                        // `./foo/default.nix`
-                        // but still print `./foo`.
-                        // Since this is the only time directories are printed,
-                        // we can just manually re-implement that behavior.
-                        if src.is_dir() {
-                            src.push("default.nix");
-                        }
-                        paths.push(WatchPathBuf::Normal(src));
-                    }
-                    LogDatum::Text(line) => log_lines.push(OsString::from(line)),
-                    LogDatum::NonUtf(line) => log_lines.push(line),
-                };
-
-                (paths, log_lines)
-            });
+    let mut paths: Vec<WatchPathBuf> = vec![];
+    let mut log_lines: Vec<OsString> = vec![];
+    for result in results {
+        match result {
+            LogDatum::CopiedSource(src) | LogDatum::ReadRecursively(src) => {
+                paths.push(WatchPathBuf::Recursive(src));
+            }
+            LogDatum::ReadDir(src) => {
+                paths.push(WatchPathBuf::Normal(src));
+            }
+            LogDatum::NixSourceFile(mut src) => {
+                // We need to emulate nix’s `default.nix` mechanism here.
+                // That is, if the user uses something like
+                // `import ./foo`
+                // and `foo` is a directory, nix will actually import
+                // `./foo/default.nix`
+                // but still print `./foo`.
+                // Since this is the only time directories are printed,
+                // we can just manually re-implement that behavior.
+                if src.is_dir() {
+                    src.push("default.nix");
+                }
+                paths.push(WatchPathBuf::Normal(src));
+            }
+            LogDatum::Text(line) => log_lines.push(OsString::from(line)),
+            LogDatum::NonUtf(line) => log_lines.push(line),
+        };
+    }
 
     if !exec_result.success() {
         return Err(BuildError::exit(&cmd, exec_result, log_lines));
     }
 
-    assert!(
-        build_products.len() == 1,
-        "got more or less than one build product from logged_evaluation.nix: {:#?}",
-        build_products
-    );
-    let shell_gc_root = build_products.pop().unwrap();
+    let shell_gc_root = match build_products.len() {
+        0 => panic!("logged_evaluation.nix did not return a build product."),
+        1 => build_products.pop().unwrap(),
+        n => panic!(
+            "got more than one build product ({}) from logged_evaluation.nix: {:#?}",
+            n, build_products
+        ),
+    };
 
     Ok(InstantiateOutput {
         referenced_paths: paths,
@@ -193,8 +363,8 @@ struct BuildOutput {
 /// Builds the Nix expression in `root_nix_file`.
 ///
 /// Instruments the nix file to gain extra information, which is valuable even if the build fails.
-fn build(drv_path: DrvFile) -> Result<BuildOutput, BuildError> {
-    let (path, gc_handle) = crate::nix::CallOpts::file(drv_path.as_path()).path()?;
+fn build(drv_path: DrvFile, logger: &slog::Logger) -> Result<BuildOutput, BuildError> {
+    let (path, gc_handle) = crate::nix::CallOpts::file(drv_path.as_path()).path(logger)?;
     Ok(BuildOutput {
         output: RootedPath { gc_handle, path },
     })
@@ -223,9 +393,10 @@ pub fn run(
     root_nix_file: &NixFile,
     cas: &ContentAddressable,
     extra_nix_options: &NixOptions,
+    logger: &slog::Logger,
 ) -> Result<RunResult, BuildError> {
-    let inst_info = instrumented_instantiation(root_nix_file, cas, &extra_nix_options)?;
-    let buildoutput = build(inst_info.output.path)?;
+    let inst_info = instrumented_instantiation(root_nix_file, cas, &extra_nix_options, logger)?;
+    let buildoutput = build(inst_info.output.path, logger)?;
     Ok(RunResult {
         referenced_paths: inst_info.referenced_paths,
         result: buildoutput.output,
@@ -415,6 +586,7 @@ in {}
             &crate::NixFile::from(cas.file_from_string(&nix_drv)?),
             &cas,
             &NixOptions::empty(),
+            &crate::logging::test_logger(),
         )
         .expect("should not crash!");
         Ok(())
@@ -431,7 +603,12 @@ in {}
             &format!("dep = {};", drv("dep", r##"args = [ "-c" "exit 1" ];"##)),
         ))?);
 
-        if let Err(BuildError::Exit { .. }) = run(&d, &cas, &NixOptions::empty()) {
+        if let Err(BuildError::Exit { .. }) = run(
+            &d,
+            &cas,
+            &NixOptions::empty(),
+            &crate::logging::test_logger(),
+        ) {
         } else {
             assert!(
                 false,
@@ -493,6 +670,7 @@ dir-as-source = ./dir;
             &NixFile::from(AbsPathBuf::new(shell).unwrap()),
             &cas,
             &NixOptions::empty(),
+            &crate::logging::test_logger(),
         )
         .unwrap();
         let ends_with = |end| {
