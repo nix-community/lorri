@@ -69,11 +69,10 @@ fn install_signal_handler() {
 /// that instructs the user how to write a minimal `shell.nix`.
 fn find_nix_file(shellfile: &Path) -> Result<NixFile, ExitError> {
     // use shell.nix from cwd
-
     match is_file_in_current_directory(shellfile) {
         Err(err) => Err(ExitError::temporary(err)),
-        Ok(None) => {
-            Err(ExitError::user_error(if PathBuf::from("flake.nix").exists() {
+        Ok(None) => Err(ExitError::user_error(
+            if PathBuf::from("flake.nix").exists() {
                 anyhow::anyhow!(
                     "lorri does not currently natively support flakes.\nYou can use the following compatibility `shell.nix` to use lorri with flakes:\n\n\
                     {}",
@@ -87,8 +86,8 @@ fn find_nix_file(shellfile: &Path) -> Result<NixFile, ExitError> {
                     shellfile.display(),
                     TRIVIAL_SHELL_SRC
                 )
-            }))
-        },
+            },
+        )),
         Ok(Some(file)) => Ok(NixFile::from(file)),
     }
 }
