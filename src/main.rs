@@ -7,10 +7,11 @@ use lorri::NixFile;
 use lorri::{constants, AbsPathBuf};
 use slog::{debug, error, o};
 use std::env;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
 const TRIVIAL_SHELL_SRC: &str = include_str!("./trivial-shell.nix");
+const FLAKE_COMPAT_SHELL_SRC: &str = include_str!("./flake-compat-shell.nix");
 const DEFAULT_ENVRC: &str = include_str!("./default-envrc");
 
 fn main() {
@@ -70,13 +71,23 @@ fn find_nix_file(shellfile: &Path) -> Result<NixFile, ExitError> {
     // use shell.nix from cwd
     match is_file_in_current_directory(shellfile) {
         Err(err) => Err(ExitError::temporary(err)),
-        Ok(None) => Err(ExitError::user_error(anyhow::anyhow!(
-            "`{}` does not exist\n\
-                 You can use the following minimal `shell.nix` to get started:\n\n\
-                 {}",
-            shellfile.display(),
-            TRIVIAL_SHELL_SRC
-        ))),
+        Ok(None) => Err(ExitError::user_error(
+            if PathBuf::from("flake.nix").exists() {
+                anyhow::anyhow!(
+                    "lorri does not currently natively support flakes.\nYou can use the following compatibility `shell.nix` to use lorri with flakes:\n\n\
+                    {}",
+                    FLAKE_COMPAT_SHELL_SRC
+                )
+            } else {
+                anyhow::anyhow!(
+                    "`{}` does not exist\n\
+                    You can use the following minimal `shell.nix` to get started:\n\n\
+                    {}",
+                    shellfile.display(),
+                    TRIVIAL_SHELL_SRC
+                )
+            },
+        )),
         Ok(Some(file)) => Ok(NixFile::from(file)),
     }
 }
