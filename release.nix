@@ -20,6 +20,13 @@
         '';
       }
       {
+        version = 949;
+        changes = ''
+          Fix the behaviour of the `--verbose` flag’s logging output.
+          Some messages were logged but not printed.
+        '';
+      }
+      {
         version = 900;
         changes = ''
           Add a `lorri gc` command to allow the gc to operate on old or removed

@@ -48,9 +48,7 @@ let
 
   buildInputs = [
     pkgs.cargo
-    pkgs.rustPackages.clippy
-    pkgs.rustc
-    pkgs.rustfmt
+    pkgs.rustup
     pkgs.git
     pkgs.direnv
     pkgs.crate2nix

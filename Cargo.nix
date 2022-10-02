@@ -1209,7 +1209,7 @@ rec {
       };
       "lorri" = rec {
         crateName = "lorri";
-        version = "1.5.0";
+        version = "1.6.0";
         edition = "2018";
         crateBin = [
           { name = "lorri"; path = "src/main.rs"; }
