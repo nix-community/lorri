@@ -15,7 +15,7 @@ jobs:
         uses: cachix/cachix-action@v10
         with:
           name: nix-community
-          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
       - name: Build
         run: nix-build
       - name: Install
@@ -36,7 +36,7 @@ jobs:
         uses: cachix/cachix-action@v10
         with:
           name: nix-community
-          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
       - name: Build
         run: nix-build
       - name: Install
@@ -57,7 +57,7 @@ jobs:
         uses: cachix/cachix-action@v10
         with:
           name: nix-community
-          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
       - name: Build w/ overlay (stable)
         run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
   overlay-ubuntu-latest:
@@ -74,7 +74,7 @@ jobs:
         uses: cachix/cachix-action@v10
         with:
           name: nix-community
-          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
       - name: Build w/ overlay (stable)
         run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
   rust-each-unit-macos-latest:
@@ -91,7 +91,7 @@ jobs:
         uses: cachix/cachix-action@v10
         with:
           name: nix-community
-          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
       - name: Add rustc to PATH
         run: |
           set -euo pipefail
@@ -123,7 +123,7 @@ jobs:
         uses: cachix/cachix-action@v10
         with:
           name: nix-community
-          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
       - name: Add rustc to PATH
         run: |
           set -euo pipefail
@@ -155,7 +155,7 @@ jobs:
         uses: cachix/cachix-action@v10
         with:
           name: nix-community
-          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
       - name: Add rustc to PATH
         run: |
           set -euo pipefail
