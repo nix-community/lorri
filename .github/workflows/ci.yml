@@ -14,8 +14,8 @@ jobs:
       - name: Cachix
         uses: cachix/cachix-action@v10
         with:
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           name: nix-community
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
       - name: Build
         run: nix-build
       - name: Install
@@ -35,8 +35,8 @@ jobs:
       - name: Cachix
         uses: cachix/cachix-action@v10
         with:
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           name: nix-community
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
       - name: Build
         run: nix-build
       - name: Install
@@ -56,8 +56,8 @@ jobs:
       - name: Cachix
         uses: cachix/cachix-action@v10
         with:
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           name: nix-community
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
       - name: Build w/ overlay (stable)
         run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
   overlay-ubuntu-latest:
@@ -73,8 +73,8 @@ jobs:
       - name: Cachix
         uses: cachix/cachix-action@v10
         with:
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           name: nix-community
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
       - name: Build w/ overlay (stable)
         run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
   rust-each-unit-macos-latest:
@@ -90,8 +90,8 @@ jobs:
       - name: Cachix
         uses: cachix/cachix-action@v10
         with:
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           name: nix-community
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
       - name: Add rustc to PATH
         run: |
           set -euo pipefail
@@ -122,8 +122,8 @@ jobs:
       - name: Cachix
         uses: cachix/cachix-action@v10
         with:
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           name: nix-community
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
       - name: Add rustc to PATH
         run: |
           set -euo pipefail
@@ -154,8 +154,8 @@ jobs:
       - name: Cachix
         uses: cachix/cachix-action@v10
         with:
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           name: nix-community
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
       - name: Add rustc to PATH
         run: |
           set -euo pipefail

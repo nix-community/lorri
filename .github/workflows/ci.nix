@@ -18,7 +18,7 @@ let
     uses = "cachix/cachix-action@v10";
     "with" = {
       name = "nix-community";
-      signingKey = "\${{ secrets.CACHIX_SIGNING_KEY }}";
+      authToken = "\${{ secrets.CACHIX_AUTH_TOKEN }}";
     };
   };
   # required to set up rust-cache
