@@ -51,7 +51,7 @@ This approach uses macOS's [launchd](https://developer.apple.com/library/archive
 1. move the gist to `~/Library/LaunchAgents/nix.lorri.plist`
 1. run `launchctl load -w ~/Library/LaunchAgents/nix.lorri.plist`
 
-Alternatively, one can reference the above `launchd` documentation or use a tool like [https://launched.zerowidth.com] to easily create a `launchd` `plist` file.
+Alternatively, one can reference the above `launchd` documentation or use a tool like [https://launched.zerowidth.com](https://launched.zerowidth.com) to easily create a `launchd` `plist` file.
 
 ## Run `lorri daemon` on macOS with Nix (using [nix-darwin](https://github.com/LnL7/nix-darwin))
 
