@@ -45,7 +45,13 @@ setup](#verify-the-setup) to check that everything works as expected.
 
 ## Run `lorri daemon` on macOS with Nix
 
-Use [https://launched.zerowidth.com] to easily create a [`systemd` plist file](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html).
+This approach uses macOS's [launchd](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html), which is used to manage launch daemons.
+
+1. download this [gist](https://gist.github.com/abhillman/c7e8bf088edcfcc3e7a510501ceeb835)
+1. move the gist to `~/Library/LaunchAgents/nix.lorri.plist`
+1. run `launchctl load -w ~/Library/LaunchAgents/nix.lorri.plist`
+
+Alternatively, one can reference the above `launchd` documentation or use a tool like [https://launched.zerowidth.com] to easily create a `launchd` `plist` file.
 
 ## Run `lorri daemon` on macOS with Nix (using [nix-darwin](https://github.com/LnL7/nix-darwin))
 
