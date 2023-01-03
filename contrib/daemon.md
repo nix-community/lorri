@@ -47,7 +47,7 @@ setup](#verify-the-setup) to check that everything works as expected.
 
 This approach uses macOS's [launchd](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html), which is used to manage launch daemons.
 
-1. write the following `plist` file to 
+1. write the following `plist` file to `~/Library/LaunchAgents/nix.lorri.plist`
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
