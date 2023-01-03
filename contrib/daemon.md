@@ -47,9 +47,25 @@ setup](#verify-the-setup) to check that everything works as expected.
 
 This approach uses macOS's [launchd](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html), which is used to manage launch daemons.
 
-1. download this [gist](https://gist.github.com/abhillman/c7e8bf088edcfcc3e7a510501ceeb835)
-1. move the gist to `~/Library/LaunchAgents/nix.lorri.plist`
-1. run `launchctl load -w ~/Library/LaunchAgents/nix.lorri.plist`
+1. write the following `plist` file to 
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>nix.lorri</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>lorri</string>
+		<string>daemon</string>
+	</array>
+</dict>
+</plist>
+```
+
+2. run `launchctl load -w ~/Library/LaunchAgents/nix.lorri.plist`
 
 Alternatively, one can reference the above `launchd` documentation or use a tool like [https://launched.zerowidth.com](https://launched.zerowidth.com) to easily create a `launchd` `plist` file.
 
