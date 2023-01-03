@@ -43,6 +43,10 @@ $ mkdir -p ~/.config/systemd/user && \
 The lorri daemon will now be started on demand by systemd. See [Verify the
 setup](#verify-the-setup) to check that everything works as expected.
 
+## Run `lorri daemon` on macOS with Nix
+
+Use [https://launched.zerowidth.com] to easily create a [`systemd` plist file](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html).
+
 ## Run `lorri daemon` on macOS with Nix (using [nix-darwin](https://github.com/LnL7/nix-darwin))
 
 The following user contributions should help you get started:
