@@ -146,7 +146,7 @@ where {
         // We register a garbage collection root, which points back to our `~/.cache/lorri/gc_roots` directory,
         // so that nix won’t delete our shell environment.
         let nix_gc_root_user_dir_root =
-            nix_gc_root_user_dir.join(format!("{}-{}", self.hash(), "shell_gc_root"));
+            nix_gc_root_user_dir.join(format!("{}-shell_gc_root", self.hash()));
 
         debug!(logger, "connecting root"; "from" => self.shell_gc_root().display(), "to" => nix_gc_root_user_dir_root.display());
         std::fs::remove_file(&nix_gc_root_user_dir_root.as_path())

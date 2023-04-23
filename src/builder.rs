@@ -11,9 +11,10 @@ use crate::cas::ContentAddressable;
 use crate::nix::{options::NixOptions, StorePath};
 use crate::osstrlines;
 use crate::watch::WatchPathBuf;
-use crate::{DrvFile, NixFile};
+use crate::{AbsPathBuf, DrvFile, NixFile};
 use regex::Regex;
 use slog::debug;
+use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::io::BufReader;
 use std::os::unix::prelude::OsStrExt;
@@ -384,6 +385,14 @@ pub struct RunResult {
     /// The status of the build attempt
     pub result: RootedPath,
 }
+/// The result of a single instantiation and build.
+#[derive(Debug)]
+pub struct FlakeResult {
+    /// All the paths identified during the instantiation
+    pub referenced_paths: Vec<WatchPathBuf>,
+    /// The status of the build attempt
+    pub env_path: AbsPathBuf,
+}
 
 /// Builds the Nix expression in `root_nix_file`.
 ///
@@ -400,6 +409,107 @@ pub fn run(
     Ok(RunResult {
         referenced_paths: inst_info.referenced_paths,
         result: buildoutput.output,
+    })
+}
+
+/// Builds the devShell of a flake
+pub fn flake(
+    installable: AbsPathBuf, // XXX should be its own type
+    gc_root: AbsPathBuf,
+    logger: &slog::Logger,
+) -> Result<FlakeResult, BuildError> {
+    let referenced_paths = vec![];
+
+    let env_path = gc_root.join("bash-export");
+
+    let mut cmd = Command::new("nix");
+
+    cmd.args(&[
+        OsStr::new("develop"),
+        OsStr::new("--debug"),
+        OsStr::new("--profile"),
+        env_path.as_path().as_ref(),
+        installable.as_path().as_ref(),
+        OsStr::new("-c"),
+        OsStr::new("bash"),
+        OsStr::new("-c"),
+        OsStr::new("export"),
+    ]);
+
+    debug!(logger, "nix develop");
+
+    let mut child = cmd.spawn().map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => BuildError::spawn(&cmd, e),
+        _ => BuildError::io(e),
+    })?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .expect("we must be able to access the stdout of nix");
+    let stderr = child
+        .stderr
+        .take()
+        .expect("we must be able to access the stderr of nix");
+
+    let stderr_results = thread::spawn(move || {
+        let parser = NixDevParser::new();
+        osstrlines::Lines::from(BufReader::new(stderr))
+            .map(|line| line.map(parser.parse))
+            .collect::<Result<Vec<LogDatum>, _>>()
+    });
+
+    let build_product = thread::spawn(move || {
+        let mut f = File::create(env_path)?;
+        io::copy(f, stdout)?
+    });
+
+    let (exec_result, mut build_products, results) = (
+        child.wait()?,
+        build_products
+            .join()
+            .expect("Failed to join stdout processing thread")?,
+        stderr_results
+            .join()
+            .expect("Failed to join stderr processing thread")?,
+    );
+
+    if !exec_result.success() {
+        return Err(BuildError::exit(&cmd, exec_result, log_lines));
+    }
+
+    // iterate over all lines, parsing out the ones we are interested in
+    // XXX this is rough-copied from instrumented_instantiation
+    // Would be good to DRY out
+    for result in results {
+        match result {
+            LogDatum::CopiedSource(src) | LogDatum::ReadRecursively(src) => {
+                referenced_paths.push(WatchPathBuf::Recursive(src));
+            }
+            LogDatum::ReadDir(src) => {
+                referenced_paths.push(WatchPathBuf::Normal(src));
+            }
+            LogDatum::NixSourceFile(mut src) => {
+                // We need to emulate nix’s `default.nix` mechanism here.
+                // That is, if the user uses something like
+                // `import ./foo`
+                // and `foo` is a directory, nix will actually import
+                // `./foo/default.nix`
+                // but still print `./foo`.
+                // Since this is the only time directories are printed,
+                // we can just manually re-implement that behavior.
+                if src.is_dir() {
+                    src.push("default.nix");
+                }
+                referenced_paths.push(WatchPathBuf::Normal(src));
+            }
+            LogDatum::Text(_) | LogDatum::NonUtf(_) => {}
+        };
+    }
+
+    Ok(FlakeResult {
+        referenced_paths,
+        env_path,
     })
 }
 
@@ -472,6 +582,71 @@ where
     }
 }
 
+struct NixDevParser {
+    flake_rees: HashMap<String, Regex>,
+    tree_rees: HashMap<String, Regex>,
+}
+
+impl NixDevParser {
+    fn new() -> Self {
+        let flake_rees = HashMap::new();
+        let tree_rees = HashMap::new();
+        return Self {
+            flake_rees,
+            tree_rees,
+        };
+    }
+    /// Examine a line of output and extract interesting log items in to
+    /// structured data.
+    fn parse<T>(&mut self, line: T) -> LogDatum
+    where
+        T: AsRef<OsStr>,
+    {
+        // see the regexes above for explanations of the nix outputs
+        match line.as_ref().to_str() {
+            // If we can’t decode the output line to an UTF-8 string,
+            // we cannot match against regexes, so just pass it through.
+            None => LogDatum::NonUtf(line.as_ref().to_owned()),
+            Some(linestr) => self.parse_str(linestr),
+        }
+    }
+
+    fn parse_str(&mut self, line: str) -> LogDatum {
+        // evaluating derivation 'git+file:///home/judson/dev/picklist#devShells.x86_64-linux.default'...
+        // got tree '/nix/store/47b9j9bnhi1n7larnn6wy40xcyfbz9mr-source' from 'git+file:///home/judson/dev/picklist'
+        // checking access to '/nix/store/47b9j9bnhi1n7larnn6wy40xcyfbz9mr-source/flake.nix'
+        lazy_static::lazy_static! {
+            static ref EVAL_DRV: Regex = Regex::new(#r"evaluating derivation '(?P<flake>git+file:[^#]*)#\S*'\.\.\.").expect("regex to compile!");
+        }
+
+        for re in self.tree_rees.values() {
+            if let Some(matches) = re.captures(&linestr) {
+                return LogDatum::ReadRecursively(PathBuf::from(&matches["file"]));
+            }
+        }
+        for re in self.flake_rees.values() {
+            if let Some(matches) = re.captures(&linestr) {
+                let nre = Regex::new(fmt!(
+                    "checking access to '{}/(?P<file>[^']*)'",
+                    matches["tree"]
+                ));
+                self.tree_rees.insert(matches["tree"], nre);
+                return LogDatum::Text(line);
+            }
+        }
+        // Lines about evaluating a file are much more common, so looking
+        // for them first will reduce comparisons.
+        if let Some(matches) = EVAL_DRV.captures(&linestr) {
+            let re = Regex::new(fmt!(
+                "got tree '(?P<tree>[^']*)' from '{}'",
+                matches["flake"]
+            ));
+            self.flake_rees.insert(matches["flake"], re);
+            return LogDatum::Text(line);
+        }
+    }
+}
+
 /// Output path generated by `logged-evaluation.nix`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputPath<T> {
@@ -503,14 +678,14 @@ mod tests {
     #[test]
     fn evaluation_line_to_log_datum() {
         assert_eq!(
-            parse_evaluation_line("evaluating file '/nix/store/zqxha3ax0w771jf25qdblakka83660gr-source/lib/systems/for-meta.nix'"),
-            LogDatum::NixSourceFile(PathBuf::from("/nix/store/zqxha3ax0w771jf25qdblakka83660gr-source/lib/systems/for-meta.nix"))
-        );
+                parse_evaluation_line("evaluating file '/nix/store/zqxha3ax0w771jf25qdblakka83660gr-source/lib/systems/for-meta.nix'"),
+                LogDatum::NixSourceFile(PathBuf::from("/nix/store/zqxha3ax0w771jf25qdblakka83660gr-source/lib/systems/for-meta.nix"))
+            );
 
         assert_eq!(
-            parse_evaluation_line("copied source '/nix/store/zqxha3ax0w771jf25qdblakka83660gr-source/pkgs/stdenv/generic/default-builder.sh' -> '/nix/store/9krlzvny65gdc8s7kpb6lkx8cd02c25b-default-builder.sh'"),
-            LogDatum::CopiedSource(PathBuf::from("/nix/store/zqxha3ax0w771jf25qdblakka83660gr-source/pkgs/stdenv/generic/default-builder.sh"))
-        );
+                parse_evaluation_line("copied source '/nix/store/zqxha3ax0w771jf25qdblakka83660gr-source/pkgs/stdenv/generic/default-builder.sh' -> '/nix/store/9krlzvny65gdc8s7kpb6lkx8cd02c25b-default-builder.sh'"),
+                LogDatum::CopiedSource(PathBuf::from("/nix/store/zqxha3ax0w771jf25qdblakka83660gr-source/pkgs/stdenv/generic/default-builder.sh"))
+            );
 
         assert_eq!(
             parse_evaluation_line(

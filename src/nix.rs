@@ -349,7 +349,7 @@ impl<'a> CallOpts<'a> {
             Ok((vec1, GcRootTempDir(gc_root_dir)))
         } else {
             Err(BuildError::output(
-                "expected exactly one Nix output, got zero".to_string(),
+                "expected at least one Nix output, got zero".to_string(),
             ))
         }
     }

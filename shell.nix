@@ -55,6 +55,8 @@ let
     pkgs.nix-prefetch-git
     pkgs.nixpkgs-fmt
 
+    pkgs.rust-analyzer
+
     # To ensure we always have a compatible nix in our shells.
     # CI doesn’t know `nix-env` otherwise.
     pkgs.nix

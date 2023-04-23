@@ -14,39 +14,25 @@ const TRIVIAL_SHELL_SRC: &str = include_str!("./trivial-shell.nix");
 const FLAKE_COMPAT_SHELL_SRC: &str = include_str!("./flake-compat-shell.nix");
 const DEFAULT_ENVRC: &str = include_str!("./default-envrc");
 
-fn main() {
+fn main() -> Result<(), ExitError> {
     install_panic_handler();
 
-    let exit_code = {
-        let opts = Arguments::from_args();
+    let opts = Arguments::from_args();
 
-        let verbosity = match opts.verbosity {
-            // -v flag was given 0 times
-            0 => Verbosity::DefaultInfo,
-            // -v flag was specified one or more times, we log everything
-            _n => Verbosity::Debug,
-        };
-
-        // This logger is asynchronous. It is guaranteed to be flushed upon destruction. By tying
-        // its lifetime to this smaller scope, we ensure that it is destroyed before
-        // 'std::process::exit' gets called.
-        let logger = logging::root(verbosity, &opts.command);
-        debug!(logger, "input options"; "options" => ?opts);
-
-        match run_command(&logger, opts) {
-            Err(err) => {
-                error!(logger, "{}", err.message());
-                err.exitcode()
-            }
-            Ok(()) => 0,
-        }
+    let verbosity = match opts.verbosity {
+        // -v flag was given 0 times
+        0 => Verbosity::DefaultInfo,
+        // -v flag was specified one or more times, we log everything
+        _n => Verbosity::Debug,
     };
 
-    // TODO: Once the 'Termination' trait has been stabilised, 'Result<(), ExitError>' should implement
-    // 'Termination' and 'main' should return 'Result<(), ExitError>'.
-    // https://doc.rust-lang.org/std/process/trait.Termination.html
-    // https://github.com/rust-lang/rfcs/blob/master/text/1937-ques-in-main.md
-    std::process::exit(exit_code);
+    // This logger is asynchronous. It is guaranteed to be flushed upon destruction. By tying
+    // its lifetime to this smaller scope, we ensure that it is destroyed before
+    // 'std::process::exit' gets called.
+    let logger = logging::root(verbosity, &opts.command);
+    debug!(logger, "input options"; "options" => ?opts);
+
+    run_command(&logger, opts)
 }
 
 fn install_panic_handler() {
