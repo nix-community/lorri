@@ -187,8 +187,8 @@ let
       (builds.stable { runs-on = githubRunners.macos; })
       # XXX: At the moment, stable is 22.05. When a new stable NixOS is released,
       # uncomment these
-      #(builds.nixos-22_05 { runs-on = githubRunners.ubuntu; })
-      #(builds.nixos-22_05 { runs-on = githubRunners.macos; })
+      (builds.nixos-22_05 { runs-on = githubRunners.ubuntu; })
+      (builds.nixos-22_05 { runs-on = githubRunners.macos; })
       (builds.overlay { runs-on = githubRunners.ubuntu; })
       (builds.overlay { runs-on = githubRunners.macos; })
     ];

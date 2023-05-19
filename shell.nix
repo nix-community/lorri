@@ -55,8 +55,6 @@ let
     pkgs.nix-prefetch-git
     pkgs.nixpkgs-fmt
 
-    pkgs.rust-analyzer
-
     # To ensure we always have a compatible nix in our shells.
     # CI doesn’t know `nix-env` otherwise.
     pkgs.nix
@@ -73,7 +71,9 @@ pkgs.mkShell (
   {
     name = "lorri";
     buildInputs = buildInputs
-    ++ pkgs.lib.optionals isDevelopmentShell [ pkgs.rustracer ];
+    ++ pkgs.lib.optionals isDevelopmentShell [
+      pkgs.rust-analyzer
+    ];
 
     inherit BUILD_REV_COUNT RUN_TIME_CLOSURE;
 

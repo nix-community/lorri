@@ -16,7 +16,8 @@ use regex::Regex;
 use slog::debug;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
-use std::io::BufReader;
+use std::fs::File;
+use std::io::{self, BufReader};
 use std::os::unix::prelude::OsStrExt;
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
@@ -235,14 +236,14 @@ fn instrumented_instantiation(
     // TODO: see ::nix::CallOpts::paths for the problem with this
     let gc_root_dir = tempfile::TempDir::new()?;
 
-    cmd.args(&[
+    cmd.args([
         // verbose mode prints the files we track
         OsStr::new("-vv"),
     ]);
     // put the passed extra options at the front
     // to make them more visible in traces
     cmd.args(extra_nix_options.to_nix_arglist());
-    cmd.args(&[
+    cmd.args([
         // we add a temporary indirect GC root
         OsStr::new("--add-root"),
         gc_root_dir.path().join("result").as_os_str(),
@@ -254,11 +255,11 @@ fn instrumented_instantiation(
         // the source file
         OsStr::new("--argstr"),
     ]);
-    cmd.args(&[OsStr::new("src"), nix_file.as_absolute_path().as_os_str()]);
-    cmd.args(&[
+    cmd.args([OsStr::new("src"), nix_file.as_absolute_path().as_os_str()]);
+    cmd.args([
         // instrumented by `./logged-evaluation.nix`
         OsStr::new("--"),
-        &logged_evaluation_nix.as_path().as_os_str(),
+        logged_evaluation_nix.as_path().as_os_str(),
     ])
     .stdin(Stdio::null())
     .stdout(Stdio::piped())
@@ -404,7 +405,7 @@ pub fn run(
     extra_nix_options: &NixOptions,
     logger: &slog::Logger,
 ) -> Result<RunResult, BuildError> {
-    let inst_info = instrumented_instantiation(root_nix_file, cas, &extra_nix_options, logger)?;
+    let inst_info = instrumented_instantiation(root_nix_file, cas, extra_nix_options, logger)?;
     let buildoutput = build(inst_info.output.path, logger)?;
     Ok(RunResult {
         referenced_paths: inst_info.referenced_paths,
@@ -418,13 +419,13 @@ pub fn flake(
     gc_root: AbsPathBuf,
     logger: &slog::Logger,
 ) -> Result<FlakeResult, BuildError> {
-    let referenced_paths = vec![];
+    let mut referenced_paths = vec![];
 
     let env_path = gc_root.join("bash-export");
 
     let mut cmd = Command::new("nix");
 
-    cmd.args(&[
+    cmd.args([
         OsStr::new("develop"),
         OsStr::new("--debug"),
         OsStr::new("--profile"),
@@ -443,7 +444,7 @@ pub fn flake(
         _ => BuildError::io(e),
     })?;
 
-    let stdout = child
+    let mut stdout = child
         .stdout
         .take()
         .expect("we must be able to access the stdout of nix");
@@ -453,20 +454,21 @@ pub fn flake(
         .expect("we must be able to access the stderr of nix");
 
     let stderr_results = thread::spawn(move || {
-        let parser = NixDevParser::new();
+        let mut parser = NixDevParser::new();
         osstrlines::Lines::from(BufReader::new(stderr))
-            .map(|line| line.map(parser.parse))
+            .map(|line| line.map(|i| parser.parse(i)))
             .collect::<Result<Vec<LogDatum>, _>>()
     });
 
-    let build_product = thread::spawn(move || {
-        let mut f = File::create(env_path)?;
-        io::copy(f, stdout)?
+    let build_env_path = env_path.clone();
+    let build_product = thread::spawn(move || -> Result<u64, _> {
+        let mut f = File::create(build_env_path)?;
+        io::copy(&mut stdout, &mut f)
     });
 
-    let (exec_result, mut build_products, results) = (
+    let (exec_result, _build_products, results) = (
         child.wait()?,
-        build_products
+        build_product
             .join()
             .expect("Failed to join stdout processing thread")?,
         stderr_results
@@ -475,7 +477,14 @@ pub fn flake(
     );
 
     if !exec_result.success() {
-        return Err(BuildError::exit(&cmd, exec_result, log_lines));
+        return Err(BuildError::exit(
+            &cmd,
+            exec_result,
+            results
+                .into_iter()
+                .map(|log| format!("{log:?}").into()) // until we change BuildError...
+                .collect(),
+        ));
     }
 
     // iterate over all lines, parsing out the ones we are interested in
@@ -567,13 +576,13 @@ where
         Some(linestr) => {
             // Lines about evaluating a file are much more common, so looking
             // for them first will reduce comparisons.
-            if let Some(matches) = EVAL_FILE.captures(&linestr) {
+            if let Some(matches) = EVAL_FILE.captures(linestr) {
                 LogDatum::NixSourceFile(PathBuf::from(&matches["source"]))
-            } else if let Some(matches) = COPIED_SOURCE.captures(&linestr) {
+            } else if let Some(matches) = COPIED_SOURCE.captures(linestr) {
                 LogDatum::CopiedSource(PathBuf::from(&matches["source"]))
-            } else if let Some(matches) = LORRI_READ.captures(&linestr) {
+            } else if let Some(matches) = LORRI_READ.captures(linestr) {
                 LogDatum::ReadRecursively(PathBuf::from(&matches["source"]))
-            } else if let Some(matches) = LORRI_READ.captures(&linestr) {
+            } else if let Some(matches) = LORRI_READ.captures(linestr) {
                 LogDatum::ReadDir(PathBuf::from(&matches["source"]))
             } else {
                 LogDatum::Text(linestr.to_owned())
@@ -591,10 +600,10 @@ impl NixDevParser {
     fn new() -> Self {
         let flake_rees = HashMap::new();
         let tree_rees = HashMap::new();
-        return Self {
+        Self {
             flake_rees,
             tree_rees,
-        };
+        }
     }
     /// Examine a line of output and extract interesting log items in to
     /// structured data.
@@ -611,39 +620,41 @@ impl NixDevParser {
         }
     }
 
-    fn parse_str(&mut self, line: str) -> LogDatum {
+    fn parse_str(&mut self, line: &str) -> LogDatum {
         // evaluating derivation 'git+file:///home/judson/dev/picklist#devShells.x86_64-linux.default'...
         // got tree '/nix/store/47b9j9bnhi1n7larnn6wy40xcyfbz9mr-source' from 'git+file:///home/judson/dev/picklist'
         // checking access to '/nix/store/47b9j9bnhi1n7larnn6wy40xcyfbz9mr-source/flake.nix'
         lazy_static::lazy_static! {
-            static ref EVAL_DRV: Regex = Regex::new(#r"evaluating derivation '(?P<flake>git+file:[^#]*)#\S*'\.\.\.").expect("regex to compile!");
+            static ref EVAL_DRV: Regex = Regex::new(r#"evaluating derivation '(?P<flake>git+file:[^#]*)#\S*'\.\.\."#).expect("regex to compile!");
         }
 
         for re in self.tree_rees.values() {
-            if let Some(matches) = re.captures(&linestr) {
+            if let Some(matches) = re.captures(line) {
                 return LogDatum::ReadRecursively(PathBuf::from(&matches["file"]));
             }
         }
         for re in self.flake_rees.values() {
-            if let Some(matches) = re.captures(&linestr) {
-                let nre = Regex::new(fmt!(
+            if let Some(matches) = re.captures(line) {
+                let nre = Regex::new(&format!(
                     "checking access to '{}/(?P<file>[^']*)'",
-                    matches["tree"]
-                ));
-                self.tree_rees.insert(matches["tree"], nre);
-                return LogDatum::Text(line);
+                    &matches["tree"]
+                ))
+                .expect("tree regex to compile!");
+                self.tree_rees.insert(matches["tree"].to_string(), nre);
+                return LogDatum::Text(line.to_string());
             }
         }
         // Lines about evaluating a file are much more common, so looking
         // for them first will reduce comparisons.
-        if let Some(matches) = EVAL_DRV.captures(&linestr) {
-            let re = Regex::new(fmt!(
+        if let Some(matches) = EVAL_DRV.captures(line) {
+            let re = Regex::new(&format!(
                 "got tree '(?P<tree>[^']*)' from '{}'",
-                matches["flake"]
-            ));
-            self.flake_rees.insert(matches["flake"], re);
-            return LogDatum::Text(line);
+                &matches["flake"]
+            ))
+            .expect("flake regex to compile");
+            self.flake_rees.insert(matches["flake"].to_string(), re);
         }
+        LogDatum::Text(line.to_string())
     }
 }
 
@@ -785,10 +796,7 @@ in {}
             &crate::logging::test_logger(),
         ) {
         } else {
-            assert!(
-                false,
-                "builder::run should have failed with BuildError::Exit"
-            );
+            panic!("builder::run should have failed with BuildError::Exit");
         }
         Ok(())
     }
@@ -830,13 +838,13 @@ dir-as-source = ./dir;
         let foo = root.join("foo");
         std::fs::create_dir(&foo)?;
         let dir = root.join("dir");
-        std::fs::create_dir(&dir)?;
+        std::fs::create_dir(dir)?;
         let foo_default = &foo.join("default.nix");
-        std::fs::write(&foo_default, "import ./baz")?;
+        std::fs::write(foo_default, "import ./baz")?;
         let foo_bar = &foo.join("bar");
-        std::fs::write(&foo_bar, "This file should not be watched")?;
+        std::fs::write(foo_bar, "This file should not be watched")?;
         let foo_baz = &foo.join("baz");
-        std::fs::write(&foo_baz, "\"This file should be watched\"")?;
+        std::fs::write(foo_baz, "\"This file should be watched\"")?;
 
         let cas =
             ContentAddressable::new(crate::AbsPathBuf::new(cas_tmp.path().join("cas")).unwrap())?;

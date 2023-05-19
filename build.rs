@@ -1,4 +1,4 @@
-l//! build.rs is used to generate code at build time, which is then
+//! build.rs is used to generate code at build time, which is then
 //! imported elsewhere. This file is understood and executed by cargo.
 use std::env;
 use std::fs;
