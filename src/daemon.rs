@@ -189,7 +189,7 @@ impl Daemon {
                 // TODO: the project needs to create its gc root dir
                 .unwrap();
 
-            let key = project.nix_file.clone();
+            let key = project.file.as_nix_file().clone();
             let project_is_watched = handler_threads.get(&key);
 
             let send_ping =
@@ -231,12 +231,12 @@ impl Daemon {
                             {
                                 tx_build_events
                                     .send(LoopHandlerEvent::BuildEvent(Event::Failure {
-                                        nix_file: project.nix_file.clone(),
+                                        nix_file: project.file.as_nix_file().clone(),
                                         failure: crate::builder::BuildError::Io {
                                             msg: err
                                                 .context(format!(
                                                     "could not start the watcher for {}",
-                                                    &project.nix_file.display()
+                                                    &project.file.as_nix_file().display()
                                                 ))
                                                 .to_string(),
                                         },

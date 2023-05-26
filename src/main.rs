@@ -90,7 +90,7 @@ fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> 
 
     let with_project = |nix_file| -> std::result::Result<(Project, slog::Logger), ExitError> {
         let project = create_project(&lorri::ops::get_paths()?, find_nix_file(nix_file)?)?;
-        let logger = logger.new(o!("nix_file" => project.nix_file.clone()));
+        let logger = logger.new(o!("nix_file" => project.file.clone()));
         Ok((project, logger))
     };
 

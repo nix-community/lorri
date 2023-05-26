@@ -114,7 +114,7 @@ pub fn direnv<W: std::io::Write>(
         client::create::<client::Ping>(client::Timeout::from_millis(500), logger)
             .and_then(|c| {
                 c.write(&client::Ping {
-                    nix_file: project.nix_file,
+                    nix_file: project.file.as_nix_file().clone(),
                     rebuild: client::Rebuild::OnlyIfNotYetWatching,
                 })?;
                 Ok(())
@@ -352,7 +352,7 @@ pub fn shell(project: Project, opts: ShellOptions, logger: &slog::Logger) -> Res
             OsStr::new("--"),
             &lorri.as_os_str(),
             &shell,
-            project.nix_file.as_absolute_path().as_os_str(),
+            project.file.as_absolute_path().as_os_str(),
         ])
         .status()
         .expect("failed to execute bash");
@@ -403,12 +403,15 @@ fn build_root(
     });
 
     // TODO: add the ability to pass extra_nix_options to shell
-    let run_result = builder::run(
-        &project.nix_file,
-        &project.cas,
-        &crate::nix::options::NixOptions::empty(),
-        &logger2,
-    );
+    let run_result = match &project.file {
+        project::ProjectFile::ShellNix(nix_file) => builder::run(
+            &nix_file,
+            &project.cas,
+            &crate::nix::options::NixOptions::empty(),
+            &logger2,
+        ),
+        project::ProjectFile::FlakeNix(_) => todo!(),
+    };
     building.store(false, Ordering::SeqCst);
     progress_thread.block();
 

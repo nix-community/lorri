@@ -330,7 +330,7 @@ impl<'a> CallOpts<'a> {
         let mut cmd = Command::new("nix-build");
 
         // Create a gc root to the build output
-        cmd.args(&[
+        cmd.args([
             OsStr::new("--out-link"),
             gc_root_dir.path().join(Path::new("result")).as_os_str(),
         ]);

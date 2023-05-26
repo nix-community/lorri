@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 #[derive(Clone)]
 pub struct Project {
     /// Absolute path to this project’s nix file.
-    pub nix_file: NixFile,
+    pub file: ProjectFile,
 
     /// Directory in which this project’s
     /// garbage collection roots are stored.
@@ -28,6 +28,41 @@ pub struct Project {
     pub cas: ContentAddressable,
 }
 
+#[derive(Clone, Debug)]
+pub enum ProjectFile {
+    ShellNix(NixFile),
+    FlakeNix(NixFile),
+}
+
+impl ProjectFile {
+    /// Proxy through the `Display` class for `PathBuf`.
+    pub fn display(&self) -> std::path::Display {
+        self.as_absolute_path().display()
+    }
+
+    pub fn as_absolute_path(&self) -> &Path {
+        self.as_nix_file().as_absolute_path()
+    }
+
+    pub(crate) fn as_nix_file(&self) -> &NixFile {
+        match self {
+            ProjectFile::ShellNix(f) => f,
+            ProjectFile::FlakeNix(f) => f,
+        }
+    }
+}
+
+impl slog::Value for ProjectFile {
+    fn serialize(
+        &self,
+        _record: &slog::Record,
+        key: slog::Key,
+        serializer: &mut dyn slog::Serializer,
+    ) -> slog::Result {
+        serializer.emit_arguments(key, &format_args!("{}", self.display()))
+    }
+}
+
 impl Project {
     /// Construct a `Project` from nix file path
     /// and the base GC root directory
@@ -37,6 +72,7 @@ impl Project {
         gc_root_dir: &AbsPathBuf,
         cas: ContentAddressable,
     ) -> std::io::Result<Project> {
+        let file = ProjectFile::ShellNix(nix_file.clone());
         let hash = format!(
             "{:x}",
             md5::compute(nix_file.as_absolute_path().as_os_str().as_bytes())
@@ -70,7 +106,7 @@ impl Project {
         }
 
         Ok(Project {
-            nix_file,
+            file,
             gc_root_path: project_gc_root,
             hash,
             cas,
