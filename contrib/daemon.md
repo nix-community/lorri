@@ -43,6 +43,32 @@ $ mkdir -p ~/.config/systemd/user && \
 The lorri daemon will now be started on demand by systemd. See [Verify the
 setup](#verify-the-setup) to check that everything works as expected.
 
+## Run `lorri daemon` on macOS with Nix
+
+This approach uses macOS's [launchd](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html), which is used to manage launch daemons.
+
+1. write the following `plist` file to `~/Library/LaunchAgents/nix.lorri.plist`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>nix.lorri</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>lorri</string>
+		<string>daemon</string>
+	</array>
+</dict>
+</plist>
+```
+
+2. run `launchctl load -w ~/Library/LaunchAgents/nix.lorri.plist`
+
+Alternatively, one can reference the above `launchd` documentation or use a tool like [https://launched.zerowidth.com](https://launched.zerowidth.com) to easily create a `launchd` `plist` file.
+
 ## Run `lorri daemon` on macOS with Nix (using [nix-darwin](https://github.com/LnL7/nix-darwin))
 
 The following user contributions should help you get started:
