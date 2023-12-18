@@ -47,12 +47,10 @@ platforms](#setup-on-other-platforms).
 
    This will automatically install the `lorri` command.
 
-   **Note**: There's [a known issue](https://github.com/target/lorri/issues/374
-   "nixpkgs `services.lorri` requires reboot for the user lorri.socket to appear")
-   preventing the lorri daemon from starting automatically upon installation. 
+   **Note**: There's [a known issue](https://github.com/target/lorri/issues/374 "nixpkgs `services.lorri` requires reboot for the user lorri.socket to appear")
+   preventing the lorri daemon from starting automatically upon installation.
    Until it's resolved, you'll have to reload the user daemon by hand by
    running `systemctl --user daemon-reload`, or reboot.
-  
 
 2. **Install direnv.** Add `pkgs.direnv` to `environment.systemPackages` in
    your NixOS `configuration.nix` or to `home.packages` in your home-manager
@@ -137,10 +135,9 @@ continue monitoring and evaluating the Nix expressions in your project's
 `shell.nix`, and direnv will automatically reload the environment as it
 changes.
 
-direnv will continue to load the *cached environment* when the daemon is not
+direnv will continue to load the _cached environment_ when the daemon is not
 running. However, the daemon must be running for direnv to reload the
 environment based on the current `shell.nix` and its dependencies.
-
 
 ## Editor integration
 
@@ -178,9 +175,9 @@ For pinning versions of software during development,
 Please use the [issue tracker](https://github.com/nix-community/lorri/issues)
 for any problems or bugs you encounter.
 
-* We have monthly [Office Hours](https://calendar.google.com/calendar/ical/s9gbabv28b8mbnb1kfegbplf1c%40group.calendar.google.com/public/basic.ics) on [Google Meet](https://meet.google.com/phf-bfdq-ypp)
-* We are on IRC/Matrix, `libera/#lorri` ([Webchat][]), though we might not be responsive at all times.
-    
+- We have monthly [Office Hours](https://calendar.google.com/calendar/ical/s9gbabv28b8mbnb1kfegbplf1c%40group.calendar.google.com/public/basic.ics) on [Google Meet](https://meet.google.com/phf-bfdq-ypp)
+- We are on IRC/Matrix, `libera/#lorri` ([Webchat][]), though we might not be responsive at all times.
+
 [Webchat]: https://matrix.to/#/#lorri:libera.chat
 
 ### Why is lorri not on [crates.io][]?
@@ -243,7 +240,6 @@ By default, the upgrade command will upgrade from the `canon` branch.
 Other upgrade options are available, including upgrading from a
 local clone. See `lorri self-upgrade --help` for more details.
 
-
 ## Evaluator + watch design
 
 The evaluator should eagerly reevaluate the Nix expressions as soon as
@@ -290,7 +286,6 @@ lorri creates an indirect garbage collection root for each .drv in
 `$XDG_CACHE_HOME/lorri` (`~/.cache/lorri/` by default) each time it
 evaluates your project.
 
-
 ### License & Copyright
 
 Copyright 2019–2020 Target, Copyright 2021 The Nix Community
@@ -331,7 +326,7 @@ _([Nix as observed by LORRI on 2015-07-13](https://www.nasa.gov/newhorizons/lorr
 [direnv-setup]: https://direnv.net/index.html#setup
 [direnv-usage]: https://direnv.net/man/direnv.1.html#usage
 [home-manager-service]: https://nix-community.github.io/home-manager/options.xhtml#opt-services.lorri.enable
-[home-manager]: https://rycee.gitlab.io/home-manager/
+[home-manager]: https://nix-community.github.io/home-manager/
 [lorri-blog-post]: https://www.tweag.io/posts/2019-03-28-introducing-lorri.html
 [nixos-service]: https://nixos.org/nixos/options.html#services.lorri.enable
 [nixos]: https://nixos.org/
