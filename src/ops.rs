@@ -261,7 +261,7 @@ pub fn init(
     create_if_missing(
         Path::new("./.envrc"),
         default_envrc,
-        "Please add 'eval \"$(lorri direnv)\"' to .envrc to set up lorri support.",
+        "Please place the following line at the top of .envrc to set up lorri support:\neval \"$(lorri direnv)\"\n",
         logger,
     )
     .map_err(ExitError::user_error)?;
