@@ -178,7 +178,7 @@ impl<'a> BuildLoop<'a> {
             .with_context(|| {
                 format!(
                     "Failed to add nix path to watcher for nix file {}",
-                    project.file.display()
+                    project.file.as_nix_file().display()
                 )
             })?;
 
@@ -320,21 +320,8 @@ impl<'a> BuildLoop<'a> {
     /// This will create GC roots and expand the file watch list for
     /// the evaluation.
     pub fn once(&mut self) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
-        match &self.project.file {
-            project::ProjectFile::ShellNix(nf) => {
-                let nix_file = nf.clone();
-                let cas = self.project.cas.clone();
-                let extra_nix_options = self.extra_nix_options.clone();
-                let logger2 = self.logger.clone();
-                self.handle_run_result(
-                    crate::run_async::Async::run(&self.logger, move || {
-                        builder::run(&nix_file, &cas, &extra_nix_options, &logger2)
-                    })
-                    .block(),
-                )
-            }
-            project::ProjectFile::FlakeNix(_) => todo!(),
-        }
+        let run_result = self.start_build().block();
+        self.handle_run_result(run_result)
     }
 
     fn handle_run_result(

@@ -6,6 +6,7 @@ pub mod server;
 use crate::build_loop::{BuildLoop, Event};
 use crate::nix::options::NixOptions;
 use crate::ops::error::ExitError;
+use crate::project::ProjectFile;
 use crate::socket::communicate;
 use crate::socket::path::SocketPath;
 use crate::{project, AbsPathBuf, NixFile};
@@ -31,7 +32,7 @@ pub enum LoopHandlerEvent {
 /// and forces a rebuild.
 pub struct IndicateActivity {
     /// This nix file should be build/watched by the daemon.
-    pub nix_file: NixFile,
+    pub project_file: ProjectFile,
     /// Determines when this activity will cause a rebuild.
     pub rebuild: communicate::Rebuild,
 }
@@ -184,8 +185,12 @@ impl Daemon {
 
         // For each build instruction, add the corresponding file
         // to the watch list.
-        for IndicateActivity { nix_file, rebuild } in rx_activity {
-            let project = crate::project::Project::new(nix_file, gc_root_dir, cas.clone())
+        for IndicateActivity {
+            project_file,
+            rebuild,
+        } in rx_activity
+        {
+            let project = crate::project::Project::new(project_file, gc_root_dir, cas.clone())
                 // TODO: the project needs to create its gc root dir
                 .unwrap();
 

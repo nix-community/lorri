@@ -9,9 +9,9 @@
 
 use crate::cas::ContentAddressable;
 use crate::nix::{options::NixOptions, StorePath};
-use crate::osstrlines;
 use crate::watch::WatchPathBuf;
-use crate::{AbsPathBuf, DrvFile, NixFile};
+use crate::{osstrlines, Installable};
+use crate::{DrvFile, NixFile};
 use regex::Regex;
 use slog::debug;
 use std::collections::HashMap;
@@ -210,6 +210,19 @@ pub struct RootedPath {
     pub path: StorePath,
 }
 
+struct BuildOutput {
+    output: RootedPath,
+}
+
+/// The result of a single instantiation and build.
+#[derive(Debug)]
+pub struct RunResult {
+    /// All the paths identified during the instantiation
+    pub referenced_paths: Vec<WatchPathBuf>,
+    /// The status of the build attempt
+    pub result: RootedPath,
+}
+
 struct InstantiateOutput {
     referenced_paths: Vec<WatchPathBuf>,
     output: RootedDrv,
@@ -358,10 +371,6 @@ fn instrumented_instantiation(
     })
 }
 
-struct BuildOutput {
-    output: RootedPath,
-}
-
 /// Builds the Nix expression in `root_nix_file`.
 ///
 /// Instruments the nix file to gain extra information, which is valuable even if the build fails.
@@ -370,29 +379,6 @@ fn build(drv_path: DrvFile, logger: &slog::Logger) -> Result<BuildOutput, BuildE
     Ok(BuildOutput {
         output: RootedPath { gc_handle, path },
     })
-}
-
-/// Opaque type to keep a temporary GC root directory alive.
-/// Once it is dropped, the GC root is removed.
-/// Copied from `nix`, because the type should stay opaque.
-#[derive(Debug)]
-struct GcRootTempDir(tempfile::TempDir);
-
-/// The result of a single instantiation and build.
-#[derive(Debug)]
-pub struct RunResult {
-    /// All the paths identified during the instantiation
-    pub referenced_paths: Vec<WatchPathBuf>,
-    /// The status of the build attempt
-    pub result: RootedPath,
-}
-/// The result of a single instantiation and build.
-#[derive(Debug)]
-pub struct FlakeResult {
-    /// All the paths identified during the instantiation
-    pub referenced_paths: Vec<WatchPathBuf>,
-    /// The status of the build attempt
-    pub env_path: AbsPathBuf,
 }
 
 /// Builds the Nix expression in `root_nix_file`.
@@ -414,23 +400,21 @@ pub fn run(
 }
 
 /// Builds the devShell of a flake
-pub fn flake(
-    installable: AbsPathBuf, // XXX should be its own type
-    gc_root: AbsPathBuf,
-    logger: &slog::Logger,
-) -> Result<FlakeResult, BuildError> {
+pub fn flake(installable: &Installable, logger: &slog::Logger) -> Result<RunResult, BuildError> {
     let mut referenced_paths = vec![];
+    let gc_root_dir = tempfile::TempDir::new()?;
 
-    let env_path = gc_root.join("bash-export");
+    let env_path = gc_root_dir.path().join("bash-export");
 
     let mut cmd = Command::new("nix");
+    cmd.current_dir(installable.context.as_path());
 
     cmd.args([
         OsStr::new("develop"),
         OsStr::new("--debug"),
         OsStr::new("--profile"),
         env_path.as_path().as_ref(),
-        installable.as_path().as_ref(),
+        OsStr::new(&installable.installable),
         OsStr::new("-c"),
         OsStr::new("bash"),
         OsStr::new("-c"),
@@ -516,9 +500,14 @@ pub fn flake(
         };
     }
 
-    Ok(FlakeResult {
+    let result = RootedPath {
+        gc_handle: gc_root_dir.into(),
+        path: env_path.into(),
+    };
+
+    Ok(RunResult {
         referenced_paths,
-        env_path,
+        result,
     })
 }
 
@@ -676,6 +665,12 @@ impl<T> OutputPath<T> {
         }
     }
 }
+
+/// Opaque type to keep a temporary GC root directory alive.
+/// Once it is dropped, the GC root is removed.
+/// Copied from `nix`, because the type should stay opaque.
+#[derive(Debug)]
+struct GcRootTempDir(tempfile::TempDir);
 
 #[cfg(test)]
 mod tests {

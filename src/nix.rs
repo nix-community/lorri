@@ -74,6 +74,12 @@ impl StorePath {
     }
 }
 
+impl From<PathBuf> for StorePath {
+    fn from(path: PathBuf) -> Self {
+        Self(path)
+    }
+}
+
 impl From<&std::ffi::OsStr> for StorePath {
     fn from(s: &std::ffi::OsStr) -> StorePath {
         StorePath(PathBuf::from(s.to_owned()))
@@ -90,6 +96,12 @@ impl From<std::ffi::OsString> for StorePath {
 /// Once it is dropped, the GC root is removed.
 #[derive(Debug)]
 pub struct GcRootTempDir(tempfile::TempDir);
+
+impl From<tempfile::TempDir> for GcRootTempDir {
+    fn from(dir: tempfile::TempDir) -> Self {
+        Self(dir)
+    }
+}
 
 impl<'a> CallOpts<'a> {
     /// Create a CallOpts with the Nix expression `expr`.
@@ -278,21 +290,16 @@ impl<'a> CallOpts<'a> {
     /// ```
     pub fn path(&self, logger: &slog::Logger) -> Result<(StorePath, GcRootTempDir), BuildError> {
         let (pathsv1, gc_root) = self.paths(logger)?;
-        let mut paths = pathsv1.into_vec();
+        let mut paths = pathsv1.into_iter();
 
-        match (paths.pop(), paths.pop()) {
-            // Exactly zero
-            (None, _) => Err(BuildError::output(
-                "expected exactly one build output, got zero".to_string(),
-            )),
-
+        if let (path, 0) = (paths.next().expect("vec1"), paths.len()) {
             // Exactly one
-            (Some(path), None) => Ok((path, gc_root)),
-
+            Ok((path, gc_root))
+        } else {
             // More than one
-            (Some(_), Some(_)) => Err(BuildError::output(
+            Err(BuildError::output(
                 "expected exactly one build output, got more".to_string(),
-            )),
+            ))
         }
     }
 

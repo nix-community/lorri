@@ -42,7 +42,7 @@ impl Server {
         let (tx_new_thread, rx_new_thread) = chan::unbounded();
         let (tx_done_thread, rx_done_thread) = chan::unbounded();
         let logger2 = logger.clone();
-        let _joiner = Async::run(&logger, move || {
+        let _joiner = Async::run(logger, move || {
             join_continuously(rx_new_thread, rx_done_thread, &logger2)
         });
 
@@ -50,7 +50,7 @@ impl Server {
             let tx_done_thread = tx_done_thread.clone();
             match listener.accept() {
                 Ok(connection) => {
-                    self.handle_client(connection, tx_new_thread.clone(), tx_done_thread, &logger)
+                    self.handle_client(connection, tx_new_thread.clone(), tx_done_thread, logger)
                 }
                 Err(accept_err) => {
                     info!(logger, "Failed accepting a client connection"; "accept_error" => format!("{:?}", accept_err));
@@ -97,8 +97,14 @@ impl Server {
                 match communication_type {
                     CommunicationType::Ping => {
                         match handlers.ping().read(communicate::DEFAULT_READ_TIMEOUT) {
-                            Ok(Ping { nix_file, rebuild }) => tx_activity
-                                .send(IndicateActivity { nix_file, rebuild })
+                            Ok(Ping {
+                                project_file,
+                                rebuild,
+                            }) => tx_activity
+                                .send(IndicateActivity {
+                                    project_file,
+                                    rebuild,
+                                })
                                 .expect("Unable to send a ping from listener"),
                             Err(e) => err(communication_type, e),
                         }

@@ -38,9 +38,10 @@ impl DirenvTestCase {
             PathBuf::from_iter(&[env!("CARGO_MANIFEST_DIR"), "tests", "integration", name]);
 
         let shell_file = NixFile::from(AbsPathBuf::new(test_root.join("shell.nix")).unwrap());
+        let project_file = project::ProjectFile::ShellNix(shell_file);
 
         let cas = ContentAddressable::new(cachedir.join("cas").to_owned()).unwrap();
-        let project = Project::new(shell_file.clone(), &cachedir.join("gc_roots"), cas).unwrap();
+        let project = Project::new(project_file.clone(), &cachedir.join("gc_roots"), cas).unwrap();
 
         DirenvTestCase {
             projectdir,

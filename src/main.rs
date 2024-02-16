@@ -1,13 +1,12 @@
 use lorri::cli::{Arguments, Command, Internal_, Verbosity};
-use lorri::logging;
 use lorri::ops;
 use lorri::ops::error::ExitError;
-use lorri::project::Project;
-use lorri::NixFile;
+use lorri::project::{Project, ProjectFile};
 use lorri::{constants, AbsPathBuf};
-use slog::{debug, error, o};
+use lorri::{logging, project};
+use slog::{debug, o};
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use structopt::StructOpt;
 
 const TRIVIAL_SHELL_SRC: &str = include_str!("./trivial-shell.nix");
@@ -50,90 +49,6 @@ fn install_signal_handler() {
     .expect("Error setting SIGINT and SIGTERM handler");
 }
 
-/// Reads a nix filename given by the user and either returns
-/// the `NixFile` type or exists with a helpful error message
-/// that instructs the user how to write a minimal `shell.nix`.
-fn find_nix_file(shellfile: &Path) -> Result<NixFile, ExitError> {
-    // use shell.nix from cwd
-    match is_file_in_current_directory(shellfile) {
-        Err(err) => Err(ExitError::temporary(err)),
-        Ok(None) => Err(ExitError::user_error(
-            if PathBuf::from("flake.nix").exists() {
-                anyhow::anyhow!(
-                    "lorri does not currently natively support flakes.\nYou can use the following compatibility `shell.nix` to use lorri with flakes:\n\n\
-                    {}",
-                    FLAKE_COMPAT_SHELL_SRC
-                )
-            } else {
-                anyhow::anyhow!(
-                    "`{}` does not exist\n\
-                    You can use the following minimal `shell.nix` to get started:\n\n\
-                    {}",
-                    shellfile.display(),
-                    TRIVIAL_SHELL_SRC
-                )
-            },
-        )),
-        Ok(Some(file)) => Ok(NixFile::from(file)),
-    }
-}
-
-fn create_project(paths: &constants::Paths, shell_nix: NixFile) -> Result<Project, ExitError> {
-    Project::new(shell_nix, &paths.gc_root_dir(), paths.cas_store().clone()).map_err(|err| {
-        ExitError::temporary(anyhow::anyhow!(err).context("Could not set up project paths"))
-    })
-}
-
-/// Run the main function of the relevant command.
-fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> {
-    let paths = lorri::ops::get_paths()?;
-
-    let with_project = |nix_file| -> std::result::Result<(Project, slog::Logger), ExitError> {
-        let project = create_project(&lorri::ops::get_paths()?, find_nix_file(nix_file)?)?;
-        let logger = logger.new(o!("nix_file" => project.file.clone()));
-        Ok((project, logger))
-    };
-
-    match opts.command {
-        Command::Info(opts) => {
-            let (project, _logger) = with_project(&opts.nix_file)?;
-            ops::info(project)
-        }
-        Command::Gc(opts) => ops::gc(logger, opts),
-        Command::Direnv(opts) => {
-            let (project, logger) = with_project(&opts.nix_file)?;
-            ops::direnv(project, /* shell_output */ std::io::stdout(), &logger)
-        }
-        Command::Shell(opts) => {
-            let (project, logger) = with_project(&opts.nix_file)?;
-            ops::shell(project, opts, &logger)
-        }
-
-        Command::Watch(opts) => {
-            let (project, logger) = with_project(&opts.nix_file)?;
-            ops::watch(project, opts, &logger)
-        }
-        Command::Daemon(opts) => {
-            install_signal_handler();
-            ops::daemon(opts, logger)
-        }
-        Command::Upgrade(opts) => ops::upgrade(opts, paths.cas_store(), logger),
-        Command::Init => ops::init(TRIVIAL_SHELL_SRC, DEFAULT_ENVRC, logger),
-
-        Command::Internal { command } => match command {
-            Internal_::Ping_(opts) => {
-                let nix_file = find_nix_file(&opts.nix_file)?;
-                ops::ping(nix_file, logger)
-            }
-            Internal_::StartUserShell_(opts) => {
-                let (project, _logger) = with_project(&opts.nix_file)?;
-                ops::start_user_shell(project, opts)
-            }
-            Internal_::StreamEvents_(se) => ops::stream_events(se.kind, logger),
-        },
-    }
-}
-
 /// Search for `name` in the current directory.
 /// If `name` is an absolute path and a file, it returns the file.
 /// If it doesn’t exist, returns `None`.
@@ -151,6 +66,95 @@ pub fn is_file_in_current_directory(name: &Path) -> anyhow::Result<Option<AbsPat
     } else {
         None
     })
+}
+
+/// Reads a nix filename given by the user and either returns
+/// the `NixFile` type or exists with a helpful error message
+/// that instructs the user how to write a minimal `shell.nix`.
+fn find_nix_file(shellfile: &Path) -> Result<project::ProjectFile, ExitError> {
+    // use shell.nix from cwd
+    match is_file_in_current_directory(shellfile) {
+        Err(err) => Err(ExitError::temporary(err)),
+        Ok(None) => Err(ExitError::user_error(
+            anyhow::anyhow!(
+                "`{}` does not exist\n\
+                    You can use a flake.nix file or the following minimal `shell.nix` to get started:\n\n\
+                    {}",
+                shellfile.display(),
+                TRIVIAL_SHELL_SRC
+            )
+        )),
+        Ok(Some(file)) => match file.file_name().expect("Should already have confirmed is_file").to_str() {
+            Some("flake.nix") => {
+                Ok(ProjectFile::FlakeNix(lorri::Installable{
+                    context: AbsPathBuf::new(file.as_path().parent().expect("Should already be a file").to_path_buf()).expect("already absolute"),
+                    installable: ".#".into()
+
+                }))
+            },
+            _ => Ok(ProjectFile::ShellNix(file.into())),
+        }
+    }
+}
+
+fn create_project(paths: &constants::Paths, shell_nix: ProjectFile) -> Result<Project, ExitError> {
+    Project::new(shell_nix, paths.gc_root_dir(), paths.cas_store().clone()).map_err(|err| {
+        ExitError::temporary(anyhow::anyhow!(err).context("Could not set up project paths"))
+    })
+}
+
+/// Run the main function of the relevant command.
+fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> {
+    let paths = lorri::ops::get_paths()?;
+
+    match opts.command {
+        Command::Info(opts) => {
+            let (project, _logger) = with_project(logger, &opts.nix_file)?;
+            ops::info(project)
+        }
+        Command::Gc(opts) => ops::gc(logger, opts),
+        Command::Direnv(opts) => {
+            let (project, logger) = with_project(logger, &opts.nix_file)?;
+            ops::direnv(project, /* shell_output */ std::io::stdout(), &logger)
+        }
+        Command::Shell(opts) => {
+            let (project, logger) = with_project(logger, &opts.nix_file)?;
+            ops::shell(project, opts, &logger)
+        }
+
+        Command::Watch(opts) => {
+            let (project, logger) = with_project(logger, &opts.nix_file)?;
+            ops::watch(project, opts, &logger)
+        }
+        Command::Daemon(opts) => {
+            install_signal_handler();
+            ops::daemon(opts, logger)
+        }
+        Command::Upgrade(opts) => ops::upgrade(opts, paths.cas_store(), logger),
+        Command::Init => ops::init(TRIVIAL_SHELL_SRC, DEFAULT_ENVRC, logger),
+
+        Command::Internal { command } => match command {
+            Internal_::Ping_(opts) => {
+                let nix_file = find_nix_file(&opts.nix_file)?;
+                ops::ping(nix_file, logger)
+            }
+            Internal_::StartUserShell_(opts) => {
+                let (project, _logger) = with_project(logger, &opts.nix_file)?;
+                ops::start_user_shell(project, opts)
+            }
+            Internal_::StreamEvents_(se) => ops::stream_events(se.kind, logger),
+        },
+    }
+}
+
+fn with_project(
+    logger: &slog::Logger,
+    nix_file: &Path,
+) -> std::result::Result<(Project, slog::Logger), ExitError> {
+    let project_file = find_nix_file(nix_file)?;
+    let project = create_project(&lorri::ops::get_paths()?, project_file)?;
+    let logger = logger.new(o!("nix_file" => project.file.clone()));
+    Ok((project, logger))
 }
 
 #[cfg(test)]

@@ -32,11 +32,11 @@ fn loads_env() {
 
     // Launch as a real user
     let res = Command::new(cargo_bin("lorri"))
-        .args(&[
+        .args([
             "shell",
             "--shell-file",
             project
-                .nix_file
+                .file
                 .as_absolute_path()
                 .as_os_str()
                 .to_str()
@@ -51,7 +51,7 @@ fn loads_env() {
 
     let output = ops::bash_cmd(build(&project, &logger), &project.cas, &logger)
         .unwrap()
-        .args(&["-c", "echo $MY_ENV_VAR"])
+        .args(["-c", "echo $MY_ENV_VAR"])
         .output()
         .expect("failed to run shell");
 
@@ -64,17 +64,19 @@ fn loads_env() {
 }
 
 fn project(name: &str, cache_dir: &AbsPathBuf) -> Project {
-    let test_root = AbsPathBuf::new(PathBuf::from_iter(&[
+    let test_root = AbsPathBuf::new(PathBuf::from_iter([
         env!("CARGO_MANIFEST_DIR"),
         "tests",
         "shell",
         name,
     ]))
     .expect("CARGO_MANIFEST_DIR was not absolute");
-    let cas_dir = cache_dir.join("cas").to_owned();
+    let cas_dir = cache_dir.join("cas");
     fs::create_dir_all(&cas_dir).expect("failed to create CAS directory");
+    let nixfile = NixFile::from(test_root.join("shell.nix"));
+    let project_file = project::ProjectFile::ShellNix(nixfile);
     Project::new(
-        NixFile::from(test_root.join("shell.nix")),
+        project_file,
         &cache_dir.join("gc_roots"),
         ContentAddressable::new(cas_dir).unwrap(),
     )
@@ -85,7 +87,7 @@ fn build(project: &Project, logger: &slog::Logger) -> PathBuf {
     project
         .create_roots(
             builder::run(
-                &project.nix_file,
+                &project.file.as_nix_file(),
                 &project.cas,
                 &NixOptions::empty(),
                 logger,

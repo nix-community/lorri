@@ -19,7 +19,7 @@ use crate::nix::options::NixOptions;
 use crate::nix::CallOpts;
 use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
 use crate::ops::error::{ExitAs, ExitError, ExitErrorType};
-use crate::project::Project;
+use crate::project::{Project, ProjectFile};
 use crate::run_async::Async;
 use crate::socket::path::SocketPath;
 use crate::NixFile;
@@ -86,7 +86,7 @@ pub fn daemon(opts: crate::cli::DaemonOptions, logger: &slog::Logger) -> Result<
         paths.gc_root_dir(),
         paths.cas_store().clone(),
         user,
-        &logger,
+        logger,
     )?;
     build_handle
         .join()
@@ -114,7 +114,7 @@ pub fn direnv<W: std::io::Write>(
         client::create::<client::Ping>(client::Timeout::from_millis(500), logger)
             .and_then(|c| {
                 c.write(&client::Ping {
-                    nix_file: project.file.as_nix_file().clone(),
+                    project_file: project.file.clone(),
                     rebuild: client::Rebuild::OnlyIfNotYetWatching,
                 })?;
                 Ok(())
@@ -291,9 +291,9 @@ fn create_if_missing(
 ///
 /// Can be used together with `direnv`.
 /// See the documentation for lorri::cli::Command::Ping_ for details.
-pub fn ping(nix_file: NixFile, logger: &slog::Logger) -> Result<(), ExitError> {
+pub fn ping(project_file: ProjectFile, logger: &slog::Logger) -> Result<(), ExitError> {
     client::create(client::Timeout::from_millis(500), logger)?.write(&client::Ping {
-        nix_file,
+        project_file,
         rebuild: client::Rebuild::Always,
     })?;
     Ok(())
@@ -405,12 +405,12 @@ fn build_root(
     // TODO: add the ability to pass extra_nix_options to shell
     let run_result = match &project.file {
         project::ProjectFile::ShellNix(nix_file) => builder::run(
-            &nix_file,
+            nix_file,
             &project.cas,
             &crate::nix::options::NixOptions::empty(),
             &logger2,
         ),
-        project::ProjectFile::FlakeNix(_) => todo!(),
+        project::ProjectFile::FlakeNix(installable) => builder::flake(installable, &logger2),
     };
     building.store(false, Ordering::SeqCst);
     progress_thread.block();

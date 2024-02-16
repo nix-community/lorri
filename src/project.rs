@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::builder::{OutputPath, RootedPath};
 use crate::cas::ContentAddressable;
-use crate::{AbsPathBuf, NixFile};
+use crate::{AbsPathBuf, Installable, NixFile};
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -28,26 +28,28 @@ pub struct Project {
     pub cas: ContentAddressable,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ProjectFile {
     ShellNix(NixFile),
-    FlakeNix(NixFile),
+    FlakeNix(Installable),
 }
 
 impl ProjectFile {
     /// Proxy through the `Display` class for `PathBuf`.
-    pub fn display(&self) -> std::path::Display {
-        self.as_absolute_path().display()
-    }
+    //    pub fn display(&self) -> std::path::Display {
+    //        self.as_absolute_path().display()
+    //    }
 
-    pub fn as_absolute_path(&self) -> &Path {
+    /// Convert into a `std::path::PathBuf`
+    pub fn as_absolute_path(&self) -> PathBuf {
         self.as_nix_file().as_absolute_path()
     }
 
-    pub(crate) fn as_nix_file(&self) -> &NixFile {
+    /// XXX temporary compatibility
+    pub fn as_nix_file(&self) -> NixFile {
         match self {
-            ProjectFile::ShellNix(f) => f,
-            ProjectFile::FlakeNix(f) => f,
+            ProjectFile::ShellNix(f) => f.clone(),
+            ProjectFile::FlakeNix(i) => i.context.join("flake.nix").into(),
         }
     }
 }
@@ -59,7 +61,7 @@ impl slog::Value for ProjectFile {
         key: slog::Key,
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
-        serializer.emit_arguments(key, &format_args!("{}", self.display()))
+        serializer.emit_arguments(key, &format_args!("{}", self.as_nix_file().display()))
     }
 }
 
@@ -68,41 +70,30 @@ impl Project {
     /// and the base GC root directory
     /// (as returned by `Paths.gc_root_dir()`),
     pub fn new(
-        nix_file: NixFile,
+        file: ProjectFile,
         gc_root_dir: &AbsPathBuf,
         cas: ContentAddressable,
     ) -> std::io::Result<Project> {
-        let file = ProjectFile::ShellNix(nix_file.clone());
         let hash = format!(
             "{:x}",
-            md5::compute(nix_file.as_absolute_path().as_os_str().as_bytes())
+            md5::compute(file.as_absolute_path().as_os_str().as_bytes())
         );
         let project_gc_root = gc_root_dir.join(&hash).join("gc_root");
 
         std::fs::create_dir_all(&project_gc_root)?;
 
-        let nix_file_symlink = project_gc_root.clone().join("nix_file");
+        let nix_file_symlink = project_gc_root.join("nix_file");
         let (remove, create) = match std::fs::read_link(&nix_file_symlink) {
-            Ok(path) => {
-                if path == nix_file.as_absolute_path() {
-                    (false, false)
-                } else {
-                    (true, true)
-                }
-            }
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    (false, true)
-                } else {
-                    (true, true)
-                }
-            }
+            Ok(path) if path == file.as_absolute_path() => (false, false),
+            Ok(_) => (true, true),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (false, true),
+            Err(_) => (true, true),
         };
         if remove {
             std::fs::remove_file(&nix_file_symlink)?;
         }
         if create {
-            std::os::unix::fs::symlink(nix_file.as_absolute_path(), nix_file_symlink)?;
+            std::os::unix::fs::symlink(file.as_absolute_path(), nix_file_symlink)?;
         }
 
         Ok(Project {
@@ -145,11 +136,11 @@ where {
         let store_path = &path.path;
 
         debug!(logger, "adding root"; "from" => store_path.as_path().to_str(), "to" => self.shell_gc_root().display());
-        std::fs::remove_file(&self.shell_gc_root())
-            .or_else(|e| AddRootError::remove(e, &self.shell_gc_root().as_path()))?;
+        std::fs::remove_file(self.shell_gc_root())
+            .or_else(|e| AddRootError::remove(e, self.shell_gc_root().as_path()))?;
 
         // the forward GC root that points from the store path to our cache gc_roots dir
-        std::os::unix::fs::symlink(store_path.as_path(), &self.shell_gc_root()).map_err(|e| {
+        std::os::unix::fs::symlink(store_path.as_path(), self.shell_gc_root()).map_err(|e| {
             AddRootError::symlink(e, store_path.as_path(), self.shell_gc_root().as_path())
         })?;
 
@@ -168,7 +159,7 @@ where {
         // The user directory sometimes doesn’t exist,
         // but we can create it (it’s root but `rwxrwxrwx`)
         if !nix_gc_root_user_dir.as_path().is_dir() {
-            std::fs::create_dir_all(&nix_gc_root_user_dir.as_path()).map_err(|source| {
+            std::fs::create_dir_all(nix_gc_root_user_dir.as_path()).map_err(|source| {
                 AddRootError {
                     source,
                     msg: format!(
@@ -185,15 +176,15 @@ where {
             nix_gc_root_user_dir.join(format!("{}-shell_gc_root", self.hash()));
 
         debug!(logger, "connecting root"; "from" => self.shell_gc_root().display(), "to" => nix_gc_root_user_dir_root.display());
-        std::fs::remove_file(&nix_gc_root_user_dir_root.as_path())
-            .or_else(|err| AddRootError::remove(err, &nix_gc_root_user_dir_root.as_path()))?;
+        std::fs::remove_file(nix_gc_root_user_dir_root.as_path())
+            .or_else(|err| AddRootError::remove(err, nix_gc_root_user_dir_root.as_path()))?;
 
-        std::os::unix::fs::symlink(&self.shell_gc_root(), &nix_gc_root_user_dir_root.as_path())
+        std::os::unix::fs::symlink(self.shell_gc_root(), nix_gc_root_user_dir_root.as_path())
             .map_err(|e| {
                 AddRootError::symlink(
                     e,
                     self.shell_gc_root().as_path(),
-                    &nix_gc_root_user_dir_root.as_path(),
+                    nix_gc_root_user_dir_root.as_path(),
                 )
             })?;
 

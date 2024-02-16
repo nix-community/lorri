@@ -10,8 +10,6 @@
 #![allow(clippy::try_err)]
 // triggered by select (TODO: fixed in crossbeam_channel 0.5)
 #![allow(clippy::drop_copy, clippy::zero_ptr)]
-// Remove clippy checks for stuff that is not even in stable yet (ugh)
-#![allow(clippy::match_like_matches_macro)]
 
 #[macro_use]
 extern crate structopt;
@@ -89,12 +87,25 @@ impl AbsPathBuf {
         // replacing the file name will never make the path relative
         Self::new_unchecked(self.0.with_file_name(file_name))
     }
+
+    /// Proxy `file_name` for `PathBuf`
+    pub fn file_name(&self) -> Option<&OsStr> {
+        self.0.file_name()
+    }
 }
 
 impl AsRef<Path> for AbsPathBuf {
     fn as_ref(&self) -> &Path {
         self.as_path()
     }
+}
+
+/// An installable flake
+#[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
+pub struct Installable {
+    // XX pub as convenience
+    pub context: AbsPathBuf, // XXX Would like an AbsDir
+    pub installable: String,
 }
 
 /// A .nix file.
@@ -105,8 +116,8 @@ pub struct NixFile(AbsPathBuf);
 
 impl NixFile {
     /// Absolute path of this file.
-    pub fn as_absolute_path(&self) -> &Path {
-        &self.0.as_path()
+    pub fn as_absolute_path(&self) -> PathBuf {
+        self.0.as_path().to_path_buf()
     }
 }
 
