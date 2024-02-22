@@ -8,7 +8,11 @@
 //
 // See MAINTAINERS.md for details on internal and non-internal commands.
 
-use std::{path::PathBuf, time::Duration};
+use std::{convert::TryFrom, path::PathBuf, time::Duration};
+
+use structopt::clap;
+
+use crate::{project::ProjectFile, AbsDirPathBuf, AbsPathBuf, Installable};
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "lorri")]
@@ -79,6 +83,103 @@ pub enum Command {
     },
 }
 
+/// Common options about the build source, defaults to `shell.nix`
+#[derive(StructOpt, Debug)]
+pub struct DefaultingSourceOptions {
+    /// The .nix file in the current directory to use
+    #[structopt(long = "shell-file", parse(from_os_str))]
+    pub shell_file: Option<PathBuf>,
+
+    /// The path to consider a flake source within
+    #[structopt(
+        long = "context",
+        parse(from_os_str),
+        default_value = ".",
+        conflicts_with = "nix_file"
+    )]
+    pub context_dir: PathBuf,
+
+    /// The installable descriptor for a flake
+    #[structopt(long = "flake", conflicts_with = "nix_file")]
+    pub flake: Option<String>,
+}
+
+fn from_current_dir(rel: &PathBuf) -> Result<AbsPathBuf, clap::Error> {
+    AbsDirPathBuf::current_dir()?
+        .relative_to(rel.clone())
+        .map_err(|err| {
+            clap::Error::with_description(
+                &format!("could not make {:?} absolute: {:?}", rel, err),
+                clap::ErrorKind::ValueValidation,
+            )
+        })
+}
+
+impl TryFrom<DefaultingSourceOptions> for ProjectFile {
+    type Error = clap::Error;
+
+    fn try_from(opts: DefaultingSourceOptions) -> Result<Self, Self::Error> {
+        match (opts.shell_file, opts.flake) {
+            (Some(_), Some(_)) => Err(clap::Error::with_description(
+                "cannot use nix-shell files and flakes together",
+                clap::ErrorKind::ArgumentConflict,
+            )),
+            // XXX Consider more sophisticated default - e.g. first that exists: shell.nix, flake.nix, default.nix
+            (None, None) => Ok(ProjectFile::ShellNix(
+                from_current_dir(&PathBuf::from("shell.nix"))?.into(),
+            )),
+            (Some(shell), None) => Ok(ProjectFile::ShellNix(from_current_dir(&shell)?.into())),
+            (None, Some(flake)) => Ok(ProjectFile::FlakeNix(Installable {
+                context: from_current_dir(&opts.context_dir)?,
+                installable: flake,
+            })),
+        }
+    }
+}
+
+/// Common options about the build source, where an explicit field is required
+#[derive(StructOpt, Debug)]
+pub struct SourceOptions {
+    /// The .nix file in the current directory to use
+    #[structopt(long = "shell-file", parse(from_os_str))]
+    pub shell_file: Option<PathBuf>,
+
+    /// The path to consider a flake source within
+    #[structopt(
+        long = "context",
+        parse(from_os_str),
+        default_value = ".",
+        conflicts_with = "nix_file"
+    )]
+    pub context_dir: PathBuf,
+
+    /// The installable descriptor for a flake
+    #[structopt(long = "flake", conflicts_with = "nix_file")]
+    pub flake: Option<String>,
+}
+
+impl TryFrom<SourceOptions> for ProjectFile {
+    type Error = clap::Error;
+
+    fn try_from(opts: SourceOptions) -> Result<Self, Self::Error> {
+        match (opts.shell_file, opts.flake) {
+            (Some(_), Some(_)) => Err(clap::Error::with_description(
+                "cannot use nix-shell files and flakes together",
+                clap::ErrorKind::ArgumentConflict,
+            )),
+            (None, None) => Err(clap::Error::with_description(
+                "either --shell-file or --flake is required",
+                clap::ErrorKind::MissingRequiredArgument,
+            )),
+            (Some(shell), None) => Ok(ProjectFile::ShellNix(from_current_dir(&shell)?.into())),
+            (None, Some(flake)) => Ok(ProjectFile::FlakeNix(Installable {
+                context: from_current_dir(&opts.context_dir)?,
+                installable: flake,
+            })),
+        }
+    }
+}
+
 /// Options for the `direnv` subcommand.
 #[derive(StructOpt, Debug)]
 pub struct DirenvOptions {
@@ -100,11 +201,11 @@ pub struct InfoOptions {
 
 /// Parses a duration from a timestamp like 30d, 2m.
 fn human_friendly_duration(s: &str) -> Result<Duration, String> {
-    let multiplier = if s.ends_with("d") {
+    let multiplier = if s.ends_with('d') {
         24 * 60 * 60
-    } else if s.ends_with("m") {
+    } else if s.ends_with('m') {
         30 * 24 * 60 * 60
-    } else if s.ends_with("y") {
+    } else if s.ends_with('y') {
         365 * 24 * 60 * 60
     } else {
         return Err(format!(

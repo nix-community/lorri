@@ -1,9 +1,10 @@
+use anyhow::anyhow;
 use lorri::cli::{Arguments, Command, Internal_, Verbosity};
-use lorri::ops;
 use lorri::ops::error::ExitError;
 use lorri::project::{Project, ProjectFile};
 use lorri::{constants, AbsPathBuf};
 use lorri::{logging, project};
+use lorri::{ops, AbsDirPathBuf};
 use slog::{debug, o};
 use std::env;
 use std::path::Path;
@@ -53,14 +54,15 @@ fn install_signal_handler() {
 /// If `name` is an absolute path and a file, it returns the file.
 /// If it doesn’t exist, returns `None`.
 pub fn is_file_in_current_directory(name: &Path) -> anyhow::Result<Option<AbsPathBuf>> {
-    let path = AbsPathBuf::new(env::current_dir()?)
+    let path = AbsDirPathBuf::current_dir()
         .unwrap_or_else(|orig| {
             panic!(
                 "Expected `env::current_dir` to return an absolute path, but was {}",
-                orig.display()
+                orig
             )
         })
-        .join(name);
+        .relative_to(name.to_path_buf())
+        .map_err(|p| anyhow!("Current dir is not dir: {:?}", p))?;
     Ok(if path.as_path().is_file() {
         Some(path)
     } else {
