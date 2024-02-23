@@ -6,6 +6,7 @@ use lorri::{constants, AbsPathBuf};
 use lorri::{logging, project};
 use lorri::{ops, AbsDirPathBuf};
 use slog::{debug, o};
+use std::convert::TryInto;
 use std::env;
 use std::path::Path;
 use structopt::StructOpt;
@@ -111,21 +112,21 @@ fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> 
 
     match opts.command {
         Command::Info(opts) => {
-            let (project, _logger) = with_project(logger, &opts.nix_file)?;
+            let (project, _logger) = with_project(logger, &opts.source.try_into()?)?;
             ops::info(project)
         }
         Command::Gc(opts) => ops::gc(logger, opts),
         Command::Direnv(opts) => {
-            let (project, logger) = with_project(logger, &opts.nix_file)?;
+            let (project, logger) = with_project(logger, &opts.source.try_into()?)?;
             ops::direnv(project, /* shell_output */ std::io::stdout(), &logger)
         }
         Command::Shell(opts) => {
-            let (project, logger) = with_project(logger, &opts.nix_file)?;
+            let (project, logger) = with_project(logger, &opts.source.clone().try_into()?)?;
             ops::shell(project, opts, &logger)
         }
 
         Command::Watch(opts) => {
-            let (project, logger) = with_project(logger, &opts.nix_file)?;
+            let (project, logger) = with_project(logger, &opts.source.clone().try_into()?)?;
             ops::watch(project, opts, &logger)
         }
         Command::Daemon(opts) => {
@@ -141,7 +142,7 @@ fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> 
                 ops::ping(nix_file, logger)
             }
             Internal_::StartUserShell_(opts) => {
-                let (project, _logger) = with_project(logger, &opts.nix_file)?;
+                let (project, _logger) = with_project(logger, &opts.source.clone().try_into()?)?;
                 ops::start_user_shell(project, opts)
             }
             Internal_::StreamEvents_(se) => ops::stream_events(se.kind, logger),
@@ -151,10 +152,9 @@ fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> 
 
 fn with_project(
     logger: &slog::Logger,
-    nix_file: &Path,
+    project_file: &ProjectFile,
 ) -> std::result::Result<(Project, slog::Logger), ExitError> {
-    let project_file = find_nix_file(nix_file)?;
-    let project = create_project(&lorri::ops::get_paths()?, project_file)?;
+    let project = create_project(&lorri::ops::get_paths()?, project_file.clone())?;
     let logger = logger.new(o!("nix_file" => project.file.clone()));
     Ok((project, logger))
 }

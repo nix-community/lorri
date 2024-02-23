@@ -319,39 +319,18 @@ fn instrumented_instantiation(
     // TODO: this can move entirely into the stderr thread,
     // meaning we don’t have to keep the outputs in memory (fold directly)
 
-    // iterate over all lines, parsing out the ones we are interested in
-    let mut paths: Vec<WatchPathBuf> = vec![];
-    let mut log_lines: Vec<OsString> = vec![];
-    for result in results {
-        match result {
-            LogDatum::CopiedSource(src) | LogDatum::ReadRecursively(src) => {
-                paths.push(WatchPathBuf::Recursive(src));
-            }
-            LogDatum::ReadDir(src) => {
-                paths.push(WatchPathBuf::Normal(src));
-            }
-            LogDatum::NixSourceFile(mut src) => {
-                // We need to emulate nix’s `default.nix` mechanism here.
-                // That is, if the user uses something like
-                // `import ./foo`
-                // and `foo` is a directory, nix will actually import
-                // `./foo/default.nix`
-                // but still print `./foo`.
-                // Since this is the only time directories are printed,
-                // we can just manually re-implement that behavior.
-                if src.is_dir() {
-                    src.push("default.nix");
-                }
-                paths.push(WatchPathBuf::Normal(src));
-            }
-            LogDatum::Text(line) => log_lines.push(OsString::from(line)),
-            LogDatum::NonUtf(line) => log_lines.push(line),
-        };
+    if !exec_result.success() {
+        return Err(BuildError::exit(
+            &cmd,
+            exec_result,
+            results
+                .into_iter()
+                .map(|log| format!("{log:?}").into()) // XXX until we change BuildError...
+                .collect(),
+        ));
     }
 
-    if !exec_result.success() {
-        return Err(BuildError::exit(&cmd, exec_result, log_lines));
-    }
+    let paths = extract_paths(results);
 
     let shell_gc_root = match build_products.len() {
         0 => panic!("logged_evaluation.nix did not return a build product."),
@@ -401,7 +380,6 @@ pub fn run(
 
 /// Builds the devShell of a flake
 pub fn flake(installable: &Installable, logger: &slog::Logger) -> Result<RunResult, BuildError> {
-    let mut referenced_paths = vec![];
     let gc_root_dir = tempfile::TempDir::new()?;
 
     let env_path = gc_root_dir.path().join("bash-export");
@@ -466,22 +444,32 @@ pub fn flake(installable: &Installable, logger: &slog::Logger) -> Result<RunResu
             exec_result,
             results
                 .into_iter()
-                .map(|log| format!("{log:?}").into()) // until we change BuildError...
+                .map(|log| format!("{log:?}").into()) // XXX until we change BuildError...
                 .collect(),
         ));
     }
 
-    // iterate over all lines, parsing out the ones we are interested in
-    // XXX this is rough-copied from instrumented_instantiation
-    // Would be good to DRY out
-    for result in results {
-        match result {
+    let referenced_paths = extract_paths(results);
+
+    let result = RootedPath {
+        gc_handle: gc_root_dir.into(),
+        path: env_path.into(),
+    };
+
+    Ok(RunResult {
+        referenced_paths,
+        result,
+    })
+}
+
+fn extract_paths(results: impl IntoIterator<Item = LogDatum>) -> Vec<WatchPathBuf> {
+    results
+        .into_iter()
+        .filter_map(|result| match result {
             LogDatum::CopiedSource(src) | LogDatum::ReadRecursively(src) => {
-                referenced_paths.push(WatchPathBuf::Recursive(src));
+                Some(WatchPathBuf::Recursive(src))
             }
-            LogDatum::ReadDir(src) => {
-                referenced_paths.push(WatchPathBuf::Normal(src));
-            }
+            LogDatum::ReadDir(src) => Some(WatchPathBuf::Normal(src)),
             LogDatum::NixSourceFile(mut src) => {
                 // We need to emulate nix’s `default.nix` mechanism here.
                 // That is, if the user uses something like
@@ -494,21 +482,11 @@ pub fn flake(installable: &Installable, logger: &slog::Logger) -> Result<RunResu
                 if src.is_dir() {
                     src.push("default.nix");
                 }
-                referenced_paths.push(WatchPathBuf::Normal(src));
+                Some(WatchPathBuf::Normal(src))
             }
-            LogDatum::Text(_) | LogDatum::NonUtf(_) => {}
-        };
-    }
-
-    let result = RootedPath {
-        gc_handle: gc_root_dir.into(),
-        path: env_path.into(),
-    };
-
-    Ok(RunResult {
-        referenced_paths,
-        result,
-    })
+            LogDatum::Text(_) | LogDatum::NonUtf(_) => None,
+        })
+        .collect()
 }
 
 /// Classifies the output of nix-instantiate -vv.

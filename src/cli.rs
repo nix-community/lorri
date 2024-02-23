@@ -84,7 +84,7 @@ pub enum Command {
 }
 
 /// Common options about the build source, defaults to `shell.nix`
-#[derive(StructOpt, Debug)]
+#[derive(StructOpt, Debug, Clone)]
 pub struct DefaultingSourceOptions {
     /// The .nix file in the current directory to use
     #[structopt(long = "shell-file", parse(from_os_str))]
@@ -138,7 +138,10 @@ impl TryFrom<DefaultingSourceOptions> for ProjectFile {
 }
 
 /// Common options about the build source, where an explicit field is required
-#[derive(StructOpt, Debug)]
+/// This version of the source options has no default value. That's on purpose: sometimes the user
+/// will have projects with multiple shell files. This way, they are forced to think about which shell
+/// file was causing problems when they submit a bug report.
+#[derive(StructOpt, Debug, Clone)]
 pub struct SourceOptions {
     /// The .nix file in the current directory to use
     #[structopt(long = "shell-file", parse(from_os_str))]
@@ -183,20 +186,17 @@ impl TryFrom<SourceOptions> for ProjectFile {
 /// Options for the `direnv` subcommand.
 #[derive(StructOpt, Debug)]
 pub struct DirenvOptions {
-    /// The .nix file in the current directory to use
-    #[structopt(long = "shell-file", parse(from_os_str), default_value = "shell.nix")]
-    pub nix_file: PathBuf,
+    #[allow(missing_docs)]
+    #[structopt(flatten)]
+    pub source: DefaultingSourceOptions,
 }
 
 /// Options for the `info` subcommand.
 #[derive(StructOpt, Debug)]
 pub struct InfoOptions {
-    /// The .nix file in the current directory to use
-    // The "shell-file" argument has no default value. That's on purpose: sometimes users have
-    // projects with multiple shell files. This way, they are forced to think about which shell
-    // file was causing problems when they submit a bug report.
-    #[structopt(long = "shell-file", parse(from_os_str))]
-    pub nix_file: PathBuf,
+    #[allow(missing_docs)]
+    #[structopt(flatten)]
+    pub source: SourceOptions,
 }
 
 /// Parses a duration from a timestamp like 30d, 2m.
@@ -273,6 +273,7 @@ pub enum GcSubcommand {
     Info,
     /// Removes the gc roots associated to projects whose nix file vanished.
     #[structopt(name = "rm")]
+    // XXX need to be able to rm flake roots too
     Rm {
         /// Also delete the root associated with these shell files
         #[structopt(long = "shell-file")]
@@ -289,9 +290,11 @@ pub enum GcSubcommand {
 /// Options for the `shell` subcommand.
 #[derive(StructOpt, Debug)]
 pub struct ShellOptions {
-    /// The .nix file in the current directory to use
-    #[structopt(long = "shell-file", parse(from_os_str), default_value = "shell.nix")]
-    pub nix_file: PathBuf,
+    // The source to build the environment from
+    #[allow(missing_docs)]
+    #[structopt(flatten)]
+    pub source: DefaultingSourceOptions,
+
     /// If true, load environment from cache
     #[structopt(long = "cached")]
     pub cached: bool,
@@ -303,17 +306,20 @@ pub struct StartUserShellOptions_ {
     /// The path of the parent shell's binary
     #[structopt(long = "shell-path", parse(from_os_str))]
     pub shell_path: PathBuf,
-    /// The .nix file in the current directory to use to instantiate the project
-    #[structopt(long = "shell-file", parse(from_os_str))]
-    pub nix_file: PathBuf,
+
+    // The source to build the environment from
+    #[allow(missing_docs)]
+    #[structopt(flatten)]
+    pub source: DefaultingSourceOptions,
 }
 
 /// Options for the `watch` subcommand.
 #[derive(StructOpt, Debug)]
 pub struct WatchOptions {
-    /// The .nix file in the current directory to use
-    #[structopt(long = "shell-file", parse(from_os_str), default_value = "shell.nix")]
-    pub nix_file: PathBuf,
+    // The source to build the environment from
+    #[allow(missing_docs)]
+    #[structopt(flatten)]
+    pub source: DefaultingSourceOptions,
     /// Exit after a the first build
     #[structopt(long = "once")]
     pub once: bool,
