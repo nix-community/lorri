@@ -201,10 +201,7 @@ impl<'a, R, W> ReadWriter<'a, R, W> {
     /// Check if the underlying socket timed out when serializing/deserializing.
     fn is_timed_out(e: &bincode::ErrorKind) -> bool {
         match e {
-            bincode::ErrorKind::Io(io) => match io.kind() {
-                std::io::ErrorKind::TimedOut => true,
-                _ => false,
-            },
+            bincode::ErrorKind::Io(io) => matches!(io.kind(), std::io::ErrorKind::TimedOut),
             _ => false,
         }
     }
@@ -268,9 +265,9 @@ mod timeout {
         events: poll::PollFlags,
     ) -> std::io::Result<()> {
         let mut pfd = poll::PollFd::new(to_fd.as_raw_fd(), events);
-        let mut s = unsafe { std::slice::from_raw_parts_mut(&mut pfd, 1) };
+        let s = unsafe { std::slice::from_raw_parts_mut(&mut pfd, 1) };
 
-        let retval = poll::poll(&mut s, timeout)
+        let retval = poll::poll(s, timeout)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         if retval == 0 {
             return Err(std::io::Error::new(

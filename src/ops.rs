@@ -344,13 +344,13 @@ pub fn shell(project: Project, opts: ShellOptions, logger: &slog::Logger) -> Res
 
     debug!(logger, "bash_cmd : {:?}", bash_cmd);
     let status = bash_cmd
-        .args(&[
+        .args([
             OsStr::new("-c"),
             OsStr::new(
                 "exec \"$1\" internal start-user-shell --shell-path=\"$2\" --shell-file=\"$3\"",
             ),
             OsStr::new("--"),
-            &lorri.as_os_str(),
+            lorri.as_os_str(),
             &shell,
             project.file.as_absolute_path().as_os_str(),
         ])
@@ -527,7 +527,7 @@ PS1="(lorri) $PS1"
 "#,
                 )
                 .expect("failed to write bash init script");
-            cmd.args(&[
+            cmd.args([
                 "--rcfile",
                 rcfile
                     .as_path()
@@ -693,7 +693,7 @@ pub fn stream_events(kind: EventKind, logger: &slog::Logger) -> Result<(), ExitE
                             )),
                         )
                             .expect("couldn't serialize event");
-                        write!(std::io::stdout(), "\n").expect("couldn't serialize event");
+                        writeln!(std::io::stdout()).expect("couldn't serialize event");
                         std::io::stdout().flush().expect("couldn't flush serialized event");
                     }
                     _ => (),
@@ -809,7 +809,7 @@ pub fn upgrade(
             UpgradeSource::Local(ref p) => println!("Upgrading from local path: {}", p.display()),
         }
 
-        let mut expr = nix::CallOpts::file(&upgrade_expr.as_path());
+        let mut expr = nix::CallOpts::file(upgrade_expr.as_path());
 
         match src {
             UpgradeSource::Branch(b) => {
@@ -952,7 +952,7 @@ fn list_roots(logger: &slog::Logger) -> Result<Vec<GcRootInfo>, ExitError> {
             Ok(m) => m.modified().unwrap_or(std::time::UNIX_EPOCH),
         };
         let nix_file_symlink = gc_root_dir.join("nix_file");
-        let nix_file = std::fs::read_link(&nix_file_symlink);
+        let nix_file = std::fs::read_link(nix_file_symlink);
         let alive = match &nix_file {
             Err(_) => false,
             Ok(path) => match std::fs::metadata(path) {
@@ -960,10 +960,7 @@ fn list_roots(logger: &slog::Logger) -> Result<Vec<GcRootInfo>, ExitError> {
                 Err(_) => false,
             },
         };
-        let nix_file = match nix_file {
-            Err(_) => None,
-            Ok(p) => Some(p),
-        };
+        let nix_file = nix_file.ok();
         res.push(GcRootInfo {
             gc_dir,
             nix_file,

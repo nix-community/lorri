@@ -1,9 +1,9 @@
 use anyhow::anyhow;
 use lorri::cli::{Arguments, Command, Internal_, Verbosity};
+use lorri::logging;
 use lorri::ops::error::ExitError;
 use lorri::project::{Project, ProjectFile};
 use lorri::{constants, AbsPathBuf};
-use lorri::{logging, project};
 use lorri::{ops, AbsDirPathBuf};
 use slog::{debug, o};
 use std::convert::TryInto;
@@ -12,7 +12,6 @@ use std::path::Path;
 use structopt::StructOpt;
 
 const TRIVIAL_SHELL_SRC: &str = include_str!("./trivial-shell.nix");
-const FLAKE_COMPAT_SHELL_SRC: &str = include_str!("./flake-compat-shell.nix");
 const DEFAULT_ENVRC: &str = include_str!("./default-envrc");
 
 fn main() -> Result<(), ExitError> {
@@ -71,35 +70,6 @@ pub fn is_file_in_current_directory(name: &Path) -> anyhow::Result<Option<AbsPat
     })
 }
 
-/// Reads a nix filename given by the user and either returns
-/// the `NixFile` type or exists with a helpful error message
-/// that instructs the user how to write a minimal `shell.nix`.
-fn find_nix_file(shellfile: &Path) -> Result<project::ProjectFile, ExitError> {
-    // use shell.nix from cwd
-    match is_file_in_current_directory(shellfile) {
-        Err(err) => Err(ExitError::temporary(err)),
-        Ok(None) => Err(ExitError::user_error(
-            anyhow::anyhow!(
-                "`{}` does not exist\n\
-                    You can use a flake.nix file or the following minimal `shell.nix` to get started:\n\n\
-                    {}",
-                shellfile.display(),
-                TRIVIAL_SHELL_SRC
-            )
-        )),
-        Ok(Some(file)) => match file.file_name().expect("Should already have confirmed is_file").to_str() {
-            Some("flake.nix") => {
-                Ok(ProjectFile::FlakeNix(lorri::Installable{
-                    context: AbsPathBuf::new(file.as_path().parent().expect("Should already be a file").to_path_buf()).expect("already absolute"),
-                    installable: ".#".into()
-
-                }))
-            },
-            _ => Ok(ProjectFile::ShellNix(file.into())),
-        }
-    }
-}
-
 fn create_project(paths: &constants::Paths, shell_nix: ProjectFile) -> Result<Project, ExitError> {
     Project::new(shell_nix, paths.gc_root_dir(), paths.cas_store().clone()).map_err(|err| {
         ExitError::temporary(anyhow::anyhow!(err).context("Could not set up project paths"))
@@ -137,10 +107,7 @@ fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> 
         Command::Init => ops::init(TRIVIAL_SHELL_SRC, DEFAULT_ENVRC, logger),
 
         Command::Internal { command } => match command {
-            Internal_::Ping_(opts) => {
-                let nix_file = find_nix_file(&opts.nix_file)?;
-                ops::ping(nix_file, logger)
-            }
+            Internal_::Ping_(opts) => ops::ping(opts.source.try_into()?, logger),
             Internal_::StartUserShell_(opts) => {
                 let (project, _logger) = with_project(logger, &opts.source.clone().try_into()?)?;
                 ops::start_user_shell(project, opts)

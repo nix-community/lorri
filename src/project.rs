@@ -28,13 +28,26 @@ pub struct Project {
     pub cas: ContentAddressable,
 }
 
+/// ProjectFile describes the build source Nix file for a watched project
+/// Could be a shell.nix (or similar) or a Flake description
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ProjectFile {
+    /// A shell.nix (or default.nix etc)
     ShellNix(NixFile),
+    /// A Flake installable - captures the flake target itself (e.g. .#)
+    /// and the context directory to resolve it from
     FlakeNix(Installable),
 }
 
 impl ProjectFile {
+    /// Creates a ProjectFile::FlakeNix from a context and installable
+    /// c.f. https://nix.dev/manual/nix/2.18/command-ref/new-cli/nix3-flake#description
+    pub fn flake(context: AbsPathBuf, installable: String) -> Self {
+        ProjectFile::FlakeNix(Installable {
+            context,
+            installable,
+        })
+    }
     /// Proxy through the `Display` class for `PathBuf`.
     //    pub fn display(&self) -> std::path::Display {
     //        self.as_absolute_path().display()

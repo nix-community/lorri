@@ -125,9 +125,16 @@ impl TryFrom<DefaultingSourceOptions> for ProjectFile {
                 clap::ErrorKind::ArgumentConflict,
             )),
             // XXX Consider more sophisticated default - e.g. first that exists: shell.nix, flake.nix, default.nix
-            (None, None) => Ok(ProjectFile::ShellNix(
-                from_current_dir(&PathBuf::from("shell.nix"))?.into(),
-            )),
+            (None, None) => find_nix_file("shell.nix")
+                .or_else(|| find_nix_file("flake.nix"))
+                .or_else(|| find_nix_file("default.nix"))
+                .ok_or_else(|| clap::Error::with_description(
+                    &format!(
+                    "No default build sources found\n\
+                    You can use a flake.nix file or the following minimal `shell.nix` to get started:\n\n\
+                    {}",
+                    TRIVIAL_SHELL_SRC
+                ), clap::ErrorKind::ValueValidation)),
             (Some(shell), None) => Ok(ProjectFile::ShellNix(from_current_dir(&shell)?.into())),
             (None, Some(flake)) => Ok(ProjectFile::FlakeNix(Installable {
                 context: from_current_dir(&opts.context_dir)?,
@@ -135,6 +142,41 @@ impl TryFrom<DefaultingSourceOptions> for ProjectFile {
             })),
         }
     }
+}
+
+const TRIVIAL_SHELL_SRC: &str = include_str!("./trivial-shell.nix");
+/// Reads a nix filename given by the user and either returns
+/// the `NixFile` type or exists with a helpful error message
+/// that instructs the user how to write a minimal `shell.nix`.
+fn find_nix_file(shellfile: &str) -> Option<ProjectFile> {
+    let path = AbsDirPathBuf::current_dir()
+        .ok()?
+        .relative_to(shellfile.into())
+        .ok()?;
+    if !path.as_path().is_file() {
+        return None;
+    };
+
+    // use shell.nix from cwd
+    Some(
+        match path
+            .file_name()
+            .expect("Should already have confirmed is_file")
+            .to_str()
+        {
+            Some("flake.nix") => ProjectFile::flake(
+                AbsPathBuf::new(
+                    path.as_path()
+                        .parent()
+                        .expect("Should already be a file")
+                        .to_path_buf(),
+                )
+                .expect("already absolute"),
+                ".#".into(),
+            ),
+            _ => ProjectFile::ShellNix(path.into()),
+        },
+    )
 }
 
 /// Common options about the build source, where an explicit field is required
@@ -380,9 +422,9 @@ pub enum Internal_ {
 /// get pinged for a long time, it may stop watching the project for changes.
 #[derive(StructOpt, Debug)]
 pub struct Ping_ {
-    /// The .nix file to watch and build on changes.
-    #[structopt(parse(from_os_str))]
-    pub nix_file: PathBuf,
+    #[allow(missing_docs)]
+    #[structopt(flatten)]
+    pub source: DefaultingSourceOptions,
 }
 
 /// Stream events from the daemon.

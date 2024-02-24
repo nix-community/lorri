@@ -136,7 +136,11 @@ impl BuildError {
     }
 
     /// Smart constructor for `BuildError::Exit`
-    pub fn exit(cmd: &Command, status: ExitStatus, logs: Vec<OsString>) -> BuildError {
+    pub fn exit(
+        cmd: &Command,
+        status: ExitStatus,
+        logs: Vec<impl Into<LogLine> + Clone>,
+    ) -> BuildError {
         assert!(
             !status.success(),
             "cannot create an exit error from a successful status code"
@@ -144,7 +148,7 @@ impl BuildError {
         BuildError::Exit {
             cmd: format!("{:?}", cmd),
             status: status.code(),
-            logs: logs.iter().map(|l| LogLine::from(l.clone())).collect(),
+            logs: logs.iter().map(|l| (*l).clone().into()).collect(),
         }
     }
 
@@ -167,6 +171,12 @@ impl BuildError {
 /// A line from stderr log output.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogLine(pub OsString);
+
+impl From<LogDatum> for LogLine {
+    fn from(dbg: LogDatum) -> LogLine {
+        LogLine(format!("{dbg:?}").into())
+    }
+}
 
 impl From<OsString> for LogLine {
     fn from(oss: OsString) -> Self {
@@ -320,14 +330,7 @@ fn instrumented_instantiation(
     // meaning we don’t have to keep the outputs in memory (fold directly)
 
     if !exec_result.success() {
-        return Err(BuildError::exit(
-            &cmd,
-            exec_result,
-            results
-                .into_iter()
-                .map(|log| format!("{log:?}").into()) // XXX until we change BuildError...
-                .collect(),
-        ));
+        return Err(BuildError::exit(&cmd, exec_result, results));
     }
 
     let paths = extract_paths(results);
@@ -439,14 +442,7 @@ pub fn flake(installable: &Installable, logger: &slog::Logger) -> Result<RunResu
     );
 
     if !exec_result.success() {
-        return Err(BuildError::exit(
-            &cmd,
-            exec_result,
-            results
-                .into_iter()
-                .map(|log| format!("{log:?}").into()) // XXX until we change BuildError...
-                .collect(),
-        ));
+        return Err(BuildError::exit(&cmd, exec_result, results));
     }
 
     let referenced_paths = extract_paths(results);
@@ -490,7 +486,7 @@ fn extract_paths(results: impl IntoIterator<Item = LogDatum>) -> Vec<WatchPathBu
 }
 
 /// Classifies the output of nix-instantiate -vv.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum LogDatum {
     /// Nix source file (which should be tracked)
     NixSourceFile(PathBuf),

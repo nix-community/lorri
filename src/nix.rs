@@ -230,7 +230,7 @@ impl<'a> CallOpts<'a> {
         T: Send + serde::de::DeserializeOwned,
     {
         let mut cmd = Command::new("nix-instantiate");
-        cmd.args(&["--eval", "--json", "--strict"]);
+        cmd.args(["--eval", "--json", "--strict"]);
         cmd.args(self.command_arguments());
         self.execute(cmd, move |stdout_handle| {
             serde_json::from_reader::<_, T>(stdout_handle)

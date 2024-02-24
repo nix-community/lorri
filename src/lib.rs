@@ -88,8 +88,7 @@ impl AbsPathBuf {
     /// Convert from a known absolute path.
     ///
     /// Passing a relative path is a programming bug (unchecked).
-    // XXX pub?
-    pub fn new_unchecked(path: PathBuf) -> Self {
+    fn new_unchecked(path: PathBuf) -> Self {
         AbsPathBuf(path)
     }
 
@@ -133,8 +132,8 @@ impl AsRef<Path> for AbsPathBuf {
 #[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 pub struct Installable {
     // XX pub as convenience
-    pub context: AbsPathBuf, // XXX Would like an AbsDir
-    pub installable: String,
+    context: AbsPathBuf, // XXX Would like an AbsDir
+    installable: String,
 }
 
 /// A .nix file.

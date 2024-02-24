@@ -236,7 +236,7 @@ impl Daemon {
                             {
                                 tx_build_events
                                     .send(LoopHandlerEvent::BuildEvent(Event::Failure {
-                                        nix_file: project.file.as_nix_file().clone(),
+                                        nix_file: project.file.as_nix_file(),
                                         failure: crate::builder::BuildError::Io {
                                             msg: err
                                                 .context(format!(

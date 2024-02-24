@@ -172,9 +172,7 @@ impl<'a> BuildLoop<'a> {
     ) -> anyhow::Result<BuildLoop<'a>> {
         let mut watch = Watch::try_new(logger.clone()).map_err(|err| anyhow!(err))?;
         watch
-            .extend(vec![WatchPathBuf::Normal(
-                project.file.as_absolute_path().to_owned(),
-            )])
+            .extend(vec![WatchPathBuf::Normal(project.file.as_absolute_path())])
             .with_context(|| {
                 format!(
                     "Failed to add nix path to watcher for nix file {}",
