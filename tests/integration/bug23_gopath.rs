@@ -4,7 +4,7 @@ use std::env;
 #[test]
 fn bug23_gopath() {
     env::set_var("GOPATH", "my-neat-go-path");
-    let mut testcase = DirenvTestCase::new("bug23_gopath");
+    let mut testcase = DirenvTestCase::with_shell("bug23_gopath");
     testcase.evaluate().expect("Failed to build the first time");
 
     let env = testcase.get_direnv_variables();

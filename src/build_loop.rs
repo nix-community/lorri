@@ -309,7 +309,13 @@ impl<'a> BuildLoop<'a> {
                     builder::run(&nix_file, &cas, &extra_nix_options, &logger2)
                 })
             }
-            project::ProjectFile::FlakeNix(_) => todo!(),
+            project::ProjectFile::FlakeNix(i) => {
+                let logger = self.logger.clone();
+                let installable = i.clone();
+                crate::run_async::Async::run(&self.logger, move || {
+                    builder::flake(&installable, &logger)
+                })
+            }
         }
     }
 

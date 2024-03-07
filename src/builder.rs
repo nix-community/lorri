@@ -288,7 +288,7 @@ fn instrumented_instantiation(
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
 
-    debug!(logger, "nix-instantiate"; "command" => ?cmd);
+    debug!(logger, "nix-instantiate"; "command" => ?cmd, "line" => ?line!());
 
     let mut child = cmd.spawn().map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => BuildError::spawn(&cmd, e),
@@ -386,6 +386,7 @@ pub fn flake(installable: &Installable, logger: &slog::Logger) -> Result<RunResu
     let gc_root_dir = tempfile::TempDir::new()?;
 
     let env_path = gc_root_dir.path().join("bash-export");
+    let profile_path = gc_root_dir.path().join("profile");
 
     let mut cmd = Command::new("nix");
     cmd.current_dir(installable.context.as_path());
@@ -394,15 +395,18 @@ pub fn flake(installable: &Installable, logger: &slog::Logger) -> Result<RunResu
         OsStr::new("develop"),
         OsStr::new("--debug"),
         OsStr::new("--profile"),
-        env_path.as_path().as_ref(),
+        profile_path.as_path().as_ref(),
         OsStr::new(&installable.installable),
-        OsStr::new("-c"),
+        OsStr::new("-c"), // nix develop, please run ..
         OsStr::new("bash"),
-        OsStr::new("-c"),
+        OsStr::new("-c"), // and bash, you as well, please run...
         OsStr::new("export"),
-    ]);
+    ])
+    .stdin(Stdio::null())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
 
-    debug!(logger, "nix develop");
+    debug!(logger, "nix develop"; "command" => ?cmd, "dir" => ?cmd.get_current_dir());
 
     let mut child = cmd.spawn().map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => BuildError::spawn(&cmd, e),
@@ -440,6 +444,8 @@ pub fn flake(installable: &Installable, logger: &slog::Logger) -> Result<RunResu
             .join()
             .expect("Failed to join stderr processing thread")?,
     );
+
+    debug!(logger, "(complete) nix develop"; "command" => ?cmd, "result" => ?exec_result);
 
     if !exec_result.success() {
         return Err(BuildError::exit(&cmd, exec_result, results));

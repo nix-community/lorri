@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 #[test]
 fn not_so_slow() {
-    let mut testcase = DirenvTestCase::new("bug110_duplicate_appends");
+    let mut testcase = DirenvTestCase::with_shell("bug110_duplicate_appends");
     testcase.evaluate().expect("Failed to build the first time");
 
     let start = Instant::now();
