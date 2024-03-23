@@ -26,7 +26,7 @@ fn trivial() -> std::io::Result<()> {
 }
 
 #[test]
-fn trivial_flake() -> std::io::Result<()> {
+fn flake() -> std::io::Result<()> {
     let mut testcase = DirenvTestCase::with_flake("basic-flake");
     let res = testcase.evaluate().expect("Failed to build the first time");
 
@@ -37,7 +37,7 @@ fn trivial_flake() -> std::io::Result<()> {
         testcase.cachedir.path().display(),
         std::str::from_utf8(
             &std::process::Command::new("ls")
-                .args(["-la", "--recursive"])
+                .args(["-Fla", "--recursive"])
                 .args([testcase.cachedir.path().as_os_str()])
                 .output()?
                 .stdout

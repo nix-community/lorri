@@ -346,9 +346,13 @@ impl<'a> CallOpts<'a> {
 
         debug!(logger, "nix-build"; "command" => ?cmd);
 
+        let l2 = logger.clone();
         let paths: Vec<StorePath> = self.execute(cmd, move |stdout_handle| {
             osstrlines::Lines::from(stdout_handle)
-                .map(|line| line.map(StorePath::from))
+                .map(|line| {
+                    debug!(l2, "build output"; "line" => ?line);
+                    line.map(StorePath::from)
+                })
                 .collect::<Result<Vec<StorePath>, _>>()
         })??;
 

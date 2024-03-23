@@ -434,6 +434,8 @@ fn build_root(
         })?
         .result;
 
+    // XXX need to pin extra roots
+
     Ok(project
         .create_roots(run_result, user, &logger2)
         .map_err(|e| {

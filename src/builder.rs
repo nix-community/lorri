@@ -10,17 +10,17 @@
 use crate::cas::ContentAddressable;
 use crate::nix::{options::NixOptions, StorePath};
 use crate::watch::WatchPathBuf;
-use crate::{osstrlines, Installable};
+use crate::{osstrlines, AbsDirPathBuf, Installable};
 use crate::{DrvFile, NixFile};
 use regex::Regex;
-use slog::debug;
+use slog::{debug, trace};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{self, BufReader};
 use std::os::unix::prelude::OsStrExt;
 use std::path::PathBuf;
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::{ChildStderr, ChildStdout, Command, ExitStatus, Stdio};
 use std::{fmt, thread};
 
 /// An error that can occur during a build.
@@ -218,6 +218,8 @@ pub struct RootedPath {
     pub gc_handle: crate::nix::GcRootTempDir,
     /// The realized store path
     pub path: StorePath,
+    /// Other GC root files that need pinning
+    pub extra_paths: Vec<StorePath>,
 }
 
 struct BuildOutput {
@@ -229,8 +231,8 @@ struct BuildOutput {
 pub struct RunResult {
     /// All the paths identified during the instantiation
     pub referenced_paths: Vec<WatchPathBuf>,
-    /// The status of the build attempt
-    pub result: RootedPath,
+    /// The primary result of the build run
+    pub result: RootedPath, // XXX split out the tempdir handle as separate field
 }
 
 struct InstantiateOutput {
@@ -359,7 +361,11 @@ fn instrumented_instantiation(
 fn build(drv_path: DrvFile, logger: &slog::Logger) -> Result<BuildOutput, BuildError> {
     let (path, gc_handle) = crate::nix::CallOpts::file(drv_path.as_path()).path(logger)?;
     Ok(BuildOutput {
-        output: RootedPath { gc_handle, path },
+        output: RootedPath {
+            gc_handle,
+            path,
+            extra_paths: vec![],
+        },
     })
 }
 
@@ -381,6 +387,61 @@ pub fn run(
     })
 }
 
+/// Execute a command (presumably a Nix command :)). stderr output
+/// is passed line-based to the CallOpts' stderr_line_tx receiver.
+/// Stdout is passed as a BufReader to `stdout_fn`.
+fn execute<OF: 'static, EF: 'static, O: 'static>(
+    nickname: &str,
+    mut cmd: Command,
+    logger: &slog::Logger,
+    stdout_fn: OF,
+    stderr_fn: EF,
+) -> Result<(O, Vec<LogDatum>), BuildError>
+where
+    OF: Send + FnOnce(ChildStdout) -> O,
+    O: Send,
+    EF: Send + FnOnce(ChildStderr) -> Result<Vec<LogDatum>, io::Error>,
+{
+    cmd.stderr(Stdio::piped());
+    cmd.stdout(Stdio::piped());
+
+    debug!(logger, "{}", nickname; "command" => ?cmd, "dir" => ?cmd.get_current_dir());
+    // 0. spawn the process
+    let mut nix_proc = cmd.spawn().map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => BuildError::spawn(&cmd, e),
+        _ => BuildError::io(e),
+    })?;
+
+    // 1. spawn a stderr handling thread
+    let stderr_handle = nix_proc.stderr.take().expect("failed to take stderr");
+    let stderr_thread = thread::spawn(move || stderr_fn(stderr_handle));
+
+    // 2. spawn a stdout handling thread (?)
+    let stdout_handle = nix_proc.stdout.take().expect("failed to take stdout");
+    let stdout_thread = thread::spawn(move || stdout_fn(stdout_handle));
+
+    // 3. wait on the process
+    let nix_proc_result = nix_proc.wait()?;
+
+    debug!(logger, "(complete) {}", nickname; "command" => ?cmd, "result" => ?nix_proc_result);
+
+    // 4. join the stderr handler
+    let stderr_result = stderr_thread
+        .join()
+        .expect("stderr handling thread panicked")?;
+
+    // 5. join the stdout handler
+    let stdout_result = stdout_thread
+        .join()
+        .expect("stderr handling thread panicked");
+
+    if !nix_proc_result.success() {
+        Err(BuildError::exit(&cmd, nix_proc_result, stderr_result))
+    } else {
+        Ok((stdout_result, stderr_result))
+    }
+}
+
 /// Builds the devShell of a flake
 pub fn flake(installable: &Installable, logger: &slog::Logger) -> Result<RunResult, BuildError> {
     let gc_root_dir = tempfile::TempDir::new()?;
@@ -390,7 +451,6 @@ pub fn flake(installable: &Installable, logger: &slog::Logger) -> Result<RunResu
 
     let mut cmd = Command::new("nix");
     cmd.current_dir(installable.context.as_path());
-
     cmd.args([
         OsStr::new("develop"),
         OsStr::new("--debug"),
@@ -402,60 +462,73 @@ pub fn flake(installable: &Installable, logger: &slog::Logger) -> Result<RunResu
         OsStr::new("-c"), // and bash, you as well, please run...
         OsStr::new("export"),
     ])
-    .stdin(Stdio::null())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped());
-
-    debug!(logger, "nix develop"; "command" => ?cmd, "dir" => ?cmd.get_current_dir());
-
-    let mut child = cmd.spawn().map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => BuildError::spawn(&cmd, e),
-        _ => BuildError::io(e),
-    })?;
-
-    let mut stdout = child
-        .stdout
-        .take()
-        .expect("we must be able to access the stdout of nix");
-    let stderr = child
-        .stderr
-        .take()
-        .expect("we must be able to access the stderr of nix");
-
-    let stderr_results = thread::spawn(move || {
-        let mut parser = NixDevParser::new();
-        osstrlines::Lines::from(BufReader::new(stderr))
-            .map(|line| line.map(|i| parser.parse(i)))
-            .collect::<Result<Vec<LogDatum>, _>>()
-    });
+    .stdin(Stdio::null());
 
     let build_env_path = env_path.clone();
-    let build_product = thread::spawn(move || -> Result<u64, _> {
-        let mut f = File::create(build_env_path)?;
-        io::copy(&mut stdout, &mut f)
-    });
-
-    let (exec_result, _build_products, results) = (
-        child.wait()?,
-        build_product
-            .join()
-            .expect("Failed to join stdout processing thread")?,
-        stderr_results
-            .join()
-            .expect("Failed to join stderr processing thread")?,
-    );
-
-    debug!(logger, "(complete) nix develop"; "command" => ?cmd, "result" => ?exec_result);
-
-    if !exec_result.success() {
-        return Err(BuildError::exit(&cmd, exec_result, results));
-    }
+    let l2 = logger.clone();
+    let (_, results) = execute(
+        "nix develop",
+        cmd,
+        logger,
+        move |mut stdout| -> Result<u64, _> {
+            let mut f = File::create(build_env_path)?;
+            io::copy(&mut stdout, &mut f)
+        },
+        move |stderr| {
+            let mut parser = NixDevParser::new(l2);
+            osstrlines::Lines::from(BufReader::new(stderr))
+                .map(|line| line.map(|i| parser.parse(i)))
+                .collect::<Result<Vec<LogDatum>, _>>()
+        },
+    )?;
 
     let referenced_paths = extract_paths(results);
 
+    let mut profile_root = profile_path;
+    for _ in 1..10 {
+        debug!(logger, "follow symlink"; "path" => ?profile_root, "metadata" => ?std::fs::symlink_metadata(&profile_root));
+        if !std::fs::symlink_metadata(&profile_root)?.is_symlink() {
+            break;
+        }
+        let profile_dir = profile_root.parent().expect("never to be /");
+        profile_root = profile_dir.join(std::fs::read_link(&profile_root)?);
+    }
+    debug!(logger, "profile resolved"; "path" => ?profile_root);
+
+    let mut cmd = Command::new("nix");
+    cmd.current_dir(installable.context.as_path());
+    cmd.args([
+        OsStr::new("store"),
+        OsStr::new("add-file"), // XXX deprecated for add --mode flat
+        env_path.as_os_str(),
+    ])
+    .stdin(Stdio::null());
+
+    let (store_paths, _) = execute(
+        "nix store add",
+        cmd,
+        logger,
+        move |stdout| {
+            osstrlines::Lines::from(BufReader::new(stdout))
+                .map(|line| line.map(PathBuf::from))
+                .collect::<Result<Vec<_>, _>>()
+        },
+        move |stderr| {
+            osstrlines::Lines::from(BufReader::new(stderr))
+                .map(|line| line.map(|t| LogDatum::Text(t.to_string_lossy().into())))
+                .collect::<Result<Vec<LogDatum>, _>>()
+        },
+    )?;
+
+    let store_path = store_paths?
+        .first()
+        .ok_or_else(|| BuildError::output("nix store add: no store path reported".into()))?
+        .clone();
+
     let result = RootedPath {
         gc_handle: gc_root_dir.into(),
-        path: env_path.into(),
+        path: StorePath::from(store_path),
+        extra_paths: vec![profile_root.into()],
     };
 
     Ok(RunResult {
@@ -561,17 +634,19 @@ where
 }
 
 struct NixDevParser {
-    flake_rees: HashMap<String, Regex>,
-    tree_rees: HashMap<String, Regex>,
+    flake_rees: HashMap<String, (Regex, AbsDirPathBuf)>,
+    tree_rees: HashMap<String, (Regex, AbsDirPathBuf)>,
+    logger: slog::Logger,
 }
 
 impl NixDevParser {
-    fn new() -> Self {
+    fn new(logger: slog::Logger) -> Self {
         let flake_rees = HashMap::new();
         let tree_rees = HashMap::new();
         Self {
             flake_rees,
             tree_rees,
+            logger,
         }
     }
     /// Examine a line of output and extract interesting log items in to
@@ -590,38 +665,61 @@ impl NixDevParser {
     }
 
     fn parse_str(&mut self, line: &str) -> LogDatum {
+        use regex::escape;
+
+        trace!(self.logger, "parsing"; "line" => ?line, "flake_res" => ?self.flake_rees.len(), "tree_res" => ?self.tree_rees.len());
         // evaluating derivation 'git+file:///home/judson/dev/picklist#devShells.x86_64-linux.default'...
         // got tree '/nix/store/47b9j9bnhi1n7larnn6wy40xcyfbz9mr-source' from 'git+file:///home/judson/dev/picklist'
         // checking access to '/nix/store/47b9j9bnhi1n7larnn6wy40xcyfbz9mr-source/flake.nix'
         lazy_static::lazy_static! {
-            static ref EVAL_DRV: Regex = Regex::new(r#"evaluating derivation '(?P<flake>git+file:[^#]*)#\S*'\.\.\."#).expect("regex to compile!");
+            static ref EVAL_DRV: Regex = Regex::new(r#"evaluating derivation '(?P<flake>git\+file://(?P<path>[^?]*)[^#]*)#\S*'\.\.\."#).expect("regex to compile!");
         }
 
-        for re in self.tree_rees.values() {
+        for (re, path) in self.tree_rees.values() {
             if let Some(matches) = re.captures(line) {
-                return LogDatum::ReadRecursively(PathBuf::from(&matches["file"]));
+                debug!(self.logger, "tree match"; "re" => ?re, "line" => ?line, "matches" => ?matches);
+                return LogDatum::ReadRecursively(
+                    path.relative_to(PathBuf::from(&matches["file"]))
+                        .expect("paths to join")
+                        .as_path()
+                        .to_path_buf(),
+                );
             }
         }
-        for re in self.flake_rees.values() {
+        for (re, path) in self.flake_rees.values() {
             if let Some(matches) = re.captures(line) {
+                debug!(self.logger, "flake match"; "re" => ?re, "line" => ?line, "matches" => ?matches);
                 let nre = Regex::new(&format!(
                     "checking access to '{}/(?P<file>[^']*)'",
-                    &matches["tree"]
+                    escape(&matches["tree"])
                 ))
                 .expect("tree regex to compile!");
-                self.tree_rees.insert(matches["tree"].to_string(), nre);
+                let tree_name = matches["tree"].to_string();
+                debug!(self.logger, "adding tree RE"; "name" => ?tree_name, "re" => ?re);
+                self.tree_rees.insert(tree_name, (nre, path.clone()));
                 return LogDatum::Text(line.to_string());
             }
         }
         // Lines about evaluating a file are much more common, so looking
         // for them first will reduce comparisons.
         if let Some(matches) = EVAL_DRV.captures(line) {
+            debug!(self.logger, "drv match"; "line" => ?line, "matches" => ?matches);
             let re = Regex::new(&format!(
                 "got tree '(?P<tree>[^']*)' from '{}'",
-                &matches["flake"]
+                escape(&matches["flake"])
             ))
             .expect("flake regex to compile");
-            self.flake_rees.insert(matches["flake"].to_string(), re);
+            let flake_name = matches["flake"].to_string();
+            let source_path = matches["path"].to_string();
+            debug!(self.logger, "adding flake RE"; "name" => ?flake_name, "path" => ?source_path, "re" => ?re);
+            self.flake_rees.insert(
+                flake_name,
+                (
+                    re,
+                    AbsDirPathBuf::new(source_path.into())
+                        .expect("flake name to include absolute path"),
+                ),
+            );
         }
         LogDatum::Text(line.to_string())
     }

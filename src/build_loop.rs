@@ -1,7 +1,7 @@
 //! Uses `builder` and filesystem watch code to repeatedly
 //! evaluate and build a given Nix file.
 
-use crate::builder::{self, BuildError};
+use crate::builder::{self, BuildError, RootedPath};
 use crate::daemon::LoopHandlerEvent;
 use crate::nix::options::NixOptions;
 use crate::pathreduction::reduce_paths;
@@ -332,6 +332,7 @@ impl<'a> BuildLoop<'a> {
         &mut self,
         run_result: Result<builder::RunResult, BuildError>,
     ) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
+        debug!(self.logger, "processing run result"; "result" => ?run_result);
         let run_result = run_result?;
         self.register_paths(&run_result.referenced_paths)?;
         self.root_result(run_result.result)
@@ -350,7 +351,7 @@ impl<'a> BuildLoop<'a> {
 
     fn root_result(
         &mut self,
-        build: builder::RootedPath,
+        build: RootedPath,
     ) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
         self.project
             .create_roots(build, self.user.clone(), &self.logger.clone())
