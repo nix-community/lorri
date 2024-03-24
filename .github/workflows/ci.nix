@@ -11,11 +11,11 @@ let
   };
   setup-nix = {
     name = "Nix";
-    uses = "cachix/install-nix-action@v14.1";
+    uses = "cachix/install-nix-action@v26";
   };
   setup-cachix = {
     name = "Cachix";
-    uses = "cachix/cachix-action@v10";
+    uses = "cachix/cachix-action@v14";
     "with" = {
       name = "nix-community";
       authToken = "\${{ secrets.CACHIX_AUTH_TOKEN }}";
