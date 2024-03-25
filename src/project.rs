@@ -81,7 +81,7 @@ impl slog::Value for ProjectFile {
 
 impl Project {
     /// The name for the build output that's sourced in direnv to produce environment variables
-    pub const ENV_CONTEXT: &str = "shell_gc_root";
+    pub const ENV_CONTEXT: &'static str = "shell_gc_root";
     /// Construct a `Project` from nix file path
     /// and the base GC root directory
     /// (as returned by `Paths.gc_root_dir()`),
