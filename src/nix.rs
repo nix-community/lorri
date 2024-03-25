@@ -74,6 +74,12 @@ impl StorePath {
     }
 }
 
+impl From<PathBuf> for StorePath {
+    fn from(path: PathBuf) -> Self {
+        Self(path)
+    }
+}
+
 impl From<&std::ffi::OsStr> for StorePath {
     fn from(s: &std::ffi::OsStr) -> StorePath {
         StorePath(PathBuf::from(s.to_owned()))
@@ -90,6 +96,12 @@ impl From<std::ffi::OsString> for StorePath {
 /// Once it is dropped, the GC root is removed.
 #[derive(Debug)]
 pub struct GcRootTempDir(tempfile::TempDir);
+
+impl From<tempfile::TempDir> for GcRootTempDir {
+    fn from(dir: tempfile::TempDir) -> Self {
+        Self(dir)
+    }
+}
 
 impl<'a> CallOpts<'a> {
     /// Create a CallOpts with the Nix expression `expr`.
@@ -218,7 +230,7 @@ impl<'a> CallOpts<'a> {
         T: Send + serde::de::DeserializeOwned,
     {
         let mut cmd = Command::new("nix-instantiate");
-        cmd.args(&["--eval", "--json", "--strict"]);
+        cmd.args(["--eval", "--json", "--strict"]);
         cmd.args(self.command_arguments());
         self.execute(cmd, move |stdout_handle| {
             serde_json::from_reader::<_, T>(stdout_handle)
@@ -278,21 +290,16 @@ impl<'a> CallOpts<'a> {
     /// ```
     pub fn path(&self, logger: &slog::Logger) -> Result<(StorePath, GcRootTempDir), BuildError> {
         let (pathsv1, gc_root) = self.paths(logger)?;
-        let mut paths = pathsv1.into_vec();
+        let mut paths = pathsv1.into_iter();
 
-        match (paths.pop(), paths.pop()) {
-            // Exactly zero
-            (None, _) => Err(BuildError::output(
-                "expected exactly one build output, got zero".to_string(),
-            )),
-
+        if let (path, 0) = (paths.next().expect("vec1"), paths.len()) {
             // Exactly one
-            (Some(path), None) => Ok((path, gc_root)),
-
+            Ok((path, gc_root))
+        } else {
             // More than one
-            (Some(_), Some(_)) => Err(BuildError::output(
+            Err(BuildError::output(
                 "expected exactly one build output, got more".to_string(),
-            )),
+            ))
         }
     }
 
@@ -330,7 +337,7 @@ impl<'a> CallOpts<'a> {
         let mut cmd = Command::new("nix-build");
 
         // Create a gc root to the build output
-        cmd.args(&[
+        cmd.args([
             OsStr::new("--out-link"),
             gc_root_dir.path().join(Path::new("result")).as_os_str(),
         ]);
@@ -339,9 +346,13 @@ impl<'a> CallOpts<'a> {
 
         debug!(logger, "nix-build"; "command" => ?cmd);
 
+        let l2 = logger.clone();
         let paths: Vec<StorePath> = self.execute(cmd, move |stdout_handle| {
             osstrlines::Lines::from(stdout_handle)
-                .map(|line| line.map(StorePath::from))
+                .map(|line| {
+                    debug!(l2, "build output"; "line" => ?line);
+                    line.map(StorePath::from)
+                })
                 .collect::<Result<Vec<StorePath>, _>>()
         })??;
 
@@ -349,7 +360,7 @@ impl<'a> CallOpts<'a> {
             Ok((vec1, GcRootTempDir(gc_root_dir)))
         } else {
             Err(BuildError::output(
-                "expected exactly one Nix output, got zero".to_string(),
+                "expected at least one Nix output, got zero".to_string(),
             ))
         }
     }

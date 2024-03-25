@@ -4,7 +4,7 @@ use std::env;
 #[test]
 fn bug23_shell_hook() {
     env::set_var("EXAMPLE", "my-neat-path");
-    let mut testcase = DirenvTestCase::new("bug23_setuphook");
+    let mut testcase = DirenvTestCase::with_shell("bug23_setuphook");
     testcase.evaluate().expect("Failed to build the first time");
 
     let env = testcase.get_direnv_variables();

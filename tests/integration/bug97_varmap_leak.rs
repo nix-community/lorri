@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 #[test]
 fn bug97_varmap_leak() {
-    let mut testcase = DirenvTestCase::new("bug97_varmap_leak");
+    let mut testcase = DirenvTestCase::with_shell("bug97_varmap_leak");
     testcase.evaluate().expect("Failed to build the first time");
 
     let env = testcase.get_direnv_variables();

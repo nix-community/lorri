@@ -19,7 +19,7 @@ use crate::nix::options::NixOptions;
 use crate::nix::CallOpts;
 use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
 use crate::ops::error::{ExitAs, ExitError, ExitErrorType};
-use crate::project::Project;
+use crate::project::{Project, ProjectFile};
 use crate::run_async::Async;
 use crate::socket::path::SocketPath;
 use crate::NixFile;
@@ -86,7 +86,7 @@ pub fn daemon(opts: crate::cli::DaemonOptions, logger: &slog::Logger) -> Result<
         paths.gc_root_dir(),
         paths.cas_store().clone(),
         user,
-        &logger,
+        logger,
     )?;
     build_handle
         .join()
@@ -114,7 +114,7 @@ pub fn direnv<W: std::io::Write>(
         client::create::<client::Ping>(client::Timeout::from_millis(500), logger)
             .and_then(|c| {
                 c.write(&client::Ping {
-                    nix_file: project.nix_file,
+                    project_file: project.file.clone(),
                     rebuild: client::Rebuild::OnlyIfNotYetWatching,
                 })?;
                 Ok(())
@@ -291,9 +291,9 @@ fn create_if_missing(
 ///
 /// Can be used together with `direnv`.
 /// See the documentation for lorri::cli::Command::Ping_ for details.
-pub fn ping(nix_file: NixFile, logger: &slog::Logger) -> Result<(), ExitError> {
+pub fn ping(project_file: ProjectFile, logger: &slog::Logger) -> Result<(), ExitError> {
     client::create(client::Timeout::from_millis(500), logger)?.write(&client::Ping {
-        nix_file,
+        project_file,
         rebuild: client::Rebuild::Always,
     })?;
     Ok(())
@@ -344,15 +344,15 @@ pub fn shell(project: Project, opts: ShellOptions, logger: &slog::Logger) -> Res
 
     debug!(logger, "bash_cmd : {:?}", bash_cmd);
     let status = bash_cmd
-        .args(&[
+        .args([
             OsStr::new("-c"),
             OsStr::new(
                 "exec \"$1\" internal start-user-shell --shell-path=\"$2\" --shell-file=\"$3\"",
             ),
             OsStr::new("--"),
-            &lorri.as_os_str(),
+            lorri.as_os_str(),
             &shell,
-            project.nix_file.as_absolute_path().as_os_str(),
+            project.file.as_absolute_path().as_os_str(),
         ])
         .status()
         .expect("failed to execute bash");
@@ -403,12 +403,15 @@ fn build_root(
     });
 
     // TODO: add the ability to pass extra_nix_options to shell
-    let run_result = builder::run(
-        &project.nix_file,
-        &project.cas,
-        &crate::nix::options::NixOptions::empty(),
-        &logger2,
-    );
+    let run_result = match &project.file {
+        project::ProjectFile::ShellNix(nix_file) => builder::run(
+            nix_file,
+            &project.cas,
+            &crate::nix::options::NixOptions::empty(),
+            &logger2,
+        ),
+        project::ProjectFile::FlakeNix(installable) => builder::flake(installable, &logger2),
+    };
     building.store(false, Ordering::SeqCst);
     progress_thread.block();
 
@@ -430,6 +433,8 @@ fn build_root(
             }
         })?
         .result;
+
+    // XXX need to pin extra roots
 
     Ok(project
         .create_roots(run_result, user, &logger2)
@@ -524,7 +529,7 @@ PS1="(lorri) $PS1"
 "#,
                 )
                 .expect("failed to write bash init script");
-            cmd.args(&[
+            cmd.args([
                 "--rcfile",
                 rcfile
                     .as_path()
@@ -690,7 +695,7 @@ pub fn stream_events(kind: EventKind, logger: &slog::Logger) -> Result<(), ExitE
                             )),
                         )
                             .expect("couldn't serialize event");
-                        write!(std::io::stdout(), "\n").expect("couldn't serialize event");
+                        writeln!(std::io::stdout()).expect("couldn't serialize event");
                         std::io::stdout().flush().expect("couldn't flush serialized event");
                     }
                     _ => (),
@@ -806,7 +811,7 @@ pub fn upgrade(
             UpgradeSource::Local(ref p) => println!("Upgrading from local path: {}", p.display()),
         }
 
-        let mut expr = nix::CallOpts::file(&upgrade_expr.as_path());
+        let mut expr = nix::CallOpts::file(upgrade_expr.as_path());
 
         match src {
             UpgradeSource::Branch(b) => {
@@ -949,7 +954,7 @@ fn list_roots(logger: &slog::Logger) -> Result<Vec<GcRootInfo>, ExitError> {
             Ok(m) => m.modified().unwrap_or(std::time::UNIX_EPOCH),
         };
         let nix_file_symlink = gc_root_dir.join("nix_file");
-        let nix_file = std::fs::read_link(&nix_file_symlink);
+        let nix_file = std::fs::read_link(nix_file_symlink);
         let alive = match &nix_file {
             Err(_) => false,
             Ok(path) => match std::fs::metadata(path) {
@@ -957,10 +962,7 @@ fn list_roots(logger: &slog::Logger) -> Result<Vec<GcRootInfo>, ExitError> {
                 Err(_) => false,
             },
         };
-        let nix_file = match nix_file {
-            Err(_) => None,
-            Ok(p) => Some(p),
-        };
+        let nix_file = nix_file.ok();
         res.push(GcRootInfo {
             gc_dir,
             nix_file,

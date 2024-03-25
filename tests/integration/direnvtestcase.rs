@@ -10,6 +10,7 @@ use lorri::ops;
 use lorri::project;
 use lorri::project::Project;
 use lorri::AbsPathBuf;
+use lorri::Installable;
 use lorri::NixFile;
 
 use std::collections::HashMap;
@@ -29,18 +30,32 @@ pub struct DirenvTestCase {
 }
 
 impl DirenvTestCase {
-    pub fn new(name: &str) -> DirenvTestCase {
+    pub fn with_shell(name: &str) -> DirenvTestCase {
+        let test_root =
+            PathBuf::from_iter([env!("CARGO_MANIFEST_DIR"), "tests", "integration", name]);
+
+        let shell_file = NixFile::from(AbsPathBuf::new(test_root.join("shell.nix")).unwrap());
+        let project_file = project::ProjectFile::ShellNix(shell_file);
+        Self::new(project_file)
+    }
+
+    pub fn with_flake(name: &str) -> DirenvTestCase {
+        let test_root =
+            PathBuf::from_iter([env!("CARGO_MANIFEST_DIR"), "tests", "integration", name]);
+        let project_file = project::ProjectFile::FlakeNix(Installable {
+            context: AbsPathBuf::new(test_root).unwrap(),
+            installable: ".#".to_string(),
+        });
+        Self::new(project_file)
+    }
+
+    fn new(project_file: project::ProjectFile) -> DirenvTestCase {
         let projectdir = tempdir().expect("tempfile::tempdir() failed us!");
         let cachedir_tmp = tempdir().expect("tempfile::tempdir() failed us!");
         let cachedir = AbsPathBuf::new(cachedir_tmp.path().to_owned()).unwrap();
 
-        let test_root =
-            PathBuf::from_iter(&[env!("CARGO_MANIFEST_DIR"), "tests", "integration", name]);
-
-        let shell_file = NixFile::from(AbsPathBuf::new(test_root.join("shell.nix")).unwrap());
-
-        let cas = ContentAddressable::new(cachedir.join("cas").to_owned()).unwrap();
-        let project = Project::new(shell_file.clone(), &cachedir.join("gc_roots"), cas).unwrap();
+        let cas = ContentAddressable::new(cachedir.join("cas")).unwrap();
+        let project = Project::new(project_file, &cachedir.join("gc_roots"), cas).unwrap();
 
         DirenvTestCase {
             projectdir,
@@ -76,7 +91,7 @@ impl DirenvTestCase {
         }
 
         let mut env = self.direnv_cmd();
-        env.args(&["export", "json"]);
+        env.args(["export", "json"]);
         let result = env.output().expect("Failed to run direnv export json");
         if !result.status.success() {
             println!("stderr: {}", String::from_utf8_lossy(&result.stderr));
@@ -95,9 +110,9 @@ impl DirenvTestCase {
         d.env_remove("DIRENV_MTIME");
         d.env_remove("DIRENV_WATCHES");
         d.env_remove("DIRENV_DIFF");
-        d.env("DIRENV_CONFIG", &self.projectdir.path());
-        d.env("XDG_CONFIG_HOME", &self.projectdir.path());
-        d.current_dir(&self.projectdir.path());
+        d.env("DIRENV_CONFIG", self.projectdir.path());
+        d.env("XDG_CONFIG_HOME", self.projectdir.path());
+        d.current_dir(self.projectdir.path());
 
         d
     }
@@ -118,7 +133,7 @@ impl DirenvEnv {
     ///    assert!(env.get_env("foo"), Value("bar"));
     pub fn get_env<'a, 'b>(&'a self, key: &'b str) -> DirenvValue {
         match self.0.get(key) {
-            Some(Some(val)) => DirenvValue::Value(&val),
+            Some(Some(val)) => DirenvValue::Value(val),
             Some(None) => DirenvValue::Unset,
             None => DirenvValue::NotSet,
         }
@@ -130,7 +145,7 @@ impl DirenvEnv {
         F: Fn(&str) -> bool,
     {
         let mut new = self.0.to_owned();
-        new.retain(|k, _| f(&k));
+        new.retain(|k, _| f(k));
         new
     }
 }

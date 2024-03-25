@@ -1,5 +1,7 @@
 //! Exit errors returned from an op.
 
+use structopt::clap;
+
 /// Non-zero exit status from an op.
 ///
 /// Based in part on the execline convention
@@ -110,6 +112,12 @@ impl ExitError {
 impl From<std::io::Error> for ExitError {
     fn from(e: std::io::Error) -> ExitError {
         ExitError::temporary(anyhow::anyhow!(e))
+    }
+}
+
+impl From<clap::Error> for ExitError {
+    fn from(err: clap::Error) -> Self {
+        ExitError::user_error(err)
     }
 }
 

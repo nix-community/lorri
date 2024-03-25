@@ -5,7 +5,7 @@ use crate::direnvtestcase::{DirenvTestCase, DirenvValue};
 
 #[test]
 fn in_lorri_shell() {
-    let mut testcase = DirenvTestCase::new("basic");
+    let mut testcase = DirenvTestCase::with_shell("basic");
     testcase.evaluate().expect("Failed to build the first time");
 
     let env = testcase.get_direnv_variables();

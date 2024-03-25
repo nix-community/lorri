@@ -1,52 +1,38 @@
+use anyhow::anyhow;
 use lorri::cli::{Arguments, Command, Internal_, Verbosity};
 use lorri::logging;
-use lorri::ops;
 use lorri::ops::error::ExitError;
-use lorri::project::Project;
-use lorri::NixFile;
+use lorri::project::{Project, ProjectFile};
 use lorri::{constants, AbsPathBuf};
-use slog::{debug, error, o};
+use lorri::{ops, AbsDirPathBuf};
+use slog::{debug, o};
+use std::convert::TryInto;
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use structopt::StructOpt;
 
 const TRIVIAL_SHELL_SRC: &str = include_str!("./trivial-shell.nix");
-const FLAKE_COMPAT_SHELL_SRC: &str = include_str!("./flake-compat-shell.nix");
 const DEFAULT_ENVRC: &str = include_str!("./default-envrc");
 
-fn main() {
+fn main() -> Result<(), ExitError> {
     install_panic_handler();
 
-    let exit_code = {
-        let opts = Arguments::from_args();
+    let opts = Arguments::from_args();
 
-        let verbosity = match opts.verbosity {
-            // -v flag was given 0 times
-            0 => Verbosity::DefaultInfo,
-            // -v flag was specified one or more times, we log everything
-            _n => Verbosity::Debug,
-        };
-
-        // This logger is asynchronous. It is guaranteed to be flushed upon destruction. By tying
-        // its lifetime to this smaller scope, we ensure that it is destroyed before
-        // 'std::process::exit' gets called.
-        let logger = logging::root(verbosity, &opts.command);
-        debug!(logger, "input options"; "options" => ?opts);
-
-        match run_command(&logger, opts) {
-            Err(err) => {
-                error!(logger, "{}", err.message());
-                err.exitcode()
-            }
-            Ok(()) => 0,
-        }
+    let verbosity = match opts.verbosity {
+        // -v flag was given 0 times
+        0 => Verbosity::DefaultInfo,
+        // -v flag was specified one or more times, we log everything
+        _n => Verbosity::Debug,
     };
 
-    // TODO: Once the 'Termination' trait has been stabilised, 'Result<(), ExitError>' should implement
-    // 'Termination' and 'main' should return 'Result<(), ExitError>'.
-    // https://doc.rust-lang.org/std/process/trait.Termination.html
-    // https://github.com/rust-lang/rfcs/blob/master/text/1937-ques-in-main.md
-    std::process::exit(exit_code);
+    // This logger is asynchronous. It is guaranteed to be flushed upon destruction. By tying
+    // its lifetime to this smaller scope, we ensure that it is destroyed before
+    // 'std::process::exit' gets called.
+    let logger = logging::root(verbosity, &opts.command);
+    debug!(logger, "input options"; "options" => ?opts);
+
+    run_command(&logger, opts)
 }
 
 fn install_panic_handler() {
@@ -64,36 +50,28 @@ fn install_signal_handler() {
     .expect("Error setting SIGINT and SIGTERM handler");
 }
 
-/// Reads a nix filename given by the user and either returns
-/// the `NixFile` type or exists with a helpful error message
-/// that instructs the user how to write a minimal `shell.nix`.
-fn find_nix_file(shellfile: &Path) -> Result<NixFile, ExitError> {
-    // use shell.nix from cwd
-    match is_file_in_current_directory(shellfile) {
-        Err(err) => Err(ExitError::temporary(err)),
-        Ok(None) => Err(ExitError::user_error(
-            if PathBuf::from("flake.nix").exists() {
-                anyhow::anyhow!(
-                    "lorri does not currently natively support flakes.\nYou can use the following compatibility `shell.nix` to use lorri with flakes:\n\n\
-                    {}",
-                    FLAKE_COMPAT_SHELL_SRC
-                )
-            } else {
-                anyhow::anyhow!(
-                    "`{}` does not exist\n\
-                    You can use the following minimal `shell.nix` to get started:\n\n\
-                    {}",
-                    shellfile.display(),
-                    TRIVIAL_SHELL_SRC
-                )
-            },
-        )),
-        Ok(Some(file)) => Ok(NixFile::from(file)),
-    }
+/// Search for `name` in the current directory.
+/// If `name` is an absolute path and a file, it returns the file.
+/// If it doesn’t exist, returns `None`.
+pub fn is_file_in_current_directory(name: &Path) -> anyhow::Result<Option<AbsPathBuf>> {
+    let path = AbsDirPathBuf::current_dir()
+        .unwrap_or_else(|orig| {
+            panic!(
+                "Expected `env::current_dir` to return an absolute path, but was {}",
+                orig
+            )
+        })
+        .relative_to(name.to_path_buf())
+        .map_err(|p| anyhow!("Current dir is not dir: {:?}", p))?;
+    Ok(if path.as_path().is_file() {
+        Some(path)
+    } else {
+        None
+    })
 }
 
-fn create_project(paths: &constants::Paths, shell_nix: NixFile) -> Result<Project, ExitError> {
-    Project::new(shell_nix, &paths.gc_root_dir(), paths.cas_store().clone()).map_err(|err| {
+fn create_project(paths: &constants::Paths, shell_nix: ProjectFile) -> Result<Project, ExitError> {
+    Project::new(shell_nix, paths.gc_root_dir(), paths.cas_store().clone()).map_err(|err| {
         ExitError::temporary(anyhow::anyhow!(err).context("Could not set up project paths"))
     })
 }
@@ -102,29 +80,23 @@ fn create_project(paths: &constants::Paths, shell_nix: NixFile) -> Result<Projec
 fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> {
     let paths = lorri::ops::get_paths()?;
 
-    let with_project = |nix_file| -> std::result::Result<(Project, slog::Logger), ExitError> {
-        let project = create_project(&lorri::ops::get_paths()?, find_nix_file(nix_file)?)?;
-        let logger = logger.new(o!("nix_file" => project.nix_file.clone()));
-        Ok((project, logger))
-    };
-
     match opts.command {
         Command::Info(opts) => {
-            let (project, _logger) = with_project(&opts.nix_file)?;
+            let (project, _logger) = with_project(logger, &opts.source.try_into()?)?;
             ops::info(project)
         }
         Command::Gc(opts) => ops::gc(logger, opts),
         Command::Direnv(opts) => {
-            let (project, logger) = with_project(&opts.nix_file)?;
+            let (project, logger) = with_project(logger, &opts.source.try_into()?)?;
             ops::direnv(project, /* shell_output */ std::io::stdout(), &logger)
         }
         Command::Shell(opts) => {
-            let (project, logger) = with_project(&opts.nix_file)?;
+            let (project, logger) = with_project(logger, &opts.source.clone().try_into()?)?;
             ops::shell(project, opts, &logger)
         }
 
         Command::Watch(opts) => {
-            let (project, logger) = with_project(&opts.nix_file)?;
+            let (project, logger) = with_project(logger, &opts.source.clone().try_into()?)?;
             ops::watch(project, opts, &logger)
         }
         Command::Daemon(opts) => {
@@ -135,12 +107,9 @@ fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> 
         Command::Init => ops::init(TRIVIAL_SHELL_SRC, DEFAULT_ENVRC, logger),
 
         Command::Internal { command } => match command {
-            Internal_::Ping_(opts) => {
-                let nix_file = find_nix_file(&opts.nix_file)?;
-                ops::ping(nix_file, logger)
-            }
+            Internal_::Ping_(opts) => ops::ping(opts.source.try_into()?, logger),
             Internal_::StartUserShell_(opts) => {
-                let (project, _logger) = with_project(&opts.nix_file)?;
+                let (project, _logger) = with_project(logger, &opts.source.clone().try_into()?)?;
                 ops::start_user_shell(project, opts)
             }
             Internal_::StreamEvents_(se) => ops::stream_events(se.kind, logger),
@@ -148,23 +117,13 @@ fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> 
     }
 }
 
-/// Search for `name` in the current directory.
-/// If `name` is an absolute path and a file, it returns the file.
-/// If it doesn’t exist, returns `None`.
-pub fn is_file_in_current_directory(name: &Path) -> anyhow::Result<Option<AbsPathBuf>> {
-    let path = AbsPathBuf::new(env::current_dir()?)
-        .unwrap_or_else(|orig| {
-            panic!(
-                "Expected `env::current_dir` to return an absolute path, but was {}",
-                orig.display()
-            )
-        })
-        .join(name);
-    Ok(if path.as_path().is_file() {
-        Some(path)
-    } else {
-        None
-    })
+fn with_project(
+    logger: &slog::Logger,
+    project_file: &ProjectFile,
+) -> std::result::Result<(Project, slog::Logger), ExitError> {
+    let project = create_project(&lorri::ops::get_paths()?, project_file.clone())?;
+    let logger = logger.new(o!("nix_file" => project.file.clone()));
+    Ok((project, logger))
 }
 
 #[cfg(test)]

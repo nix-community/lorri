@@ -38,7 +38,7 @@ impl<Res: Send + 'static> Async<Res> {
         F: std::panic::UnwindSafe,
         F: Send + 'static,
     {
-        Self::run_inner(&logger, f, false)
+        Self::run_inner(logger, f, false)
     }
 
     /// Create a new Async that runs a function in a thread.

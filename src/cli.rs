@@ -8,7 +8,11 @@
 //
 // See MAINTAINERS.md for details on internal and non-internal commands.
 
-use std::{path::PathBuf, time::Duration};
+use std::{convert::TryFrom, path::PathBuf, time::Duration};
+
+use structopt::clap;
+
+use crate::{project::ProjectFile, AbsDirPathBuf, AbsPathBuf, Installable};
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "lorri")]
@@ -79,32 +83,171 @@ pub enum Command {
     },
 }
 
+/// Common options about the build source, defaults to `shell.nix`
+#[derive(StructOpt, Debug, Clone)]
+pub struct DefaultingSourceOptions {
+    /// The .nix file in the current directory to use
+    #[structopt(long = "shell-file", parse(from_os_str))]
+    pub shell_file: Option<PathBuf>,
+
+    /// The path to consider a flake source within
+    #[structopt(
+        long = "context",
+        parse(from_os_str),
+        default_value = ".",
+        conflicts_with = "nix_file"
+    )]
+    pub context_dir: PathBuf,
+
+    /// The installable descriptor for a flake
+    #[structopt(long = "flake", conflicts_with = "nix_file")]
+    pub flake: Option<String>,
+}
+
+fn from_current_dir(rel: &PathBuf) -> Result<AbsPathBuf, clap::Error> {
+    AbsDirPathBuf::current_dir()?
+        .relative_to(rel.clone())
+        .map_err(|err| {
+            clap::Error::with_description(
+                &format!("could not make {:?} absolute: {:?}", rel, err),
+                clap::ErrorKind::ValueValidation,
+            )
+        })
+}
+
+impl TryFrom<DefaultingSourceOptions> for ProjectFile {
+    type Error = clap::Error;
+
+    fn try_from(opts: DefaultingSourceOptions) -> Result<Self, Self::Error> {
+        match (opts.shell_file, opts.flake) {
+            (Some(_), Some(_)) => Err(clap::Error::with_description(
+                "cannot use nix-shell files and flakes together",
+                clap::ErrorKind::ArgumentConflict,
+            )),
+            // XXX Consider more sophisticated default - e.g. first that exists: shell.nix, flake.nix, default.nix
+            (None, None) => find_nix_file("shell.nix")
+                .or_else(|| find_nix_file("flake.nix"))
+                .or_else(|| find_nix_file("default.nix"))
+                .ok_or_else(|| clap::Error::with_description(
+                    &format!(
+                    "No default build sources found\n\
+                    You can use a flake.nix file or the following minimal `shell.nix` to get started:\n\n\
+                    {}",
+                    TRIVIAL_SHELL_SRC
+                ), clap::ErrorKind::ValueValidation)),
+            (Some(shell), None) => Ok(ProjectFile::ShellNix(from_current_dir(&shell)?.into())),
+            (None, Some(flake)) => Ok(ProjectFile::FlakeNix(Installable {
+                context: from_current_dir(&opts.context_dir)?,
+                installable: flake,
+            })),
+        }
+    }
+}
+
+const TRIVIAL_SHELL_SRC: &str = include_str!("./trivial-shell.nix");
+/// Reads a nix filename given by the user and either returns
+/// the `NixFile` type or exists with a helpful error message
+/// that instructs the user how to write a minimal `shell.nix`.
+fn find_nix_file(shellfile: &str) -> Option<ProjectFile> {
+    let path = AbsDirPathBuf::current_dir()
+        .ok()?
+        .relative_to(shellfile.into())
+        .ok()?;
+    if !path.as_path().is_file() {
+        return None;
+    };
+
+    // use shell.nix from cwd
+    Some(
+        match path
+            .file_name()
+            .expect("Should already have confirmed is_file")
+            .to_str()
+        {
+            Some("flake.nix") => ProjectFile::flake(
+                AbsPathBuf::new(
+                    path.as_path()
+                        .parent()
+                        .expect("Should already be a file")
+                        .to_path_buf(),
+                )
+                .expect("already absolute"),
+                ".#".into(),
+            ),
+            _ => ProjectFile::ShellNix(path.into()),
+        },
+    )
+}
+
+/// Common options about the build source, where an explicit field is required
+/// This version of the source options has no default value. That's on purpose: sometimes the user
+/// will have projects with multiple shell files. This way, they are forced to think about which shell
+/// file was causing problems when they submit a bug report.
+#[derive(StructOpt, Debug, Clone)]
+pub struct SourceOptions {
+    /// The .nix file in the current directory to use
+    #[structopt(long = "shell-file", parse(from_os_str))]
+    pub shell_file: Option<PathBuf>,
+
+    /// The path to consider a flake source within
+    #[structopt(
+        long = "context",
+        parse(from_os_str),
+        default_value = ".",
+        conflicts_with = "nix_file"
+    )]
+    pub context_dir: PathBuf,
+
+    /// The installable descriptor for a flake
+    #[structopt(long = "flake", conflicts_with = "nix_file")]
+    pub flake: Option<String>,
+}
+
+impl TryFrom<SourceOptions> for ProjectFile {
+    type Error = clap::Error;
+
+    fn try_from(opts: SourceOptions) -> Result<Self, Self::Error> {
+        match (opts.shell_file, opts.flake) {
+            (Some(_), Some(_)) => Err(clap::Error::with_description(
+                "cannot use nix-shell files and flakes together",
+                clap::ErrorKind::ArgumentConflict,
+            )),
+            (None, None) => Err(clap::Error::with_description(
+                "either --shell-file or --flake is required",
+                clap::ErrorKind::MissingRequiredArgument,
+            )),
+            (Some(shell), None) => Ok(ProjectFile::ShellNix(from_current_dir(&shell)?.into())),
+            (None, Some(flake)) => Ok(ProjectFile::FlakeNix(Installable {
+                context: from_current_dir(&opts.context_dir)?,
+                installable: flake,
+            })),
+        }
+    }
+}
+
 /// Options for the `direnv` subcommand.
 #[derive(StructOpt, Debug)]
 pub struct DirenvOptions {
-    /// The .nix file in the current directory to use
-    #[structopt(long = "shell-file", parse(from_os_str), default_value = "shell.nix")]
-    pub nix_file: PathBuf,
+    #[allow(missing_docs)]
+    #[structopt(flatten)]
+    pub source: DefaultingSourceOptions,
 }
 
 /// Options for the `info` subcommand.
 #[derive(StructOpt, Debug)]
 pub struct InfoOptions {
-    /// The .nix file in the current directory to use
-    // The "shell-file" argument has no default value. That's on purpose: sometimes users have
-    // projects with multiple shell files. This way, they are forced to think about which shell
-    // file was causing problems when they submit a bug report.
-    #[structopt(long = "shell-file", parse(from_os_str))]
-    pub nix_file: PathBuf,
+    #[allow(missing_docs)]
+    #[structopt(flatten)]
+    pub source: SourceOptions,
 }
 
 /// Parses a duration from a timestamp like 30d, 2m.
 fn human_friendly_duration(s: &str) -> Result<Duration, String> {
-    let multiplier = if s.ends_with("d") {
+    let multiplier = if s.ends_with('d') {
         24 * 60 * 60
-    } else if s.ends_with("m") {
+    } else if s.ends_with('m') {
         30 * 24 * 60 * 60
-    } else if s.ends_with("y") {
+    } else if s.ends_with('y') {
         365 * 24 * 60 * 60
     } else {
         return Err(format!(
@@ -172,6 +315,7 @@ pub enum GcSubcommand {
     Info,
     /// Removes the gc roots associated to projects whose nix file vanished.
     #[structopt(name = "rm")]
+    // XXX need to be able to rm flake roots too
     Rm {
         /// Also delete the root associated with these shell files
         #[structopt(long = "shell-file")]
@@ -188,9 +332,11 @@ pub enum GcSubcommand {
 /// Options for the `shell` subcommand.
 #[derive(StructOpt, Debug)]
 pub struct ShellOptions {
-    /// The .nix file in the current directory to use
-    #[structopt(long = "shell-file", parse(from_os_str), default_value = "shell.nix")]
-    pub nix_file: PathBuf,
+    // The source to build the environment from
+    #[allow(missing_docs)]
+    #[structopt(flatten)]
+    pub source: DefaultingSourceOptions,
+
     /// If true, load environment from cache
     #[structopt(long = "cached")]
     pub cached: bool,
@@ -202,17 +348,20 @@ pub struct StartUserShellOptions_ {
     /// The path of the parent shell's binary
     #[structopt(long = "shell-path", parse(from_os_str))]
     pub shell_path: PathBuf,
-    /// The .nix file in the current directory to use to instantiate the project
-    #[structopt(long = "shell-file", parse(from_os_str))]
-    pub nix_file: PathBuf,
+
+    // The source to build the environment from
+    #[allow(missing_docs)]
+    #[structopt(flatten)]
+    pub source: DefaultingSourceOptions,
 }
 
 /// Options for the `watch` subcommand.
 #[derive(StructOpt, Debug)]
 pub struct WatchOptions {
-    /// The .nix file in the current directory to use
-    #[structopt(long = "shell-file", parse(from_os_str), default_value = "shell.nix")]
-    pub nix_file: PathBuf,
+    // The source to build the environment from
+    #[allow(missing_docs)]
+    #[structopt(flatten)]
+    pub source: DefaultingSourceOptions,
     /// Exit after a the first build
     #[structopt(long = "once")]
     pub once: bool,
@@ -273,9 +422,9 @@ pub enum Internal_ {
 /// get pinged for a long time, it may stop watching the project for changes.
 #[derive(StructOpt, Debug)]
 pub struct Ping_ {
-    /// The .nix file to watch and build on changes.
-    #[structopt(parse(from_os_str))]
-    pub nix_file: PathBuf,
+    #[allow(missing_docs)]
+    #[structopt(flatten)]
+    pub source: DefaultingSourceOptions,
 }
 
 /// Stream events from the daemon.

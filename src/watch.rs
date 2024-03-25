@@ -167,7 +167,7 @@ impl Watch {
             if !self.watches.contains(parent) {
                 debug!(self.logger, "watching parent path"; "parent_path" => parent.to_str());
 
-                self.notify.watch(&parent, RecursiveMode::NonRecursive)?;
+                self.notify.watch(parent, RecursiveMode::NonRecursive)?;
             }
         }
 

@@ -14,9 +14,9 @@ use thiserror::Error;
 
 use crate::build_loop;
 use crate::ops::error::{ExitAs, ExitErrorType};
+use crate::project::ProjectFile;
 use crate::socket::path::{BindError, BindLock, SocketPath};
 use crate::socket::read_writer::{ReadWriteError, ReadWriter, Timeout};
-use crate::NixFile;
 
 /// We declare 1s as the time readers should wait
 /// for the other side to send something.
@@ -51,7 +51,7 @@ pub enum NoMessage {}
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Ping {
     /// The nix file to watch and build on changes.
-    pub nix_file: NixFile,
+    pub project_file: ProjectFile,
     /// When/whether to start the build.
     pub rebuild: Rebuild,
 }

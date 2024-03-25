@@ -1,7 +1,7 @@
 //! Uses `builder` and filesystem watch code to repeatedly
 //! evaluate and build a given Nix file.
 
-use crate::builder::{self, BuildError};
+use crate::builder::{self, BuildError, RootedPath};
 use crate::daemon::LoopHandlerEvent;
 use crate::nix::options::NixOptions;
 use crate::pathreduction::reduce_paths;
@@ -172,13 +172,11 @@ impl<'a> BuildLoop<'a> {
     ) -> anyhow::Result<BuildLoop<'a>> {
         let mut watch = Watch::try_new(logger.clone()).map_err(|err| anyhow!(err))?;
         watch
-            .extend(vec![WatchPathBuf::Normal(
-                project.nix_file.as_absolute_path().to_owned(),
-            )])
+            .extend(vec![WatchPathBuf::Normal(project.file.as_absolute_path())])
             .with_context(|| {
                 format!(
                     "Failed to add nix path to watcher for nix file {}",
-                    project.nix_file.display()
+                    project.file.as_nix_file().display()
                 )
             })?;
 
@@ -206,7 +204,7 @@ impl<'a> BuildLoop<'a> {
         loop {
             debug!(self.logger, "looping build_loop";
                    "current_build" => current_build.display_status(),
-                   "project" => &self.project.nix_file);
+                   "project" => &self.project.file);
             let rx_current_build = current_build.result_chan();
 
             let send = |msg| {
@@ -224,14 +222,14 @@ impl<'a> BuildLoop<'a> {
                         match self.handle_run_result(run_result) {
                             Ok(rooted_output_paths) => {
                                 send(Event::Completed {
-                                    nix_file: self.project.nix_file.clone(),
+                                    nix_file: self.project.file.as_nix_file().clone(),
                                     rooted_output_paths,
                                 });
                             }
                             Err(e) => {
                                 if e.is_actionable() {
                                     send(Event::Failure {
-                                        nix_file: self.project.nix_file.clone(),
+                                        nix_file: self.project.file.as_nix_file().clone(),
                                         failure: e,
                                     })
                                 } else {
@@ -241,7 +239,7 @@ impl<'a> BuildLoop<'a> {
                         }
                     },
                     Err(chan::RecvError) =>
-                        debug!(self.logger, "current build async chan was disconnected"; "project" => &self.project.nix_file)
+                        debug!(self.logger, "current build async chan was disconnected"; "project" => &self.project.file)
                 },
 
                 // watcher found file change
@@ -251,7 +249,7 @@ impl<'a> BuildLoop<'a> {
                             Some(changed) => {
                                 // TODO: this is not a started, this is just a scheduled!
                                 send(Event::Started {
-                                    nix_file: self.project.nix_file.clone(),
+                                    nix_file: self.project.file.as_nix_file().clone(),
                                     reason: Reason::FilesChanged(changed)
                                 });
                                 self.schedule_build(&mut current_build)
@@ -261,7 +259,7 @@ impl<'a> BuildLoop<'a> {
                         }
                     },
                     Err(chan::RecvError) =>
-                        debug!(self.logger, "notify chan was disconnected"; "project" => &self.project.nix_file)
+                        debug!(self.logger, "notify chan was disconnected"; "project" => &self.project.file)
                 },
 
                 // we were pinged
@@ -269,13 +267,13 @@ impl<'a> BuildLoop<'a> {
                     Ok(()) => {
                         // TODO: this is not a started, this is just a scheduled!
                         send(Event::Started{
-                            nix_file: self.project.nix_file.clone(),
+                            nix_file: self.project.file.as_nix_file().clone(),
                             reason: Reason::PingReceived
                         });
                         self.schedule_build(&mut current_build)
                     },
                     Err(chan::RecvError) =>
-                        debug!(self.logger, "ping chan was disconnected"; "project" => &self.project.nix_file)
+                        debug!(self.logger, "ping chan was disconnected"; "project" => &self.project.file)
                 }
             };
         }
@@ -301,13 +299,24 @@ impl<'a> BuildLoop<'a> {
 
     /// Start an actual build, asynchronously.
     fn start_build(&self) -> Async<Result<builder::RunResult, BuildError>> {
-        let nix_file = self.project.nix_file.clone();
-        let cas = self.project.cas.clone();
-        let extra_nix_options = self.extra_nix_options.clone();
-        let logger2 = self.logger.clone();
-        crate::run_async::Async::run(&self.logger, move || {
-            builder::run(&nix_file, &cas, &extra_nix_options, &logger2)
-        })
+        match &self.project.file {
+            project::ProjectFile::ShellNix(nf) => {
+                let nix_file = nf.clone();
+                let cas = self.project.cas.clone();
+                let extra_nix_options = self.extra_nix_options.clone();
+                let logger2 = self.logger.clone();
+                crate::run_async::Async::run(&self.logger, move || {
+                    builder::run(&nix_file, &cas, &extra_nix_options, &logger2)
+                })
+            }
+            project::ProjectFile::FlakeNix(i) => {
+                let logger = self.logger.clone();
+                let installable = i.clone();
+                crate::run_async::Async::run(&self.logger, move || {
+                    builder::flake(&installable, &logger)
+                })
+            }
+        }
     }
 
     /// Execute a single build of the environment.
@@ -315,22 +324,15 @@ impl<'a> BuildLoop<'a> {
     /// This will create GC roots and expand the file watch list for
     /// the evaluation.
     pub fn once(&mut self) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
-        let nix_file = self.project.nix_file.clone();
-        let cas = self.project.cas.clone();
-        let extra_nix_options = self.extra_nix_options.clone();
-        let logger2 = self.logger.clone();
-        self.handle_run_result(
-            crate::run_async::Async::run(&self.logger, move || {
-                builder::run(&nix_file, &cas, &extra_nix_options, &logger2)
-            })
-            .block(),
-        )
+        let run_result = self.start_build().block();
+        self.handle_run_result(run_result)
     }
 
     fn handle_run_result(
         &mut self,
         run_result: Result<builder::RunResult, BuildError>,
     ) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
+        debug!(self.logger, "processing run result"; "result" => ?run_result);
         let run_result = run_result?;
         self.register_paths(&run_result.referenced_paths)?;
         self.root_result(run_result.result)
@@ -338,7 +340,7 @@ impl<'a> BuildLoop<'a> {
 
     fn register_paths(&mut self, paths: &[WatchPathBuf]) -> Result<(), notify::Error> {
         let original_paths_len = paths.len();
-        let paths = reduce_paths(&paths);
+        let paths = reduce_paths(paths);
         debug!(self.logger, "paths reduced"; "from" => original_paths_len, "to" => paths.len());
 
         // add all new (reduced) nix sources to the input source watchlist
@@ -349,7 +351,7 @@ impl<'a> BuildLoop<'a> {
 
     fn root_result(
         &mut self,
-        build: builder::RootedPath,
+        build: RootedPath,
     ) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
         self.project
             .create_roots(build, self.user.clone(), &self.logger.clone())
