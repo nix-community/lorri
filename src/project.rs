@@ -7,9 +7,8 @@ use crate::builder::{OutputPath, RootedPath};
 use crate::cas::ContentAddressable;
 use crate::ops::error::ExitError;
 use crate::{AbsPathBuf, NixFile};
-use std::ffi::OsString;
+use std::ffi::{CString, OsString};
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 /// A “project” knows how to handle the lorri state
@@ -203,13 +202,20 @@ impl NixGcRootUserDir {
         // but we can create it for older nix versions (it’s root but `rwxrwxrwx`)
         // Newer nix versions make the directory `rwxr-xr-x`, meaning we need the user to intervene.
         if !nix_gc_root_user_dir.as_path().is_dir() {
-            let meta = std::fs::metadata(nix_gc_root_user_dir_root.as_path()).map_err(|source|
-
-            ExitError::panic(anyhow::Error::new(source).context(
-                format!("Cannot stat user roots directory for permission to create a new lorri user dir: {}", nix_gc_root_user_dir_root.display()) ) ))?;
-
             // check whether we are allowed to create the directory
-            if 0 != (meta.permissions().mode() & nix::libc::S_IWOTH) {
+            let st_mode = unsafe {
+                let mut stat = std::mem::MaybeUninit::<nix::libc::stat>::uninit();
+                let path = CString::new(nix_gc_root_user_dir_root.as_path().as_os_str().as_bytes())
+                    .unwrap();
+
+                if 0 != nix::libc::stat(path.as_ptr(), stat.as_mut_ptr()) {
+                    Err(
+                        ExitError::panic(anyhow::Error::new(std::io::Error::last_os_error()).context(format!("Cannot stat user roots directory for permission to create a new lorri user dir: {}", nix_gc_root_user_dir_root.display())) ))?;
+                }
+                stat.assume_init().st_mode
+            };
+
+            if 0 != (st_mode & nix::libc::S_IWOTH) {
                 std::fs::create_dir_all(nix_gc_root_user_dir.as_path()).map_err(|source| {
                     ExitError::panic(anyhow::Error::new(source).context(format!(
                         "Failed to create missing nix user gc directory: {}",
