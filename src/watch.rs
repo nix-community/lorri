@@ -373,26 +373,35 @@ mod tests {
     fn expect_bash_can_pass() {
         expect_bash(r#"exit "$1""#, ["0"]);
     }
+    /// upper bound of watcher (if it’s hit, something is broken) (CI machines are very slow around here …)
+    const WATCHER_TIMEOUT: Duration = Duration::from_millis(2000);
 
-    /// upper bound of watcher (if it’s hit, something is broken)
-    fn upper_watcher_timeout() -> Duration {
-        // CI machines are very slow sometimes.
-        Duration::from_millis(1000)
+    /// Assert at least one watcher event happens until the timeout, returns the first.
+    fn assert_one_within(watch: &Watch, timeout: Duration) -> Option<Vec<PathBuf>> {
+        watch
+            .rx
+            .recv_timeout(timeout)
+            .map_or(None, |e| Some(watch.process(e)))
+            .flatten()
     }
 
-    /// Collect all notifications
-    fn process_all(watch: &Watch) -> Vec<Option<Vec<PathBuf>>> {
-        watch.rx.try_iter().map(|e| watch.process(e)).collect()
+    /// Assert no watcher event happens until the timeout
+    fn assert_none_within(watch: &Watch, timeout: Duration) -> bool {
+        watch.rx.recv_timeout(timeout).is_err()
     }
 
     /// Returns true iff the given file has changed
-    fn file_changed(watch: &Watch, file_name: &str) -> (bool, Vec<PathBuf>) {
+    fn file_changed_within(
+        watch: &Watch,
+        file_name: &str,
+        timeout: Duration,
+    ) -> (bool, Vec<PathBuf>) {
         let mut reasons = Vec::new();
         let mut changed = false;
-        for event in process_all(watch).into_iter().flatten() {
-            reasons.extend_from_slice(&event);
+        if let Some(files) = assert_one_within(watch, timeout) {
+            reasons.extend_from_slice(&files);
             changed = changed
-                || event
+                || files
                     .iter()
                     .filter_map(|p| p.file_name())
                     .any(|f| f == file_name)
@@ -400,18 +409,13 @@ mod tests {
         (changed, reasons)
     }
 
-    fn assert_file_changed(watch: &Watch, file_name: &str) {
-        let (file_changed, changed) = file_changed(watch, file_name);
+    fn assert_file_changed_within(watch: &Watch, file_name: &str, timeout: Duration) {
+        let (file_changed, changed) = file_changed_within(watch, file_name, timeout);
         assert!(
             file_changed,
             "no file change notification for '{}'; these files changed instead: {:?}",
             file_name, changed
         );
-    }
-
-    /// Returns true iff there were no changes
-    fn no_changes(watch: &Watch) -> bool {
-        process_all(watch).iter().filter(|e| e.is_some()).count() == 0
     }
 
     #[cfg(target_os = "macos")]
@@ -426,8 +430,8 @@ mod tests {
         //
         // Note, this is racey in the kernel. Otherwise I'd assert
         // this is empty.
-        sleep(upper_watcher_timeout());
-        process_all(watcher).is_empty();
+        sleep(WATCHER_TIMEOUT);
+        watcher.rx.try_iter();
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -437,8 +441,7 @@ mod tests {
         // platforms.
         //
         // If we do receive any notifications, our test is broken.
-        sleep(upper_watcher_timeout());
-        assert!(process_all(watcher).is_empty());
+        assert!(assert_none_within(watcher, WATCHER_TIMEOUT));
     }
 
     #[test]
@@ -454,12 +457,10 @@ mod tests {
             .unwrap();
 
         expect_bash(r#"echo 1 > "$1/baz""#, [temp.path().as_os_str()]);
-        sleep(upper_watcher_timeout());
-        assert_file_changed(&watcher, "baz");
+        assert_file_changed_within(&watcher, "baz", WATCHER_TIMEOUT);
 
         expect_bash(r#"echo 1 > "$1/foo/bar""#, [temp.path().as_os_str()]);
-        sleep(upper_watcher_timeout());
-        assert_file_changed(&watcher, "bar");
+        assert_file_changed_within(&watcher, "bar", WATCHER_TIMEOUT);
     }
 
     #[test]
@@ -475,12 +476,10 @@ mod tests {
             .unwrap();
 
         expect_bash(r#"touch "$1/baz""#, [temp.path().as_os_str()]);
-        sleep(upper_watcher_timeout());
-        assert_file_changed(&watcher, "baz");
+        assert_file_changed_within(&watcher, "baz", WATCHER_TIMEOUT);
 
         expect_bash(r#"echo 1 > "$1/foo/bar""#, [temp.path().as_os_str()]);
-        sleep(upper_watcher_timeout());
-        assert!(no_changes(&watcher));
+        assert!(assert_none_within(&watcher, WATCHER_TIMEOUT));
     }
 
     #[test]
@@ -497,8 +496,8 @@ mod tests {
         macos_eat_late_notifications(&mut watcher);
 
         expect_bash(r#"echo 1 > "$1/foo""#, [temp.path().as_os_str()]);
-        sleep(upper_watcher_timeout());
-        assert_file_changed(&watcher, "foo");
+        sleep(WATCHER_TIMEOUT);
+        assert_file_changed_within(&watcher, "foo", WATCHER_TIMEOUT);
     }
 
     #[test]
@@ -517,23 +516,19 @@ mod tests {
 
         // bar is not watched, expect error
         expect_bash(r#"echo 1 > "$1/bar""#, [temp.path().as_os_str()]);
-        sleep(upper_watcher_timeout());
-        assert!(no_changes(&watcher));
+        assert!(assert_none_within(&watcher, WATCHER_TIMEOUT));
 
         // Rename bar to foo, expect a notification
         expect_bash(r#"mv "$1/bar" "$1/foo""#, [temp.path().as_os_str()]);
-        sleep(upper_watcher_timeout());
-        assert_file_changed(&watcher, "foo");
+        assert_file_changed_within(&watcher, "foo", WATCHER_TIMEOUT);
 
         // Do it a second time
         expect_bash(r#"echo 1 > "$1/bar""#, [temp.path().as_os_str()]);
-        sleep(upper_watcher_timeout());
-        assert!(no_changes(&watcher));
+        assert!(assert_none_within(&watcher, WATCHER_TIMEOUT));
 
         // Rename bar to foo, expect a notification
         expect_bash(r#"mv "$1/bar" "$1/foo""#, [temp.path().as_os_str()]);
-        sleep(upper_watcher_timeout());
-        assert_file_changed(&watcher, "foo");
+        assert_file_changed_within(&watcher, "foo", WATCHER_TIMEOUT);
     }
 
     #[test]
