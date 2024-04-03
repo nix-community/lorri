@@ -12,7 +12,7 @@ let
   ] ./.;
   cargoLorri =
     (
-      pkgs.callPackage ./Cargo.nix {
+      import ./Cargo.nix {
         inherit pkgs;
       }
     ).rootCrate.build;

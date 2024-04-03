@@ -116,6 +116,7 @@ varmap() {
     export "${@?}"
 }
 
+# shellcheck disable=SC2317 # Don’t warn about unreachable commands in this function
 function declare() {
     if [ "$1" == "-x" ]; then shift; fi
 
