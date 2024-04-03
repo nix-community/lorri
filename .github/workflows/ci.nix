@@ -4,18 +4,18 @@
 let
   checkout = { fetch-depth ? null }: {
     name = "Checkout";
-    uses = "actions/checkout@v3";
+    uses = "actions/checkout@v4";
     "with" = {
       inherit fetch-depth;
     };
   };
   setup-nix = {
     name = "Nix";
-    uses = "cachix/install-nix-action@v14.1";
+    uses = "cachix/install-nix-action@v26";
   };
   setup-cachix = {
     name = "Cachix";
-    uses = "cachix/cachix-action@v10";
+    uses = "cachix/cachix-action@v14";
     "with" = {
       name = "nix-community";
       authToken = "\${{ secrets.CACHIX_AUTH_TOKEN }}";
@@ -36,7 +36,7 @@ let
   };
   rust-cache = {
     name = "Rust Cache";
-    uses = "Swatinem/rust-cache@v1.3.0";
+    uses = "Swatinem/rust-cache@v2.7.3";
   };
 
   githubRunners = {
