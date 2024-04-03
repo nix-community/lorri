@@ -66,14 +66,19 @@ let
           print-path
           rust-cache
           {
-            name = "CI tests";
+            name = "Build CI tests";
             run = ''
               nix-build \
                 --out-link ./ci-tests \
                 --arg isDevelopmentShell false \
                 -A ci.testsuite \
-                shell.nix \
-                && ./ci-tests
+                shell.nix
+            '';
+          }
+          {
+            name = "Run CI tests";
+            run = ''
+              ./ci-tests
             '';
           }
         ];
@@ -94,14 +99,19 @@ let
           print-path
           rust-cache
           {
-            name = "CI bisection tests";
+            name = "Build CI bisection tests";
             run = ''
               nix-build \
                 --out-link ./ci-tests \
                 --arg isDevelopmentShell false \
                 -A ci.testsuite-eachunit \
-                shell.nix \
-                && ./ci-tests
+                shell.nix
+            '';
+          }
+          {
+            name = "Run CI bisection tests";
+            run = ''
+                ./ci-tests
             '';
           }
         ];

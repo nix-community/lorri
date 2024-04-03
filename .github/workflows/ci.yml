@@ -121,14 +121,16 @@ jobs:
         run: printenv PATH
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2.7.3
-      - name: CI bisection tests
+      - name: Build CI bisection tests
         run: |
           nix-build \
             --out-link ./ci-tests \
             --arg isDevelopmentShell false \
             -A ci.testsuite-eachunit \
-            shell.nix \
-            && ./ci-tests
+            shell.nix
+      - name: Run CI bisection tests
+        run: |
+          ./ci-tests
   rust-macos-latest:
     name: Rust and CI tests (macos-latest)
     runs-on: macos-latest
@@ -157,14 +159,16 @@ jobs:
         run: printenv PATH
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2.7.3
-      - name: CI tests
+      - name: Build CI tests
         run: |
           nix-build \
             --out-link ./ci-tests \
             --arg isDevelopmentShell false \
             -A ci.testsuite \
-            shell.nix \
-            && ./ci-tests
+            shell.nix
+      - name: Run CI tests
+        run: |
+          ./ci-tests
   rust-ubuntu-latest:
     name: Rust and CI tests (ubuntu-latest)
     runs-on: ubuntu-latest
@@ -193,14 +197,16 @@ jobs:
         run: printenv PATH
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2.7.3
-      - name: CI tests
+      - name: Build CI tests
         run: |
           nix-build \
             --out-link ./ci-tests \
             --arg isDevelopmentShell false \
             -A ci.testsuite \
-            shell.nix \
-            && ./ci-tests
+            shell.nix
+      - name: Run CI tests
+        run: |
+          ./ci-tests
 name: CI
 "on":
   pull_request:
