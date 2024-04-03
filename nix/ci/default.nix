@@ -134,29 +134,6 @@ let
       test = writeCargo "lint-cargo-fmt" [] [ "fmt" "--" "--check" ];
     };
 
-    cargo-test = {
-      description = "run cargo test";
-      test = writeCargo "cargo-test"
-        # the tests need bash and nix and direnv
-        (pathPrependBins [ pkgs.coreutils pkgs.bash pkgs.nix pkgs.direnv ])
-        [ "test" "--no-fail-fast" ];
-    };
-
-    cargo-clippy = {
-      description = "run cargo clippy";
-      test = writeCargo "cargo-clippy" [
-        "if" [ "env" ]
-        # print the absolute path of the cargo-clippy version used
-        "if" [ "sh" "-c" "type cargo-clippy" ]
-        # first make sure all packages are fetched already
-        (writeCargo "cargo-fetch" [] [ "fetch" ])
-        # turn of network to prevent clippy from downloading anything
-        runWithoutNetwork
-        "if" [ "cargo-clippy" "--version" ]
-        "export" "RUSTFLAGS" "-D warnings"
-      ] [ "clippy" "--offline" ];
-    };
-
     # TODO: it would be good to sandbox this (it changes files in the tree)
     # can crate2nix generate nix files without any compilation?
     crate2nix = {
@@ -200,6 +177,29 @@ let
           ${ok}
         fi
       '';
+    };
+
+    cargo-test = {
+      description = "run cargo test";
+      test = writeCargo "cargo-test"
+        # the tests need bash and nix and direnv
+        (pathPrependBins [ pkgs.coreutils pkgs.bash pkgs.nix pkgs.direnv ])
+        [ "test" "--no-fail-fast" ];
+    };
+
+    cargo-clippy = {
+      description = "run cargo clippy";
+      test = writeCargo "cargo-clippy" [
+        "if" [ "env" ]
+        # print the absolute path of the cargo-clippy version used
+        "if" [ "sh" "-c" "type cargo-clippy" ]
+        # first make sure all packages are fetched already
+        (writeCargo "cargo-fetch" [] [ "fetch" ])
+        # turn of network to prevent clippy from downloading anything
+        runWithoutNetwork
+        "if" [ "cargo-clippy" "--version" ]
+        "export" "RUSTFLAGS" "-D warnings"
+      ] [ "clippy" "--offline" ];
     };
 
   };
