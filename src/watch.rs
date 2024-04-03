@@ -583,10 +583,7 @@ mod tests {
         let nix = PathBuf::from("/nix/store/njlavpa90laywf22b1myif5101qhln8r-hello-2.10");
         match super::Watch::extend_filter(nix.clone()) {
             Ok(path) => panic!("{:?} should be filtered!", path),
-            Err(super::FilteredOut {
-                path,
-                reason: _reason,
-            }) => {
+            Err(super::FilteredOut { path, .. }) => {
                 assert_eq!(path, nix)
             }
         }
