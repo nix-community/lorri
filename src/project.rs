@@ -219,14 +219,14 @@ impl NixGcRootUserDir {
             } else {
                 Err(ExitError::environment_problem(anyhow::Error::msg(format!(
                     r###"
-                        We cannot create a user dir for your user account in {}, because newer nix versions require sudo for this.
+We cannot create a user dir for your user account in {}, because newer nix versions require sudo for this.
 
-                        Please run the following commands once to set up lorri:
-                        ```
-                        $ sudo mkdir {}
-                        $ sudo chown {} {}
-                        ```
-                        "###,
+Please run the following commands once to set up lorri:
+```
+$ sudo mkdir {}
+$ sudo chown {} {}
+```
+"###,
                     nix_gc_root_user_dir_root.display(),
                     nix_gc_root_user_dir.display(),
                     &username.0.clone().to_string_lossy(),
