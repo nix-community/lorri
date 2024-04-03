@@ -197,6 +197,7 @@ struct RootedDrv {
 }
 
 /// Represents a path which is temporarily rooted in a temporary directory.
+///
 /// Users are required to keep the gc_handle value alive for as long as
 /// StorePath is alive, _or_ re-root the StorePath using project::Roots
 /// before dropping gc_handle.

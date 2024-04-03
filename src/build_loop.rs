@@ -197,7 +197,7 @@ impl<'a> BuildLoop<'a> {
     /// still running, it is finished first before starting a new build.
     pub fn forever(
         &mut self,
-        tx: chan::Sender<LoopHandlerEvent>,
+        tx_events: chan::Sender<LoopHandlerEvent>,
         rx_ping: chan::Receiver<()>,
     ) -> crate::Never {
         let mut current_build = BuildState::NotRunning;
@@ -209,8 +209,9 @@ impl<'a> BuildLoop<'a> {
                    "project" => &self.project.nix_file);
             let rx_current_build = current_build.result_chan();
 
-            let send = |msg| {
-                tx.send(LoopHandlerEvent::BuildEvent(msg))
+            let send_event = |msg| {
+                tx_events
+                    .send(LoopHandlerEvent::BuildEvent(msg))
                     .expect("Failed to send an event")
             };
 
@@ -219,18 +220,18 @@ impl<'a> BuildLoop<'a> {
                 // build finished
                 recv(rx_current_build) -> msg => match msg {
                     Ok(run_result) => {
-                        self.start_if_scheduled_or_stop(&mut current_build);
+                        self.start_another_build_or_stop(&mut current_build);
 
                         match self.handle_run_result(run_result) {
                             Ok(rooted_output_paths) => {
-                                send(Event::Completed {
+                                send_event(Event::Completed {
                                     nix_file: self.project.nix_file.clone(),
                                     rooted_output_paths,
                                 });
                             }
                             Err(e) => {
                                 if e.is_actionable() {
-                                    send(Event::Failure {
+                                    send_event(Event::Failure {
                                         nix_file: self.project.nix_file.clone(),
                                         failure: e,
                                     })
@@ -250,11 +251,11 @@ impl<'a> BuildLoop<'a> {
                         match self.watch.process(msg) {
                             Some(changed) => {
                                 // TODO: this is not a started, this is just a scheduled!
-                                send(Event::Started {
+                                send_event(Event::Started {
                                     nix_file: self.project.nix_file.clone(),
                                     reason: Reason::FilesChanged(changed)
                                 });
-                                self.schedule_build(&mut current_build)
+                                self.start_or_schedule_build(&mut current_build)
                             },
                             // No relevant file events
                             None => {}
@@ -268,11 +269,11 @@ impl<'a> BuildLoop<'a> {
                 recv(rx_ping) -> msg => match msg {
                     Ok(()) => {
                         // TODO: this is not a started, this is just a scheduled!
-                        send(Event::Started{
+                        send_event(Event::Started{
                             nix_file: self.project.nix_file.clone(),
                             reason: Reason::PingReceived
                         });
-                        self.schedule_build(&mut current_build)
+                        self.start_or_schedule_build(&mut current_build)
                     },
                     Err(chan::RecvError) =>
                         debug!(self.logger, "ping chan was disconnected"; "project" => &self.project.nix_file)
@@ -281,8 +282,8 @@ impl<'a> BuildLoop<'a> {
         }
     }
 
-    /// Schedule a build to be run as soon as possible.
-    fn schedule_build(&self, current_build: &mut BuildState) {
+    /// Schedule a build to be run as soon as possible; immediately start the build if we are `NotRunning`.
+    fn start_or_schedule_build(&self, current_build: &mut BuildState) {
         *current_build = match std::mem::replace(current_build, BuildState::NotRunning) {
             BuildState::NotRunning => BuildState::Running(self.start_build()),
             BuildState::Running(build) => BuildState::RunningAndScheduled(build),
@@ -291,7 +292,7 @@ impl<'a> BuildLoop<'a> {
     }
 
     /// If another build was scheduled, start it, else stop building.
-    fn start_if_scheduled_or_stop(&self, current_build: &mut BuildState) {
+    fn start_another_build_or_stop(&self, current_build: &mut BuildState) {
         *current_build = match std::mem::replace(current_build, BuildState::NotRunning) {
             BuildState::NotRunning => BuildState::NotRunning,
             BuildState::Running(_) => BuildState::NotRunning,

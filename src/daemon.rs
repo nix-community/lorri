@@ -14,6 +14,8 @@ use slog::debug;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
+/// Events created by the event loop.
+///
 /// Union of build_loop::Event and NewListener for internal use.
 pub enum LoopHandlerEvent {
     /// A new listener has joined for event streaming
