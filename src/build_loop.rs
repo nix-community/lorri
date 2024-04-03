@@ -126,7 +126,7 @@ pub struct BuildLoop<'a> {
     /// Watches all input files for changes.
     /// As new input files are discovered, they are added to the watchlist.
     watch: Watch,
-    user: project::Username,
+    nix_gc_root_user_dir: project::NixGcRootUserDir,
     logger: slog::Logger,
 }
 
@@ -167,7 +167,7 @@ impl<'a> BuildLoop<'a> {
     pub fn new(
         project: &'a Project,
         extra_nix_options: NixOptions,
-        user: project::Username,
+        nix_gc_root_user_dir: project::NixGcRootUserDir,
         logger: slog::Logger,
     ) -> anyhow::Result<BuildLoop<'a>> {
         let mut watch = Watch::try_new(logger.clone()).map_err(|err| anyhow!(err))?;
@@ -186,7 +186,7 @@ impl<'a> BuildLoop<'a> {
             project,
             extra_nix_options,
             watch,
-            user,
+            nix_gc_root_user_dir,
             logger,
         })
     }
@@ -333,27 +333,22 @@ impl<'a> BuildLoop<'a> {
         run_result: Result<builder::RunResult, BuildError>,
     ) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
         let run_result = run_result?;
-        self.register_paths(&run_result.referenced_paths)?;
-        self.root_result(run_result.result)
-    }
+        let paths = run_result.referenced_paths;
 
-    fn register_paths(&mut self, paths: &[WatchPathBuf]) -> Result<(), notify::Error> {
         let original_paths_len = paths.len();
-        let paths = reduce_paths(paths);
+        let paths = reduce_paths(&paths);
         debug!(self.logger, "paths reduced"; "from" => original_paths_len, "to" => paths.len());
 
         // add all new (reduced) nix sources to the input source watchlist
         self.watch.extend(paths.into_iter().collect::<Vec<_>>())?;
 
-        Ok(())
-    }
-
-    fn root_result(
-        &mut self,
-        build: builder::RootedPath,
-    ) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
+        // root the result
         self.project
-            .create_roots(build, self.user.clone(), &self.logger.clone())
+            .create_roots(
+                run_result.result,
+                self.nix_gc_root_user_dir.clone(),
+                &self.logger.clone(),
+            )
             .map_err(BuildError::io)
     }
 }

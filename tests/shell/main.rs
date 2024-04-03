@@ -92,7 +92,8 @@ fn build(project: &Project, logger: &slog::Logger) -> PathBuf {
             )
             .unwrap()
             .result,
-            project::Username::from_env_var().unwrap(),
+            project::NixGcRootUserDir::get_or_create(&project::Username::from_env_var().unwrap())
+                .unwrap(),
             logger,
         )
         .unwrap()

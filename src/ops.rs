@@ -19,7 +19,7 @@ use crate::nix::options::NixOptions;
 use crate::nix::CallOpts;
 use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
 use crate::ops::error::{ExitAs, ExitError, ExitErrorType};
-use crate::project::Project;
+use crate::project::{NixGcRootUserDir, Project};
 use crate::run_async::Async;
 use crate::socket::path::SocketPath;
 use crate::NixFile;
@@ -74,7 +74,8 @@ pub fn daemon(opts: crate::cli::DaemonOptions, logger: &slog::Logger) -> Result<
         },
     };
 
-    let user = project::Username::from_env_var().map_err(ExitError::environment_problem)?;
+    let username = project::Username::from_env_var().map_err(ExitError::environment_problem)?;
+    let nix_gc_root_user_dir = project::NixGcRootUserDir::get_or_create(&username)?;
 
     let (mut daemon, build_rx) = Daemon::new(extra_nix_options);
     let logger2 = logger.clone();
@@ -90,7 +91,7 @@ pub fn daemon(opts: crate::cli::DaemonOptions, logger: &slog::Logger) -> Result<
         &SocketPath::from(paths.daemon_socket_file().clone()),
         paths.gc_root_dir(),
         paths.cas_store().clone(),
-        user,
+        nix_gc_root_user_dir,
         logger,
     )?;
     build_handle
@@ -331,13 +332,14 @@ pub fn shell(project: Project, opts: ShellOptions, logger: &slog::Logger) -> Res
             "`lorri shell` requires the `SHELL` environment variable to be set"
         ))
     })?;
-    let user = project::Username::from_env_var().map_err(ExitError::environment_problem)?;
+    let username = project::Username::from_env_var().map_err(ExitError::environment_problem)?;
+    let nix_gc_root_user_dir = project::NixGcRootUserDir::get_or_create(&username)?;
     let cached = cached_root(&project);
     let mut bash_cmd = bash_cmd(
         if opts.cached {
             cached?
         } else {
-            build_root(&project, cached.is_ok(), user, logger)?
+            build_root(&project, cached.is_ok(), nix_gc_root_user_dir, logger)?
         },
         &project.cas,
         logger,
@@ -371,7 +373,7 @@ pub fn shell(project: Project, opts: ShellOptions, logger: &slog::Logger) -> Res
 fn build_root(
     project: &Project,
     cached: bool,
-    user: project::Username,
+    nix_gc_root_user_dir: NixGcRootUserDir,
     logger: &slog::Logger,
 ) -> Result<PathBuf, ExitError> {
     let building = Arc::new(AtomicBool::new(true));
@@ -433,7 +435,7 @@ fn build_root(
         .result;
 
     Ok(project
-        .create_roots(run_result, user, &logger2)
+        .create_roots(run_result, nix_gc_root_user_dir, &logger2)
         .map_err(|e| {
             ExitError::temporary(anyhow::Error::new(e).context("rooting the environment failed"))
         })?
@@ -871,22 +873,28 @@ pub fn upgrade(
 /// See the documentation for lorri::cli::Command::Shell for more
 /// details.
 pub fn watch(project: Project, opts: WatchOptions, logger: &slog::Logger) -> Result<(), ExitError> {
-    let user = project::Username::from_env_var().map_err(ExitError::temporary)?;
+    let username = project::Username::from_env_var().map_err(ExitError::temporary)?;
+    let nix_gc_root_user_dir = project::NixGcRootUserDir::get_or_create(&username)?;
     if opts.once {
-        main_run_once(project, user, logger)
+        main_run_once(project, nix_gc_root_user_dir, logger)
     } else {
-        main_run_forever(project, user, logger)
+        main_run_forever(project, nix_gc_root_user_dir, logger)
     }
 }
 
 fn main_run_once(
     project: Project,
-    user: project::Username,
+    nix_gc_root_user_dir: NixGcRootUserDir,
     logger: &slog::Logger,
 ) -> Result<(), ExitError> {
     // TODO: add the ability to pass extra_nix_options to watch
-    let mut build_loop = BuildLoop::new(&project, NixOptions::empty(), user, logger.clone())
-        .map_err(ExitError::temporary)?;
+    let mut build_loop = BuildLoop::new(
+        &project,
+        NixOptions::empty(),
+        nix_gc_root_user_dir,
+        logger.clone(),
+    )
+    .map_err(ExitError::temporary)?;
     match build_loop.once() {
         Ok(msg) => {
             info!(logger, "build message"; "message" => ?msg);
@@ -1074,7 +1082,7 @@ pub fn gc(logger: &slog::Logger, opts: crate::cli::GcOptions) -> Result<(), Exit
 
 fn main_run_forever(
     project: Project,
-    user: project::Username,
+    nix_gc_root_user_dir: NixGcRootUserDir,
     logger: &slog::Logger,
 ) -> Result<(), ExitError> {
     let (tx_build_results, rx_build_results) = chan::unbounded();
@@ -1083,7 +1091,7 @@ fn main_run_forever(
     // TODO: add the ability to pass extra_nix_options to watch
     let build_thread = {
         Async::run(logger, move || {
-            match BuildLoop::new(&project, NixOptions::empty(), user, logger2) {
+            match BuildLoop::new(&project, NixOptions::empty(), nix_gc_root_user_dir, logger2) {
                 Ok(mut bl) => bl.forever(tx_build_results, rx_ping).never(),
                 Err(e) => Err(ExitError::temporary(e)),
             }
