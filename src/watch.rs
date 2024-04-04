@@ -107,8 +107,7 @@ impl Watch {
                 let interesting_paths: Vec<PathBuf> = paths
                     .into_iter()
                     .filter(|path| {
-                        path_match(&self.watches, path, &self.logger)
-                            && match kind {
+                             match kind {
                                 // We ignore metadata modification events for the profiles directory
                                 // tree as it is a symlink forest that is used to keep track of
                                 // channels and nix will uconditionally update the metadata of each
@@ -124,10 +123,11 @@ impl Watch {
                                         debug!(self.logger, "ignoring spurious metadata change event within the profiles dir"; "path" => path.to_str());
                                         false
                                     } else {
-                                        true
+                                        path_match(&self.watches, path, &self.logger)
                                     }
                                 }
-                                _ => true,
+                                _ => path_match(&self.watches, path, &self.logger)
+
                             }
                     })
                     .collect();
