@@ -122,7 +122,7 @@ impl Watch {
                                 return false;
                             }
                         }
-                        path_match(&self.watches, path, &self.logger)
+                        self.path_match(path)
                     })
                     .collect();
                 match interesting_paths.is_empty() {
@@ -195,6 +195,58 @@ impl Watch {
 
         Ok(())
     }
+
+    /// Determine if the event path is covered by our list of watched
+    /// paths.
+    ///
+    /// Returns true if:
+    ///   - the event's path directly names a path in our
+    ///     watch list
+    ///   - the event's path names a canonicalized path in our watch list
+    ///   - the event's path's parent directly names a path in our watch
+    ///     list
+    ///   - the event's path's parent names a canonicalized path in our
+    ///     watch list
+    fn path_match(&self, event_path: &Path) -> bool {
+        let event_parent = event_path.parent();
+
+        let matches = |watched: &Path| {
+            if event_path == watched {
+                debug!(
+                self.logger,
+                "event path directly matches watched path";
+                "event_path" => event_path.to_str());
+
+                return true;
+            }
+
+            if let Some(parent) = event_parent {
+                if parent == watched {
+                    debug!(
+                    self.logger,
+                    "event path parent matches watched path";
+                    "event_path" => event_path.to_str(), "parent_path" => parent.to_str());
+                    return true;
+                }
+            }
+
+            false
+        };
+
+        self.watches.iter().any(|watched| {
+            if matches(watched) {
+                return true;
+            }
+
+            if let Ok(canonicalized_watch) = watched.canonicalize() {
+                if matches(&canonicalized_watch) {
+                    return true;
+                }
+            }
+
+            false
+        })
+    }
 }
 
 /// Lists the dirs and files in a directory, as two vectors.
@@ -249,58 +301,6 @@ fn walk_path_topo(path: PathBuf) -> Result<Vec<PathBuf>, std::io::Error> {
         }
     }
     Ok(res)
-}
-
-/// Determine if the event path is covered by our list of watched
-/// paths.
-///
-/// Returns true if:
-///   - the event's path directly names a path in our
-///     watch list
-///   - the event's path names a canonicalized path in our watch list
-///   - the event's path's parent directly names a path in our watch
-///     list
-///   - the event's path's parent names a canonicalized path in our
-///     watch list
-fn path_match(watched_paths: &HashSet<PathBuf>, event_path: &Path, logger: &slog::Logger) -> bool {
-    let event_parent = event_path.parent();
-
-    let matches = |watched: &Path| {
-        if event_path == watched {
-            debug!(
-                logger,
-                "event path directly matches watched path";
-                "event_path" => event_path.to_str());
-
-            return true;
-        }
-
-        if let Some(parent) = event_parent {
-            if parent == watched {
-                debug!(
-                    logger,
-                    "event path parent matches watched path";
-                    "event_path" => event_path.to_str(), "parent_path" => parent.to_str());
-                return true;
-            }
-        }
-
-        false
-    };
-
-    watched_paths.iter().any(|watched| {
-        if matches(watched) {
-            return true;
-        }
-
-        if let Ok(canonicalized_watch) = watched.canonicalize() {
-            if matches(&canonicalized_watch) {
-                return true;
-            }
-        }
-
-        false
-    })
 }
 
 #[cfg(test)]
