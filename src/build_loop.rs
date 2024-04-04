@@ -248,7 +248,7 @@ impl<'a> BuildLoop<'a> {
                 // watcher found file change
                 recv(rx_watcher) -> msg => match msg {
                     Ok(msg) => {
-                        match self.watch.process(msg) {
+                        match self.watch.process_watch_events(msg) {
                             Some(changed) => {
                                 // TODO: this is not a started, this is just a scheduled!
                                 send_event(Event::Started {

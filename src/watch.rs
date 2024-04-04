@@ -85,11 +85,24 @@ impl Watch {
     /// Returns a list of „interesting“ paths.
     ///
     /// `None` if there were no relevant changes.
-    pub fn process(&self, event: notify::Result<notify::Event>) -> Option<Vec<PathBuf>> {
+    pub fn process_watch_events(
+        &self,
+        event: notify::Result<notify::Event>,
+    ) -> Option<Vec<PathBuf>> {
         match event {
-            Err(err) => panic!("notify error: {}", err),
             Ok(event) => {
-                self.log_event(&event);
+                {
+                    let event = &event;
+                    debug!(self.logger, "Watch Event: {:#?}", event);
+                    match &event.kind {
+                        notify::event::EventKind::Remove(_) if !event.paths.is_empty() => {
+                            info!(self.logger, "identified removal: {:?}", &event.paths);
+                        }
+                        _ => {
+                            debug!(self.logger, "watch event"; "event" => ?event);
+                        }
+                    }
+                };
                 let notify::Event { paths, kind, .. } = event;
                 let interesting_paths: Vec<PathBuf> = paths
                     .into_iter()
@@ -99,6 +112,10 @@ impl Watch {
                     true => None,
                     false => Some(interesting_paths),
                 }
+            }
+            Err(err) => {
+                slog::warn!(self.logger, "notify library threw error: {}", err);
+                None
             }
         }
     }
@@ -140,18 +157,6 @@ impl Watch {
             })
         } else {
             Ok(path)
-        }
-    }
-
-    fn log_event(&self, event: &notify::Event) {
-        debug!(self.logger, "Watch Event: {:#?}", event);
-        match &event.kind {
-            notify::event::EventKind::Remove(_) if !event.paths.is_empty() => {
-                info!(self.logger, "identified removal: {:?}", &event.paths);
-            }
-            _ => {
-                debug!(self.logger, "watch event"; "event" => ?event);
-            }
         }
     }
 
@@ -317,7 +322,7 @@ mod tests {
     use std::ffi::OsStr;
     use std::path::PathBuf;
     use std::thread::sleep;
-    use std::time::Duration;
+    use std::time::{self, Duration};
     use tempfile::tempdir;
 
     // A test helper function for setting up shell workspaces for testing.
@@ -376,13 +381,40 @@ mod tests {
     /// upper bound of watcher (if it’s hit, something is broken) (CI machines are very slow around here …)
     const WATCHER_TIMEOUT: Duration = Duration::from_millis(2000);
 
-    /// Assert at least one watcher event happens until the timeout, returns the first.
-    fn assert_one_within(watch: &Watch, timeout: Duration) -> Option<Vec<PathBuf>> {
-        watch
-            .rx
-            .recv_timeout(timeout)
-            .map_or(None, |e| Some(watch.process(e)))
-            .flatten()
+    /// Watch for events, and return the first for which `pred` returns `Some()`. But only wait at most until timeout runs out.
+    fn assert_one_within<F>(
+        watch: &Watch,
+        timeout: Duration,
+        pred: F,
+    ) -> (Vec<PathBuf>, Option<PathBuf>)
+    where
+        F: Fn(&PathBuf) -> bool,
+    {
+        let start = time::Instant::now();
+        let mut rest = timeout.clone();
+        let mut seen: Vec<PathBuf> = vec![];
+        let mut i = 0;
+        loop {
+            println!("loop {} rest: {}ms, seen: {:?}", i, rest.as_millis(), seen);
+            i = i + 1;
+            let recv = watch.rx.recv_timeout(rest);
+            println!("recv: {:#?}", recv);
+            let files = recv
+                .map_or(None, |e| watch.process_watch_events(e))
+                .unwrap_or(vec![]);
+            seen.extend(files.clone());
+            for f in files {
+                if pred(&f) {
+                    return (seen, Some(f));
+                }
+            }
+            rest = timeout - time::Instant::now().duration_since(start);
+            if rest > Duration::from_nanos(0) {
+                println!("breaking");
+                break;
+            }
+        }
+        (seen, None)
     }
 
     /// Assert no watcher event happens until the timeout
@@ -396,17 +428,10 @@ mod tests {
         file_name: &str,
         timeout: Duration,
     ) -> (bool, Vec<PathBuf>) {
-        let mut reasons = Vec::new();
-        let mut changed = false;
-        if let Some(files) = assert_one_within(watch, timeout) {
-            reasons.extend_from_slice(&files);
-            changed = changed
-                || files
-                    .iter()
-                    .filter_map(|p| p.file_name())
-                    .any(|f| f == file_name)
-        }
-        (changed, reasons)
+        let (seen, found) = assert_one_within(watch, timeout, |file| {
+            file.file_name() == Some(OsStr::new(file_name))
+        });
+        (found.is_some(), seen)
     }
 
     fn assert_file_changed_within(watch: &Watch, file_name: &str, timeout: Duration) {
@@ -449,17 +474,18 @@ mod tests {
         let mut watcher =
             Watch::try_new(crate::logging::test_logger()).expect("failed creating Watch");
         let temp = tempdir().unwrap();
+        let t = temp.path().as_os_str();
 
-        expect_bash(r#"mkdir -p "$1"/foo"#, [temp.path().as_os_str()]);
-        expect_bash(r#"touch "$1"/foo/bar"#, [temp.path().as_os_str()]);
+        expect_bash(r#"mkdir -p "$1"/foo"#, [t]);
+        expect_bash(r#"touch "$1"/foo/bar"#, [t]);
         watcher
             .extend(vec![WatchPathBuf::Recursive(temp.path().to_path_buf())])
             .unwrap();
 
-        expect_bash(r#"echo 1 > "$1/baz""#, [temp.path().as_os_str()]);
+        expect_bash(r#"echo 1 > "$1/baz""#, [t]);
         assert_file_changed_within(&watcher, "baz", WATCHER_TIMEOUT);
 
-        expect_bash(r#"echo 1 > "$1/foo/bar""#, [temp.path().as_os_str()]);
+        expect_bash(r#"echo 1 > "$1/foo/bar""#, [t]);
         assert_file_changed_within(&watcher, "bar", WATCHER_TIMEOUT);
     }
 
@@ -468,17 +494,18 @@ mod tests {
         let mut watcher =
             Watch::try_new(crate::logging::test_logger()).expect("failed creating Watch");
         let temp = tempdir().unwrap();
+        let t = temp.path().as_os_str();
 
-        expect_bash(r#"mkdir -p "$1"/foo"#, [temp.path().as_os_str()]);
-        expect_bash(r#"touch "$1"/foo/bar"#, [temp.path().as_os_str()]);
+        expect_bash(r#"mkdir -p "$1"/foo"#, [t]);
+        expect_bash(r#"touch "$1"/foo/bar"#, [t]);
         watcher
             .extend(vec![WatchPathBuf::Normal(temp.path().to_path_buf())])
             .unwrap();
 
-        expect_bash(r#"touch "$1/baz""#, [temp.path().as_os_str()]);
+        expect_bash(r#"touch "$1/baz""#, [t]);
         assert_file_changed_within(&watcher, "baz", WATCHER_TIMEOUT);
 
-        expect_bash(r#"echo 1 > "$1/foo/bar""#, [temp.path().as_os_str()]);
+        expect_bash(r#"echo 1 > "$1/foo/bar""#, [t]);
         assert!(assert_none_within(&watcher, WATCHER_TIMEOUT));
     }
 
@@ -487,15 +514,16 @@ mod tests {
         let mut watcher =
             Watch::try_new(crate::logging::test_logger()).expect("failed creating Watch");
         let temp = tempdir().unwrap();
+        let t = temp.path().as_os_str();
 
-        expect_bash(r#"mkdir -p "$1""#, [temp.path().as_os_str()]);
-        expect_bash(r#"touch "$1/foo""#, [temp.path().as_os_str()]);
+        expect_bash(r#"mkdir -p "$1""#, [t]);
+        expect_bash(r#"touch "$1/foo""#, [t]);
         watcher
             .extend(vec![WatchPathBuf::Recursive(temp.path().join("foo"))])
             .unwrap();
         macos_eat_late_notifications(&mut watcher);
 
-        expect_bash(r#"echo 1 > "$1/foo""#, [temp.path().as_os_str()]);
+        expect_bash(r#"echo 1 > "$1/foo""#, [t]);
         sleep(WATCHER_TIMEOUT);
         assert_file_changed_within(&watcher, "foo", WATCHER_TIMEOUT);
     }
@@ -506,28 +534,29 @@ mod tests {
         let mut watcher =
             Watch::try_new(crate::logging::test_logger()).expect("failed creating Watch");
         let temp = tempdir().unwrap();
+        let t = temp.path().as_os_str();
 
-        expect_bash(r#"mkdir -p "$1""#, [temp.path().as_os_str()]);
-        expect_bash(r#"touch "$1/foo""#, [temp.path().as_os_str()]);
+        expect_bash(r#"mkdir -p "$1""#, [t]);
+        expect_bash(r#"touch "$1/foo""#, [t]);
         watcher
             .extend(vec![WatchPathBuf::Recursive(temp.path().join("foo"))])
             .unwrap();
         macos_eat_late_notifications(&mut watcher);
 
         // bar is not watched, expect error
-        expect_bash(r#"echo 1 > "$1/bar""#, [temp.path().as_os_str()]);
+        expect_bash(r#"echo 1 > "$1/bar""#, [t]);
         assert!(assert_none_within(&watcher, WATCHER_TIMEOUT));
 
         // Rename bar to foo, expect a notification
-        expect_bash(r#"mv "$1/bar" "$1/foo""#, [temp.path().as_os_str()]);
+        expect_bash(r#"mv "$1/bar" "$1/foo""#, [t]);
         assert_file_changed_within(&watcher, "foo", WATCHER_TIMEOUT);
 
         // Do it a second time
-        expect_bash(r#"echo 1 > "$1/bar""#, [temp.path().as_os_str()]);
+        expect_bash(r#"echo 1 > "$1/bar""#, [t]);
         assert!(assert_none_within(&watcher, WATCHER_TIMEOUT));
 
         // Rename bar to foo, expect a notification
-        expect_bash(r#"mv "$1/bar" "$1/foo""#, [temp.path().as_os_str()]);
+        expect_bash(r#"mv "$1/bar" "$1/foo""#, [t]);
         assert_file_changed_within(&watcher, "foo", WATCHER_TIMEOUT);
     }
 
