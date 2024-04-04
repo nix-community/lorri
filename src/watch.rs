@@ -106,7 +106,30 @@ impl Watch {
                 let notify::Event { paths, kind, .. } = event;
                 let interesting_paths: Vec<PathBuf> = paths
                     .into_iter()
-                    .filter(|p| Self::path_is_interesting(&self.watches, p, &kind, &self.logger))
+                    .filter(|path| {
+                        path_match(&self.watches, path, &self.logger)
+                            && match kind {
+                                // We ignore metadata modification events for the profiles directory
+                                // tree as it is a symlink forest that is used to keep track of
+                                // channels and nix will uconditionally update the metadata of each
+                                // link in this forest. See https://github.com/NixOS/nix/blob/629b9b0049363e091b76b7f60a8357d9f94733cc/src/libstore/local-store.cc#L74-L80
+                                // for the unconditional update. These metadata modification events are
+                                // spurious annd they can easily cause a rebuild-loop when a shell.nix
+                                // file does not pin its version of nixpkgs or other channels. When
+                                // a Nix channel is updated we receive many other types of events, so
+                                // ignoring these metadata modifications will not impact lorri's
+                                // ability to correctly watch for channel changes.
+                                EventKind::Modify(ModifyKind::Metadata(_)) => {
+                                    if path.starts_with(Path::new("/nix/var/nix/profiles/per-user")) {
+                                        debug!(self.logger, "ignoring spurious metadata change event within the profiles dir"; "path" => path.to_str());
+                                        false
+                                    } else {
+                                        true
+                                    }
+                                }
+                                _ => true,
+                            }
+                    })
                     .collect();
                 match interesting_paths.is_empty() {
                     true => None,
@@ -177,36 +200,6 @@ impl Watch {
         }
 
         Ok(())
-    }
-
-    fn path_is_interesting(
-        watches: &HashSet<PathBuf>,
-        path: &Path,
-        kind: &EventKind,
-        logger: &slog::Logger,
-    ) -> bool {
-        path_match(watches, path, logger)
-            && match kind {
-                // We ignore metadata modification events for the profiles directory
-                // tree as it is a symlink forest that is used to keep track of
-                // channels and nix will uconditionally update the metadata of each
-                // link in this forest. See https://github.com/NixOS/nix/blob/629b9b0049363e091b76b7f60a8357d9f94733cc/src/libstore/local-store.cc#L74-L80
-                // for the unconditional update. These metadata modification events are
-                // spurious annd they can easily cause a rebuild-loop when a shell.nix
-                // file does not pin its version of nixpkgs or other channels. When
-                // a Nix channel is updated we receive many other types of events, so
-                // ignoring these metadata modifications will not impact lorri's
-                // ability to correctly watch for channel changes.
-                EventKind::Modify(ModifyKind::Metadata(_)) => {
-                    if path.starts_with(Path::new("/nix/var/nix/profiles/per-user")) {
-                        debug!(logger, "ignoring spurious metadata change event within the profiles dir"; "path" => path.to_str());
-                        false
-                    } else {
-                        true
-                    }
-                }
-                _ => true,
-            }
     }
 }
 
