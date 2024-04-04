@@ -17,10 +17,10 @@ fn find_program<S: Display + AsRef<OsStr>>(program: S) -> PathBuf {
     // Find programs: the environment variables in tests very likely
     // makes PATH bogus.
     let output = Command::new("bash")
-        .args(&["-c", "type -p \"$1\"", "--"])
+        .args(["-c", "type -p \"$1\"", "--"])
         .arg(&program)
         .output()
-        .expect(&format!("Failed to execute «bash -c 'which {}'»", &program));
+        .unwrap_or_else(|_| panic!("Failed to execute «bash -c 'which {}'»", &program));
 
     assert!(
         output.status.success(),
@@ -28,10 +28,8 @@ fn find_program<S: Display + AsRef<OsStr>>(program: S) -> PathBuf {
         &program
     );
 
-    let location = String::from_utf8(output.stdout).expect(&format!(
-        "Found «{}», but the output is not utf8 clean.",
-        &program
-    ));
+    let location = String::from_utf8(output.stdout).unwrap_or_else(|_| panic!("Found «{}», but the output is not utf8 clean.",
+        &program));
 
     PathBuf::from(location.trim())
 }
@@ -63,7 +61,7 @@ impl ProjectEnv for ProjectEnvBuilderV1 {
         // .clear_env(), we must manually `find_program` ahead of
         // time.
         let output = Command::new(find_program("bash"))
-            .args(&["-c", "export"])
+            .args(["-c", "export"])
             .env_clear()
             .envs(self.env_vars.iter())
             .output()
@@ -110,7 +108,7 @@ impl ProjectEnvBuilderV2 {
 impl ProjectEnv for ProjectEnvBuilderV2 {
     fn write_to(&self, destination: &Path) -> Result<(), std::io::Error> {
         let output = Command::new(find_program("bash"))
-            .args(&["-c", "export"])
+            .args(["-c", "export"])
             .env_clear()
             .envs(self.set.iter())
             .output()
@@ -121,7 +119,7 @@ impl ProjectEnv for ProjectEnvBuilderV2 {
             "Calling «bash -c 'export'» failed!"
         );
 
-        create_dir(&destination)?;
+        create_dir(destination)?;
 
         File::create(&destination.join("bash-export"))?.write_all(&output.stdout)?;
 
@@ -129,7 +127,7 @@ impl ProjectEnv for ProjectEnvBuilderV2 {
         for (variable, separator) in self.append.iter() {
             writer.write_all(b"append").unwrap();
             writer.write_all(b"\0").unwrap();
-            writer.write_all(&variable.as_bytes()).unwrap();
+            writer.write_all(variable.as_bytes()).unwrap();
             writer.write_all(b"\0").unwrap();
             writer.write_all(separator.as_bytes()).unwrap();
             writer.write_all(b"\0").unwrap();
@@ -192,7 +190,7 @@ impl EnvrcTestCase {
         }
 
         let mut env = self.direnv_cmd();
-        env.args(&["export", "json"]);
+        env.args(["export", "json"]);
         env.current_dir(&root);
         let result = env.output().expect("Failed to run direnv allow");
         println!("{:?}", result);
@@ -205,10 +203,10 @@ impl EnvrcTestCase {
         let mut d = Command::new("direnv");
         d.env_clear();
         // From: https://github.com/direnv/direnv/blob/1423e495c54de3adafde8e26218908010c955514/test/direnv-test.bash
-        d.env("DIRENV_CONFIG", &self.tempdir.path());
-        d.env("XDG_CONFIG_HOME", &self.tempdir.path());
-        d.env("XDG_CACHE_HOME", &self.tempdir.path());
-        d.env("XDG_DATA_HOME", &self.tempdir.path());
+        d.env("DIRENV_CONFIG", self.tempdir.path());
+        d.env("XDG_CONFIG_HOME", self.tempdir.path());
+        d.env("XDG_CACHE_HOME", self.tempdir.path());
+        d.env("XDG_DATA_HOME", self.tempdir.path());
         d.envs(self.ambient_env.iter());
         if let Some(ref env) = self.project_env {
             d.env("EVALUATION_ROOT", env);

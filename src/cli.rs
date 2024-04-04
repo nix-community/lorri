@@ -100,11 +100,11 @@ pub struct InfoOptions {
 
 /// Parses a duration from a timestamp like 30d, 2m.
 fn human_friendly_duration(s: &str) -> Result<Duration, String> {
-    let multiplier = if s.ends_with("d") {
+    let multiplier = if s.ends_with('d') {
         24 * 60 * 60
-    } else if s.ends_with("m") {
+    } else if s.ends_with('m') {
         30 * 24 * 60 * 60
-    } else if s.ends_with("y") {
+    } else if s.ends_with('y') {
         365 * 24 * 60 * 60
     } else {
         return Err(format!(

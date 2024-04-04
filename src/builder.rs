@@ -234,14 +234,14 @@ fn instrumented_instantiation(
     // TODO: see ::nix::CallOpts::paths for the problem with this
     let gc_root_dir = tempfile::TempDir::new()?;
 
-    cmd.args(&[
+    cmd.args([
         // verbose mode prints the files we track
         OsStr::new("-vv"),
     ]);
     // put the passed extra options at the front
     // to make them more visible in traces
     cmd.args(extra_nix_options.to_nix_arglist());
-    cmd.args(&[
+    cmd.args([
         // we add a temporary indirect GC root
         OsStr::new("--add-root"),
         gc_root_dir.path().join("result").as_os_str(),
@@ -253,8 +253,8 @@ fn instrumented_instantiation(
         // the source file
         OsStr::new("--argstr"),
     ]);
-    cmd.args(&[OsStr::new("src"), nix_file.as_absolute_path().as_os_str()]);
-    cmd.args(&[
+    cmd.args([OsStr::new("src"), nix_file.as_absolute_path().as_os_str()]);
+    cmd.args([
         // instrumented by `./logged-evaluation.nix`
         OsStr::new("--"),
         &logged_evaluation_nix.as_path().as_os_str(),
@@ -395,7 +395,7 @@ pub fn run(
     extra_nix_options: &NixOptions,
     logger: &slog::Logger,
 ) -> Result<RunResult, BuildError> {
-    let inst_info = instrumented_instantiation(root_nix_file, cas, &extra_nix_options, logger)?;
+    let inst_info = instrumented_instantiation(root_nix_file, cas, extra_nix_options, logger)?;
     let buildoutput = build(inst_info.output.path, logger)?;
     Ok(RunResult {
         referenced_paths: inst_info.referenced_paths,
@@ -457,13 +457,13 @@ where
         Some(linestr) => {
             // Lines about evaluating a file are much more common, so looking
             // for them first will reduce comparisons.
-            if let Some(matches) = EVAL_FILE.captures(&linestr) {
+            if let Some(matches) = EVAL_FILE.captures(linestr) {
                 LogDatum::NixSourceFile(PathBuf::from(&matches["source"]))
-            } else if let Some(matches) = COPIED_SOURCE.captures(&linestr) {
+            } else if let Some(matches) = COPIED_SOURCE.captures(linestr) {
                 LogDatum::CopiedSource(PathBuf::from(&matches["source"]))
-            } else if let Some(matches) = LORRI_READ.captures(&linestr) {
+            } else if let Some(matches) = LORRI_READ.captures(linestr) {
                 LogDatum::ReadRecursively(PathBuf::from(&matches["source"]))
-            } else if let Some(matches) = LORRI_READ.captures(&linestr) {
+            } else if let Some(matches) = LORRI_READ.captures(linestr) {
                 LogDatum::ReadDir(PathBuf::from(&matches["source"]))
             } else {
                 LogDatum::Text(linestr.to_owned())
@@ -559,7 +559,7 @@ derivation {{
 
         let inner_drv = drv(
             "dep",
-            r##"
+            r#"
 args = [
     "-c"
     ''
@@ -567,7 +567,7 @@ args = [
     printf '"\xab\xbc\xcd\xde\xde\xef"'
     echo > $out
     ''
-];"##,
+];"#,
         );
 
         let nix_drv = format!(
@@ -600,7 +600,7 @@ in {}
 
         let d = crate::NixFile::from(cas.file_from_string(&drv(
             "shell",
-            &format!("dep = {};", drv("dep", r##"args = [ "-c" "exit 1" ];"##)),
+            &format!("dep = {};", drv("dep", r#"args = [ "-c" "exit 1" ];"#)),
         ))?);
 
         if let Err(BuildError::Exit { .. }) = run(
@@ -655,13 +655,13 @@ dir-as-source = ./dir;
         let foo = root.join("foo");
         std::fs::create_dir(&foo)?;
         let dir = root.join("dir");
-        std::fs::create_dir(&dir)?;
+        std::fs::create_dir(dir)?;
         let foo_default = &foo.join("default.nix");
-        std::fs::write(&foo_default, "import ./baz")?;
+        std::fs::write(foo_default, "import ./baz")?;
         let foo_bar = &foo.join("bar");
-        std::fs::write(&foo_bar, "This file should not be watched")?;
+        std::fs::write(foo_bar, "This file should not be watched")?;
         let foo_baz = &foo.join("baz");
-        std::fs::write(&foo_baz, "\"This file should be watched\"")?;
+        std::fs::write(foo_baz, "\"This file should be watched\"")?;
 
         let cas =
             ContentAddressable::new(crate::AbsPathBuf::new(cas_tmp.path().join("cas")).unwrap())?;

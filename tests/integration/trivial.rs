@@ -12,8 +12,8 @@ fn trivial() -> std::io::Result<()> {
         testcase.cachedir.path().display(),
         std::str::from_utf8(
             &std::process::Command::new("ls")
-                .args(&["-la", "--recursive"])
-                .args(&[testcase.cachedir.path().as_os_str()])
+                .args(["-la", "--recursive"])
+                .args([testcase.cachedir.path().as_os_str()])
                 .output()?
                 .stdout
         )

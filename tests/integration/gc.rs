@@ -43,7 +43,7 @@ derivation {
     )
     .expect("writing shell.nix");
     std::fs::write(
-        &project.join("builder.sh"),
+        project.join("builder.sh"),
         r#"
 #!/bin/sh
     "#,
@@ -53,14 +53,14 @@ derivation {
     let home = testdir.path().join("home");
     std::fs::create_dir(&home).expect("mkdir home");
     let home = home.canonicalize().expect("canonicalize home");
-    std::env::set_var("HOME", &home);
+    std::env::set_var("HOME", home);
     std::env::remove_var("XDG_CONFIG_HOME");
     std::env::remove_var("XDG_CACHE_HOME");
     std::env::set_current_dir(&project).expect("cd");
     // build the project
     assert!(dbg!(run_lorri(vec!["shell", "--shell-file", "shell.nix"]))
         .expect("running lorri shell")
-        .contains(&"done"));
+        .contains("done"));
 
     //look for the gc root
     let pd = ProjectDirs::from("com.github.nix-community.lorri", "lorri", "lorri")
@@ -70,9 +70,8 @@ derivation {
         .canonicalize()
         .expect("canonicalize gc_root dir")
         .join("gc_roots");
-    let mut subdirs = std::fs::read_dir(&gc_roots)
+    let mut subdirs = std::fs::read_dir(gc_roots)
         .expect("readdir")
-        .into_iter()
         .collect::<Vec<_>>();
     assert_eq!(
         subdirs.len(),
@@ -83,7 +82,7 @@ derivation {
     let subdir = subdirs.drain(..).next().unwrap().expect("direntry").path();
     let gc_root_dir = subdir.join("gc_root");
     let root = gc_root_dir.join("shell_gc_root");
-    assert!(std::fs::read_link(&root)
+    assert!(std::fs::read_link(root)
         .expect("readlink gc root")
         .starts_with("/nix/store"));
 
@@ -116,7 +115,7 @@ derivation {
     std::fs::rename(&backup_file, &nix_file).expect("rename back");
     assert!(dbg!(run_lorri(vec!["shell", "--shell-file", "shell.nix"]))
         .expect("running lorri shell")
-        .contains(&"done"));
+        .contains("done"));
     // everything back to normal
     let out = run_lorri(vec!["gc", "info"]).unwrap();
     assert!(dbg!(&out).contains(&dbg!(subdir.display().to_string())));

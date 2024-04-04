@@ -91,7 +91,7 @@ fn find_nix_file(shellfile: &Path) -> Result<NixFile, ExitError> {
 }
 
 fn create_project(paths: &constants::Paths, shell_nix: NixFile) -> Result<Project, ExitError> {
-    Project::new(shell_nix, &paths.gc_root_dir(), paths.cas_store().clone()).map_err(|err| {
+    Project::new(shell_nix, paths.gc_root_dir(), paths.cas_store().clone()).map_err(|err| {
         ExitError::temporary(anyhow::anyhow!(err).context("Could not set up project paths"))
     })
 }
@@ -186,8 +186,8 @@ mod tests {
 
         let out = std::process::Command::new("nix-instantiate")
             // we can’t assume to have a <nixpkgs>, so use bogus-nixpkgs
-            .args(&["-I", &format!("nixpkgs={}", nixpkgs)])
-            .args(&["--expr", ops::TRIVIAL_SHELL_SRC])
+            .args(["-I", &format!("nixpkgs={}", nixpkgs)])
+            .args(["--expr", ops::TRIVIAL_SHELL_SRC])
             .output()?;
         assert!(
             out.status.success(),

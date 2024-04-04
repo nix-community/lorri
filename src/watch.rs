@@ -167,7 +167,7 @@ impl Watch {
             if !self.watches.contains(parent) {
                 debug!(self.logger, "watching parent path"; "parent_path" => parent.to_str());
 
-                self.notify.watch(&parent, RecursiveMode::NonRecursive)?;
+                self.notify.watch(parent, RecursiveMode::NonRecursive)?;
             }
         }
 
@@ -347,7 +347,7 @@ mod tests {
         S: AsRef<OsStr>,
     {
         let ret = std::process::Command::new("bash")
-            .args(&["-euc", command, "--"])
+            .args(["-euc", command, "--"])
             .args(args)
             .status()
             .expect("bash should start properly, regardless of exit code");
@@ -366,12 +366,12 @@ mod tests {
     #[test]
     #[should_panic]
     fn expect_bash_can_fail() {
-        expect_bash(r#"exit "$1""#, &["1"]);
+        expect_bash(r#"exit "$1""#, ["1"]);
     }
 
     #[test]
     fn expect_bash_can_pass() {
-        expect_bash(r#"exit "$1""#, &["0"]);
+        expect_bash(r#"exit "$1""#, ["0"]);
     }
 
     /// upper bound of watcher (if it’s hit, something is broken)
@@ -389,17 +389,13 @@ mod tests {
     fn file_changed(watch: &Watch, file_name: &str) -> (bool, Vec<PathBuf>) {
         let mut reasons = Vec::new();
         let mut changed = false;
-        for event in process_all(watch) {
-            if let Some(files) = event {
-                reasons.extend_from_slice(&files);
-                changed = changed
-                    || files
-                        .iter()
-                        .map(|p| p.file_name())
-                        .filter(|f| f.is_some())
-                        .map(|f| f.unwrap())
-                        .any(|f| f == file_name)
-            }
+        for event in process_all(watch).into_iter().flatten() {
+            reasons.extend_from_slice(&event);
+            changed = changed
+                || event
+                    .iter()
+                    .filter_map(|p| p.file_name())
+                    .any(|f| f == file_name)
         }
         (changed, reasons)
     }
@@ -451,17 +447,17 @@ mod tests {
             Watch::try_new(crate::logging::test_logger()).expect("failed creating Watch");
         let temp = tempdir().unwrap();
 
-        expect_bash(r#"mkdir -p "$1"/foo"#, &[temp.path().as_os_str()]);
-        expect_bash(r#"touch "$1"/foo/bar"#, &[temp.path().as_os_str()]);
+        expect_bash(r#"mkdir -p "$1"/foo"#, [temp.path().as_os_str()]);
+        expect_bash(r#"touch "$1"/foo/bar"#, [temp.path().as_os_str()]);
         watcher
             .extend(vec![WatchPathBuf::Recursive(temp.path().to_path_buf())])
             .unwrap();
 
-        expect_bash(r#"echo 1 > "$1/baz""#, &[temp.path().as_os_str()]);
+        expect_bash(r#"echo 1 > "$1/baz""#, [temp.path().as_os_str()]);
         sleep(upper_watcher_timeout());
         assert_file_changed(&watcher, "baz");
 
-        expect_bash(r#"echo 1 > "$1/foo/bar""#, &[temp.path().as_os_str()]);
+        expect_bash(r#"echo 1 > "$1/foo/bar""#, [temp.path().as_os_str()]);
         sleep(upper_watcher_timeout());
         assert_file_changed(&watcher, "bar");
     }
@@ -472,17 +468,17 @@ mod tests {
             Watch::try_new(crate::logging::test_logger()).expect("failed creating Watch");
         let temp = tempdir().unwrap();
 
-        expect_bash(r#"mkdir -p "$1"/foo"#, &[temp.path().as_os_str()]);
-        expect_bash(r#"touch "$1"/foo/bar"#, &[temp.path().as_os_str()]);
+        expect_bash(r#"mkdir -p "$1"/foo"#, [temp.path().as_os_str()]);
+        expect_bash(r#"touch "$1"/foo/bar"#, [temp.path().as_os_str()]);
         watcher
             .extend(vec![WatchPathBuf::Normal(temp.path().to_path_buf())])
             .unwrap();
 
-        expect_bash(r#"touch "$1/baz""#, &[temp.path().as_os_str()]);
+        expect_bash(r#"touch "$1/baz""#, [temp.path().as_os_str()]);
         sleep(upper_watcher_timeout());
         assert_file_changed(&watcher, "baz");
 
-        expect_bash(r#"echo 1 > "$1/foo/bar""#, &[temp.path().as_os_str()]);
+        expect_bash(r#"echo 1 > "$1/foo/bar""#, [temp.path().as_os_str()]);
         sleep(upper_watcher_timeout());
         assert!(no_changes(&watcher));
     }
@@ -493,14 +489,14 @@ mod tests {
             Watch::try_new(crate::logging::test_logger()).expect("failed creating Watch");
         let temp = tempdir().unwrap();
 
-        expect_bash(r#"mkdir -p "$1""#, &[temp.path().as_os_str()]);
-        expect_bash(r#"touch "$1/foo""#, &[temp.path().as_os_str()]);
+        expect_bash(r#"mkdir -p "$1""#, [temp.path().as_os_str()]);
+        expect_bash(r#"touch "$1/foo""#, [temp.path().as_os_str()]);
         watcher
             .extend(vec![WatchPathBuf::Recursive(temp.path().join("foo"))])
             .unwrap();
         macos_eat_late_notifications(&mut watcher);
 
-        expect_bash(r#"echo 1 > "$1/foo""#, &[temp.path().as_os_str()]);
+        expect_bash(r#"echo 1 > "$1/foo""#, [temp.path().as_os_str()]);
         sleep(upper_watcher_timeout());
         assert_file_changed(&watcher, "foo");
     }
@@ -512,30 +508,30 @@ mod tests {
             Watch::try_new(crate::logging::test_logger()).expect("failed creating Watch");
         let temp = tempdir().unwrap();
 
-        expect_bash(r#"mkdir -p "$1""#, &[temp.path().as_os_str()]);
-        expect_bash(r#"touch "$1/foo""#, &[temp.path().as_os_str()]);
+        expect_bash(r#"mkdir -p "$1""#, [temp.path().as_os_str()]);
+        expect_bash(r#"touch "$1/foo""#, [temp.path().as_os_str()]);
         watcher
             .extend(vec![WatchPathBuf::Recursive(temp.path().join("foo"))])
             .unwrap();
         macos_eat_late_notifications(&mut watcher);
 
         // bar is not watched, expect error
-        expect_bash(r#"echo 1 > "$1/bar""#, &[temp.path().as_os_str()]);
+        expect_bash(r#"echo 1 > "$1/bar""#, [temp.path().as_os_str()]);
         sleep(upper_watcher_timeout());
         assert!(no_changes(&watcher));
 
         // Rename bar to foo, expect a notification
-        expect_bash(r#"mv "$1/bar" "$1/foo""#, &[temp.path().as_os_str()]);
+        expect_bash(r#"mv "$1/bar" "$1/foo""#, [temp.path().as_os_str()]);
         sleep(upper_watcher_timeout());
         assert_file_changed(&watcher, "foo");
 
         // Do it a second time
-        expect_bash(r#"echo 1 > "$1/bar""#, &[temp.path().as_os_str()]);
+        expect_bash(r#"echo 1 > "$1/bar""#, [temp.path().as_os_str()]);
         sleep(upper_watcher_timeout());
         assert!(no_changes(&watcher));
 
         // Rename bar to foo, expect a notification
-        expect_bash(r#"mv "$1/bar" "$1/foo""#, &[temp.path().as_os_str()]);
+        expect_bash(r#"mv "$1/bar" "$1/foo""#, [temp.path().as_os_str()]);
         sleep(upper_watcher_timeout());
         assert_file_changed(&watcher, "foo");
     }
@@ -570,8 +566,7 @@ mod tests {
         // paths as the original list.
         let mut res2 = res.clone();
         res2.sort();
-        let mut all_paths = vec![
-            // our given path first
+        let mut all_paths = [
             "", "a", // direct files come before nested directories
             "a/b", "a/c", "x", "a/d", "a/d/e", "x/y", "x/y/z",
         ]
@@ -587,9 +582,11 @@ mod tests {
     fn extend_filter() {
         let nix = PathBuf::from("/nix/store/njlavpa90laywf22b1myif5101qhln8r-hello-2.10");
         match super::Watch::extend_filter(nix.clone()) {
-            Ok(path) => assert!(false, "{:?} should be filtered!", path),
-            Err(super::FilteredOut { path, reason }) => {
-                drop(reason);
+            Ok(path) => panic!("{:?} should be filtered!", path),
+            Err(super::FilteredOut {
+                path,
+                reason: _reason,
+            }) => {
                 assert_eq!(path, nix)
             }
         }

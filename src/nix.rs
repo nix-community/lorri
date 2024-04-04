@@ -218,7 +218,7 @@ impl<'a> CallOpts<'a> {
         T: Send + serde::de::DeserializeOwned,
     {
         let mut cmd = Command::new("nix-instantiate");
-        cmd.args(&["--eval", "--json", "--strict"]);
+        cmd.args(["--eval", "--json", "--strict"]);
         cmd.args(self.command_arguments());
         self.execute(cmd, move |stdout_handle| {
             serde_json::from_reader::<_, T>(stdout_handle)
@@ -330,7 +330,7 @@ impl<'a> CallOpts<'a> {
         let mut cmd = Command::new("nix-build");
 
         // Create a gc root to the build output
-        cmd.args(&[
+        cmd.args([
             OsStr::new("--out-link"),
             gc_root_dir.path().join(Path::new("result")).as_os_str(),
         ]);

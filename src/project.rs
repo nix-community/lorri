@@ -111,11 +111,11 @@ where {
         let store_path = &path.path;
 
         debug!(logger, "adding root"; "from" => store_path.as_path().to_str(), "to" => self.shell_gc_root().display());
-        std::fs::remove_file(&self.shell_gc_root())
-            .or_else(|e| AddRootError::remove(e, &self.shell_gc_root().as_path()))?;
+        std::fs::remove_file(self.shell_gc_root())
+            .or_else(|e| AddRootError::remove(e, self.shell_gc_root().as_path()))?;
 
         // the forward GC root that points from the store path to our cache gc_roots dir
-        std::os::unix::fs::symlink(store_path.as_path(), &self.shell_gc_root()).map_err(|e| {
+        std::os::unix::fs::symlink(store_path.as_path(), self.shell_gc_root()).map_err(|e| {
             AddRootError::symlink(e, store_path.as_path(), self.shell_gc_root().as_path())
         })?;
 
@@ -135,7 +135,7 @@ where {
         // but we can create it for older nix versions (it’s root but `rwxrwxrwx`)
         // Newer nix versions make the directory `rwxr-xr-x`, meaning we need the user to intervene.
         if !nix_gc_root_user_dir.as_path().is_dir() {
-            let meta = std::fs::metadata(&nix_gc_root_user_dir_root.as_path()).map_err(|source| {
+            let meta = std::fs::metadata(nix_gc_root_user_dir_root.as_path()).map_err(|source| {
                 AddRootError {
                     source,
                     msg: format!("Cannot stat user roots directory for permission to create a new lorri user dir: {}", nix_gc_root_user_dir_root.display()),
@@ -144,7 +144,7 @@ where {
 
             // check whether we are allowed to create the directory
             if 0 != (meta.permissions().mode() & nix::libc::S_IWOTH) {
-                std::fs::create_dir_all(&nix_gc_root_user_dir.as_path()).map_err(|source| {
+                std::fs::create_dir_all(nix_gc_root_user_dir.as_path()).map_err(|source| {
                     AddRootError {
                         source,
                         msg: format!(
@@ -180,15 +180,15 @@ where {
             nix_gc_root_user_dir.join(format!("{}-{}", self.hash(), "shell_gc_root"));
 
         debug!(logger, "connecting root"; "from" => self.shell_gc_root().display(), "to" => nix_gc_root_user_dir_root.display());
-        std::fs::remove_file(&nix_gc_root_user_dir_root.as_path())
-            .or_else(|err| AddRootError::remove(err, &nix_gc_root_user_dir_root.as_path()))?;
+        std::fs::remove_file(nix_gc_root_user_dir_root.as_path())
+            .or_else(|err| AddRootError::remove(err, nix_gc_root_user_dir_root.as_path()))?;
 
-        std::os::unix::fs::symlink(&self.shell_gc_root(), &nix_gc_root_user_dir_root.as_path())
+        std::os::unix::fs::symlink(self.shell_gc_root(), nix_gc_root_user_dir_root.as_path())
             .map_err(|e| {
                 AddRootError::symlink(
                     e,
                     self.shell_gc_root().as_path(),
-                    &nix_gc_root_user_dir_root.as_path(),
+                    nix_gc_root_user_dir_root.as_path(),
                 )
             })?;
 

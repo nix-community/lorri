@@ -48,7 +48,9 @@ let
 
   buildInputs = [
     pkgs.cargo
-    pkgs.rustup
+    pkgs.rustc
+    pkgs.rustfmt
+    pkgs.rustPackages.clippy
     pkgs.git
     pkgs.direnv
     pkgs.crate2nix
@@ -71,7 +73,9 @@ pkgs.mkShell (
   {
     name = "lorri";
     buildInputs = buildInputs
-    ++ pkgs.lib.optionals isDevelopmentShell [ ];
+    ++ pkgs.lib.optionals isDevelopmentShell [
+      pkgs.rust-analyzer
+    ];
 
     inherit BUILD_REV_COUNT RUN_TIME_CLOSURE;
 

@@ -338,7 +338,7 @@ impl<'a> BuildLoop<'a> {
 
     fn register_paths(&mut self, paths: &[WatchPathBuf]) -> Result<(), notify::Error> {
         let original_paths_len = paths.len();
-        let paths = reduce_paths(&paths);
+        let paths = reduce_paths(paths);
         debug!(self.logger, "paths reduced"; "from" => original_paths_len, "to" => paths.len());
 
         // add all new (reduced) nix sources to the input source watchlist

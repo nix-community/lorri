@@ -131,7 +131,7 @@ fn reduce_channel_path(path: &WatchPathBuf) -> ReductionOp {
     // the directory containing the swapped channel symlink.
     let canonical_channel_location = channel_root_path.canonicalize().unwrap();
     let canonical_path_location = path.as_ref().canonicalize().unwrap();
-    if canonical_path_location.starts_with(&canonical_channel_location) {
+    if canonical_path_location.starts_with(canonical_channel_location) {
         let reduce_to = channel_root_path
             .parent()
             .expect("expected /nix/var/nix/profiles/per-user/root/channels")

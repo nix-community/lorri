@@ -74,7 +74,7 @@ impl<Err> Pool<Err> {
         let tx = self.tx.clone();
         let handle = builder.spawn(move || {
             let thread_id = thread::current().id();
-            let cause = match std::panic::catch_unwind(|| f()) {
+            let cause = match std::panic::catch_unwind(f) {
                 Ok(res) => Cause::Natural(res),
                 Err(panic) => Cause::Paniced(panic),
             };

@@ -32,7 +32,7 @@ fn loads_env() {
 
     // Launch as a real user
     let res = Command::new(cargo_bin("lorri"))
-        .args(&[
+        .args([
             "shell",
             "--shell-file",
             project
@@ -51,7 +51,7 @@ fn loads_env() {
 
     let output = ops::bash_cmd(build(&project, &logger), &project.cas, &logger)
         .unwrap()
-        .args(&["-c", "echo $MY_ENV_VAR"])
+        .args(["-c", "echo $MY_ENV_VAR"])
         .output()
         .expect("failed to run shell");
 

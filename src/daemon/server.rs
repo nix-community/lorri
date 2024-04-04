@@ -42,7 +42,7 @@ impl Server {
         let (tx_new_thread, rx_new_thread) = chan::unbounded();
         let (tx_done_thread, rx_done_thread) = chan::unbounded();
         let logger2 = logger.clone();
-        let _joiner = Async::run(&logger, move || {
+        let _joiner = Async::run(logger, move || {
             join_continuously(rx_new_thread, rx_done_thread, &logger2)
         });
 
@@ -50,7 +50,7 @@ impl Server {
             let tx_done_thread = tx_done_thread.clone();
             match listener.accept() {
                 Ok(connection) => {
-                    self.handle_client(connection, tx_new_thread.clone(), tx_done_thread, &logger)
+                    self.handle_client(connection, tx_new_thread.clone(), tx_done_thread, logger)
                 }
                 Err(accept_err) => {
                     info!(logger, "Failed accepting a client connection"; "accept_error" => format!("{:?}", accept_err));

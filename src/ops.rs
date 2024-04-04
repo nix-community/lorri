@@ -91,7 +91,7 @@ pub fn daemon(opts: crate::cli::DaemonOptions, logger: &slog::Logger) -> Result<
         paths.gc_root_dir(),
         paths.cas_store().clone(),
         user,
-        &logger,
+        logger,
     )?;
     build_handle
         .join()
@@ -345,7 +345,7 @@ pub fn shell(project: Project, opts: ShellOptions, logger: &slog::Logger) -> Res
 
     debug!(logger, "bash_cmd : {:?}", bash_cmd);
     let status = bash_cmd
-        .args(&[
+        .args([
             OsStr::new("-c"),
             OsStr::new(
                 "exec \"$1\" internal start-user-shell --shell-path=\"$2\" --shell-file=\"$3\"",
@@ -525,7 +525,7 @@ PS1="(lorri) $PS1"
 "#,
                 )
                 .expect("failed to write bash init script");
-            cmd.args(&[
+            cmd.args([
                 "--rcfile",
                 rcfile
                     .as_path()
@@ -691,7 +691,7 @@ pub fn stream_events(kind: EventKind, logger: &slog::Logger) -> Result<(), ExitE
                             )),
                         )
                             .expect("couldn't serialize event");
-                        write!(std::io::stdout(), "\n").expect("couldn't serialize event");
+                        writeln!(std::io::stdout()).expect("couldn't serialize event");
                         std::io::stdout().flush().expect("couldn't flush serialized event");
                     }
                     _ => (),
@@ -807,7 +807,7 @@ pub fn upgrade(
             UpgradeSource::Local(ref p) => println!("Upgrading from local path: {}", p.display()),
         }
 
-        let mut expr = nix::CallOpts::file(&upgrade_expr.as_path());
+        let mut expr = nix::CallOpts::file(upgrade_expr.as_path());
 
         match src {
             UpgradeSource::Branch(b) => {

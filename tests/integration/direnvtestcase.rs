@@ -76,7 +76,7 @@ impl DirenvTestCase {
         }
 
         let mut env = self.direnv_cmd();
-        env.args(&["export", "json"]);
+        env.args(["export", "json"]);
         let result = env.output().expect("Failed to run direnv export json");
         if !result.status.success() {
             println!("stderr: {}", String::from_utf8_lossy(&result.stderr));
@@ -95,9 +95,9 @@ impl DirenvTestCase {
         d.env_remove("DIRENV_MTIME");
         d.env_remove("DIRENV_WATCHES");
         d.env_remove("DIRENV_DIFF");
-        d.env("DIRENV_CONFIG", &self.projectdir.path());
-        d.env("XDG_CONFIG_HOME", &self.projectdir.path());
-        d.current_dir(&self.projectdir.path());
+        d.env("DIRENV_CONFIG", self.projectdir.path());
+        d.env("XDG_CONFIG_HOME", self.projectdir.path());
+        d.current_dir(self.projectdir.path());
 
         d
     }
@@ -116,9 +116,9 @@ impl DirenvEnv {
     /// Makes asserts nicer, like:
     ///
     ///    assert!(env.get_env("foo"), Value("bar"));
-    pub fn get_env<'a, 'b>(&'a self, key: &'b str) -> DirenvValue {
+    pub fn get_env(&self, key: &str) -> DirenvValue {
         match self.0.get(key) {
-            Some(Some(val)) => DirenvValue::Value(&val),
+            Some(Some(val)) => DirenvValue::Value(val),
             Some(None) => DirenvValue::Unset,
             None => DirenvValue::NotSet,
         }
@@ -130,7 +130,7 @@ impl DirenvEnv {
         F: Fn(&str) -> bool,
     {
         let mut new = self.0.to_owned();
-        new.retain(|k, _| f(&k));
+        new.retain(|k, _| f(k));
         new
     }
 }

@@ -9,9 +9,7 @@
 // I don’t think return, .into() is clearer than ?, sorry
 #![allow(clippy::try_err)]
 // triggered by select (TODO: fixed in crossbeam_channel 0.5)
-#![allow(clippy::drop_copy, clippy::zero_ptr)]
-// Remove clippy checks for stuff that is not even in stable yet (ugh)
-#![allow(clippy::match_like_matches_macro)]
+#![allow(dropping_copy_types, clippy::zero_ptr)]
 
 #[macro_use]
 extern crate structopt;
@@ -106,7 +104,7 @@ pub struct NixFile(AbsPathBuf);
 impl NixFile {
     /// Absolute path of this file.
     pub fn as_absolute_path(&self) -> &Path {
-        &self.0.as_path()
+        self.0.as_path()
     }
 }
 
