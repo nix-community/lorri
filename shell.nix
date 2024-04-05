@@ -48,10 +48,8 @@ let
   CARGO_INSTALL_ROOT = "${LORRI_ROOT}/.cargo";
 
   buildInputs = [
-    pkgs.cargo
-    pkgs.rustc
-    pkgs.rustfmt
-    pkgs.rustPackages.clippy
+    # please use rustup to install rust, setting it up via nix is a bother
+    pkgs.rustup
     pkgs.git
     pkgs.direnv
     pkgs.crate2nix
@@ -80,10 +78,7 @@ in
 pkgs.mkShell (
   {
     name = "lorri";
-    buildInputs = buildInputs
-    ++ pkgs.lib.optionals isDevelopmentShell [
-      pkgs.rust-analyzer
-    ];
+    inherit buildInputs;
 
     inherit BUILD_REV_COUNT RUN_TIME_CLOSURE;
 
