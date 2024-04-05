@@ -147,10 +147,16 @@ impl Watch {
     /// will not add duplicates.
     pub fn extend(&mut self, paths: Vec<WatchPathBuf>) -> Result<(), notify::Error> {
         for path in paths {
+            // NOTE: notify.watch supports recursively watching directories itself, but we
+            // 1) want to canonicalize each path we watch
+            // 2) ignore everything in /nix/store and pointing to something in /nix/store
+            // Plus, notify.watch will itself just walk the directories and watch things one-by-one
+            // (at least for the `inotify` backend), so all is good on the performance front.
             let recursive_paths = match path {
                 WatchPathBuf::Recursive(path) => walk_path_topo(path)?,
                 WatchPathBuf::Normal(path) => vec![path],
             };
+
             for p_raw in recursive_paths {
                 let p = p_raw.canonicalize()?;
                 if p.starts_with(Path::new("/nix/store")) {
