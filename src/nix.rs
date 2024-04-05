@@ -89,6 +89,7 @@ impl From<std::ffi::OsString> for StorePath {
 /// Opaque type to keep a temporary GC root directory alive.
 /// Once it is dropped, the GC root is removed.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct GcRootTempDir(tempfile::TempDir);
 
 impl<'a> CallOpts<'a> {

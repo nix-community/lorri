@@ -375,6 +375,7 @@ fn build(drv_path: DrvFile, logger: &slog::Logger) -> Result<BuildOutput, BuildE
 /// Once it is dropped, the GC root is removed.
 /// Copied from `nix`, because the type should stay opaque.
 #[derive(Debug)]
+#[allow(dead_code)]
 struct GcRootTempDir(tempfile::TempDir);
 
 /// The result of a single instantiation and build.

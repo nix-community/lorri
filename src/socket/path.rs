@@ -45,6 +45,7 @@ impl From<std::io::Error> for BindError {
 }
 
 /// Locks the socket the server is bound to. Drop to release.
+#[allow(dead_code)]
 pub struct BindLock(std::fs::File);
 
 impl SocketPath {
