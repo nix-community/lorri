@@ -151,48 +151,33 @@ impl Watch {
             };
             for p in recursive_paths {
                 let p = p.canonicalize()?;
-                match Self::extend_filter(p) {
-                    Err(FilteredOut { reason, path }) => {
-                        debug!(
-                            self.logger,
-                            "Skipping watching {}: {}",
-                            path.display(),
-                            reason
-                        )
+                if p.starts_with(Path::new("/nix/store")) {
+                    debug!(
+                        self.logger,
+                        "Skipping watching {}: {}",
+                        p.display(),
+                        "starts with /nix/store"
+                    )
+                } else {
+                    let this = &mut *self;
+                    if !this.watches.contains(&p) {
+                        debug!(this.logger, "watching path"; "path" => p.to_str());
+
+                        this.notify.watch(&p, RecursiveMode::NonRecursive)?;
+                        this.watches.insert(p.clone());
                     }
-                    Ok(p) => {
-                        let this = &mut *self;
-                        let path = p;
-                        if !this.watches.contains(&path) {
-                            debug!(this.logger, "watching path"; "path" => path.to_str());
 
-                            this.notify.watch(&path, RecursiveMode::NonRecursive)?;
-                            this.watches.insert(path.clone());
-                        }
+                    if let Some(parent) = p.parent() {
+                        if !this.watches.contains(parent) {
+                            debug!(this.logger, "watching parent path"; "parent_path" => parent.to_str());
 
-                        if let Some(parent) = path.parent() {
-                            if !this.watches.contains(parent) {
-                                debug!(this.logger, "watching parent path"; "parent_path" => parent.to_str());
-
-                                this.notify.watch(parent, RecursiveMode::NonRecursive)?;
-                            }
+                            this.notify.watch(parent, RecursiveMode::NonRecursive)?;
                         }
                     }
                 }
             }
         }
         Ok(())
-    }
-
-    fn extend_filter(path: PathBuf) -> Result<PathBuf, FilteredOut<'static>> {
-        if path.starts_with(Path::new("/nix/store")) {
-            Err(FilteredOut {
-                path,
-                reason: "starts with /nix/store",
-            })
-        } else {
-            Ok(path)
-        }
     }
 
     /// Determine if the event path is covered by our list of watched
@@ -582,19 +567,5 @@ mod tests {
         all_paths.sort();
         assert_eq!(res2, all_paths);
         Ok(())
-    }
-
-    #[test]
-    fn extend_filter() {
-        let nix = PathBuf::from("/nix/store/njlavpa90laywf22b1myif5101qhln8r-hello-2.10");
-        match super::Watch::extend_filter(nix.clone()) {
-            Ok(path) => panic!("{:?} should be filtered!", path),
-            Err(super::FilteredOut { path, .. }) => {
-                assert_eq!(path, nix)
-            }
-        }
-
-        let other = PathBuf::from("/home/foo/project/foobar.nix");
-        assert_eq!(super::Watch::extend_filter(other.clone()), Ok(other));
     }
 }
