@@ -161,7 +161,22 @@ impl Watch {
                         )
                     }
                     Ok(p) => {
-                        self.add_path(p)?;
+                        let this = &mut *self;
+                        let path = p;
+                        if !this.watches.contains(&path) {
+                            debug!(this.logger, "watching path"; "path" => path.to_str());
+
+                            this.notify.watch(&path, RecursiveMode::NonRecursive)?;
+                            this.watches.insert(path.clone());
+                        }
+
+                        if let Some(parent) = path.parent() {
+                            if !this.watches.contains(parent) {
+                                debug!(this.logger, "watching parent path"; "parent_path" => parent.to_str());
+
+                                this.notify.watch(parent, RecursiveMode::NonRecursive)?;
+                            }
+                        }
                     }
                 }
             }
@@ -178,25 +193,6 @@ impl Watch {
         } else {
             Ok(path)
         }
-    }
-
-    fn add_path(&mut self, path: PathBuf) -> Result<(), notify::Error> {
-        if !self.watches.contains(&path) {
-            debug!(self.logger, "watching path"; "path" => path.to_str());
-
-            self.notify.watch(&path, RecursiveMode::NonRecursive)?;
-            self.watches.insert(path.clone());
-        }
-
-        if let Some(parent) = path.parent() {
-            if !self.watches.contains(parent) {
-                debug!(self.logger, "watching parent path"; "parent_path" => parent.to_str());
-
-                self.notify.watch(parent, RecursiveMode::NonRecursive)?;
-            }
-        }
-
-        Ok(())
     }
 
     /// Determine if the event path is covered by our list of watched
