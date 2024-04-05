@@ -383,8 +383,17 @@ mod tests {
     }
 
     /// Assert no watcher event happens until the timeout
-    fn assert_none_within(watch: &Watch, timeout: Duration) -> bool {
-        watch.rx.recv_timeout(timeout).is_err()
+    fn assert_none_within(watch: &Watch, timeout: Duration) {
+        let res = watch.rx.recv_timeout(timeout);
+        match res {
+            Err(_) => return,
+            Ok(watch_result) => {
+                panic!(
+                    "expected no file change notification for; but these files changed: {:?}",
+                    watch_result
+                );
+            }
+        }
     }
 
     /// Returns true iff the given file has changed
@@ -431,7 +440,7 @@ mod tests {
         // platforms.
         //
         // If we do receive any notifications, our test is broken.
-        assert!(assert_none_within(watcher, WATCHER_TIMEOUT));
+        assert_none_within(watcher, WATCHER_TIMEOUT);
     }
 
     #[test]
@@ -469,7 +478,7 @@ mod tests {
         assert_file_changed_within(&watcher, "baz", WATCHER_TIMEOUT);
 
         expect_bash(r#"echo 1 > "$1/foo/bar""#, [t]);
-        assert!(assert_none_within(&watcher, WATCHER_TIMEOUT));
+        assert_none_within(&watcher, WATCHER_TIMEOUT);
     }
 
     #[test]
@@ -506,7 +515,7 @@ mod tests {
 
         // bar is not watched, expect error
         expect_bash(r#"echo 1 > "$1/bar""#, [t]);
-        assert!(assert_none_within(&watcher, WATCHER_TIMEOUT));
+        assert_none_within(&watcher, WATCHER_TIMEOUT);
 
         // Rename bar to foo, expect a notification
         expect_bash(r#"mv "$1/bar" "$1/foo""#, [t]);
@@ -514,7 +523,7 @@ mod tests {
 
         // Do it a second time
         expect_bash(r#"echo 1 > "$1/bar""#, [t]);
-        assert!(assert_none_within(&watcher, WATCHER_TIMEOUT));
+        assert_none_within(&watcher, WATCHER_TIMEOUT);
 
         // Rename bar to foo, expect a notification
         expect_bash(r#"mv "$1/bar" "$1/foo""#, [t]);
