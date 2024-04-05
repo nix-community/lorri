@@ -52,9 +52,11 @@ impl WatchPathBuf {
 pub struct Watch {
     /// Event receiver. Process using `Watch::process`.
     pub rx: chan::Receiver<notify::Result<notify::Event>>,
-    // OS-based notification when any file we watched changes.
+    /// OS-based notification when any file we watched changes.
     notify: RecommendedWatcher,
-    // The list of files we are watching.
+    /// The list of files we are watching;
+    ///
+    /// Invariant: all paths in here should be canonicalized.
     watches: HashSet<PathBuf>,
     logger: slog::Logger,
 }
@@ -149,8 +151,8 @@ impl Watch {
                 WatchPathBuf::Recursive(path) => walk_path_topo(path)?,
                 WatchPathBuf::Normal(path) => vec![path],
             };
-            for p in recursive_paths {
-                let p = p.canonicalize()?;
+            for p_raw in recursive_paths {
+                let p = p_raw.canonicalize()?;
                 if p.starts_with(Path::new("/nix/store")) {
                     debug!(
                         self.logger,
@@ -194,7 +196,7 @@ impl Watch {
     fn path_match(&self, event_path: &Path) -> bool {
         let event_parent = event_path.parent();
 
-        let matches = |watched: &Path| {
+        self.watches.iter().any(|watched: &PathBuf| {
             if event_path == watched {
                 debug!(
                 self.logger,
@@ -210,20 +212,6 @@ impl Watch {
                     self.logger,
                     "event path parent matches watched path";
                     "event_path" => event_path.to_str(), "parent_path" => parent.to_str());
-                    return true;
-                }
-            }
-
-            false
-        };
-
-        self.watches.iter().any(|watched| {
-            if matches(watched) {
-                return true;
-            }
-
-            if let Ok(canonicalized_watch) = watched.canonicalize() {
-                if matches(&canonicalized_watch) {
                     return true;
                 }
             }
