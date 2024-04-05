@@ -52,7 +52,9 @@ impl WatchPathBuf {
 pub struct Watch {
     /// Event receiver. Process using `Watch::process`.
     pub rx: chan::Receiver<notify::Result<notify::Event>>,
+    // OS-based notification when any file we watched changes.
     notify: RecommendedWatcher,
+    // The list of files we are watching.
     watches: HashSet<PathBuf>,
     logger: slog::Logger,
 }
@@ -69,7 +71,7 @@ struct FilteredOut<'a> {
 
 impl Watch {
     /// Instantiate a new Watch.
-    pub fn try_new(logger: slog::Logger) -> Result<Watch, notify::Error> {
+    pub fn new(logger: slog::Logger) -> Result<Watch, notify::Error> {
         let (tx, rx) = chan::unbounded();
 
         Ok(Watch {
@@ -138,6 +140,7 @@ impl Watch {
     }
 
     /// Extend the watch list with an additional list of paths.
+    ///
     /// Note: Watch maintains a list of already watched paths, and
     /// will not add duplicates.
     pub fn extend(&mut self, paths: Vec<WatchPathBuf>) -> Result<(), notify::Error> {
@@ -458,8 +461,7 @@ mod tests {
 
     #[test]
     fn trivial_watch_whole_directory() {
-        let mut watcher =
-            Watch::try_new(crate::logging::test_logger()).expect("failed creating Watch");
+        let mut watcher = Watch::new(crate::logging::test_logger()).expect("failed creating Watch");
         let temp = tempdir().unwrap();
         let t = temp.path().as_os_str();
 
@@ -478,8 +480,7 @@ mod tests {
 
     #[test]
     fn trivial_watch_directory_not_recursively() {
-        let mut watcher =
-            Watch::try_new(crate::logging::test_logger()).expect("failed creating Watch");
+        let mut watcher = Watch::new(crate::logging::test_logger()).expect("failed creating Watch");
         let temp = tempdir().unwrap();
         let t = temp.path().as_os_str();
 
@@ -498,8 +499,7 @@ mod tests {
 
     #[test]
     fn trivial_watch_specific_file() {
-        let mut watcher =
-            Watch::try_new(crate::logging::test_logger()).expect("failed creating Watch");
+        let mut watcher = Watch::new(crate::logging::test_logger()).expect("failed creating Watch");
         let temp = tempdir().unwrap();
         let t = temp.path().as_os_str();
 
@@ -518,8 +518,7 @@ mod tests {
     #[test]
     fn rename_over_vim() {
         // Vim renames files in to place for atomic writes
-        let mut watcher =
-            Watch::try_new(crate::logging::test_logger()).expect("failed creating Watch");
+        let mut watcher = Watch::new(crate::logging::test_logger()).expect("failed creating Watch");
         let temp = tempdir().unwrap();
         let t = temp.path().as_os_str();
 

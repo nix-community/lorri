@@ -170,7 +170,7 @@ impl<'a> BuildLoop<'a> {
         nix_gc_root_user_dir: project::NixGcRootUserDir,
         logger: slog::Logger,
     ) -> anyhow::Result<BuildLoop<'a>> {
-        let mut watch = Watch::try_new(logger.clone()).map_err(|err| anyhow!(err))?;
+        let mut watch = Watch::new(logger.clone()).map_err(|err| anyhow!(err))?;
         watch
             .extend(vec![WatchPathBuf::Normal(
                 project.nix_file.as_absolute_path().to_owned(),
