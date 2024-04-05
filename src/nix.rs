@@ -273,7 +273,7 @@ impl<'a> CallOpts<'a> {
     ///
     /// match paths {
     ///    Err(BuildError::Output { .. }) => {},
-    ///    otherwise => panic!(otherwise)
+    ///    otherwise => panic!("{:?}", otherwise)
     /// }
     /// ```
     pub fn path(&self, logger: &slog::Logger) -> Result<(StorePath, GcRootTempDir), BuildError> {

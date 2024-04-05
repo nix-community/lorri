@@ -10,7 +10,7 @@ authors = [
 ]
 homepage = "https://github.com/nix-community/lorri"
 license = "Apache-2.0"
-edition = "2018"
+edition = "2021"
 
 # before updating dependencies: we want to keep the rustc compatible with 1.41.0 for now (start of 2020).
 [dependencies]

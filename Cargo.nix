@@ -1366,7 +1366,7 @@ rec {
       "lorri" = rec {
         crateName = "lorri";
         version = "1.6.0";
-        edition = "2018";
+        edition = "2021";
         crateBin = [
           {
             name = "lorri";
