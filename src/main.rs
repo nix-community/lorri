@@ -67,7 +67,7 @@ fn install_signal_handler() {
 /// that instructs the user how to write a minimal `shell.nix`.
 fn find_nix_file(shellfile: &Path) -> Result<NixFile, ExitError> {
     // use shell.nix from cwd
-    match is_file_in_current_directory(shellfile) {
+    match AbsPathBuf::new_from_current_directory(shellfile) {
         Err(err) => Err(ExitError::temporary(err)),
         Ok(None) => Err(ExitError::user_error(
             if PathBuf::from("flake.nix").exists() {
@@ -146,31 +146,10 @@ fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> 
     }
 }
 
-/// Search for `name` in the current directory.
-/// If `name` is an absolute path and a file, it returns the file.
-/// If it doesn’t exist, returns `None`.
-pub fn is_file_in_current_directory(name: &Path) -> anyhow::Result<Option<AbsPathBuf>> {
-    let path = AbsPathBuf::new(env::current_dir()?)
-        .unwrap_or_else(|orig| {
-            panic!(
-                "Expected `env::current_dir` to return an absolute path, but was {}",
-                orig.display()
-            )
-        })
-        .join(name);
-    Ok(if path.as_path().is_file() {
-        Some(path)
-    } else {
-        None
-    })
-}
-
 #[cfg(test)]
 mod tests {
-    use lorri::AbsPathBuf;
-
     use super::*;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     /// Try instantiating the trivial shell file we provide the user.
     #[test]
@@ -196,21 +175,5 @@ mod tests {
             std::str::from_utf8(&out.stderr).unwrap()
         );
         Ok(())
-    }
-    #[test]
-    fn test_locate_config_file() {
-        let mut path = PathBuf::from("shell.nix");
-        let result = is_file_in_current_directory(&path);
-        assert_eq!(
-            result
-                .unwrap()
-                .expect("Should find the shell.nix in this projects' root"),
-            AbsPathBuf::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")))
-                .unwrap()
-                .join("shell.nix")
-        );
-        path.pop();
-        path.push("this-lorri-specific-file-probably-does-not-exist");
-        assert_eq!(None, is_file_in_current_directory(&path).unwrap());
     }
 }

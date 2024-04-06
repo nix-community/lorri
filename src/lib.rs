@@ -57,6 +57,31 @@ impl AbsPathBuf {
         }
     }
 
+    /// Checks if `file` exists
+    ///
+    /// - in the current directory if a relative path
+    /// - or at the given absolute path
+    ///
+    /// If it doesn’t exist, returns `None`.
+    /// If it exists, returns its absolute path.
+    ///
+    /// `Err` if current directory can’t be found.
+    pub fn new_from_current_directory(filepath: &Path) -> anyhow::Result<Option<AbsPathBuf>> {
+        let path = AbsPathBuf::new(std::env::current_dir()?)
+            .unwrap_or_else(|orig| {
+                panic!(
+                    "Expected `env::current_dir` to return an absolute path, but was {}",
+                    orig.display()
+                )
+            })
+            .join(filepath);
+        Ok(if path.as_path().is_file() {
+            Some(path)
+        } else {
+            None
+        })
+    }
+
     /// Convert from a known absolute path.
     ///
     /// Passing a relative path is a programming bug (unchecked).
@@ -190,5 +215,22 @@ mod tests {
             Some("/a/b/../c/de"),
             "parent .. is not removed, because it could lead to somewhere different after symlinks are resolved"
         )
+    }
+
+    #[test]
+    fn test_locate_config_file() {
+        let mut path = PathBuf::from("shell.nix");
+        let result = AbsPathBuf::new_from_current_directory(&path);
+        assert_eq!(
+            result
+                .unwrap()
+                .expect("Should find the shell.nix in this projects' root"),
+            AbsPathBuf::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")))
+                .unwrap()
+                .join("shell.nix")
+        );
+        path.pop();
+        path.push("this-lorri-specific-file-probably-does-not-exist");
+        assert_eq!(None, AbsPathBuf::new_from_current_directory(&path).unwrap());
     }
 }
