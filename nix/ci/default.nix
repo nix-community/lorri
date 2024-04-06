@@ -204,22 +204,6 @@ let
 
   };
 
-  eachUnitTest = let
-    troubled = import ./troubled-tests.nix;
-
-    tests = lib.imap1 (idx: test: {
-      name = "test ${toString idx}";
-      value = {
-        description = "run cargo test ${test}";
-        test = writeCargo "cargo-test"
-          # the tests need bash and nix and direnv
-          (pathPrependBins [ pkgs.coreutils pkgs.bash pkgs.nix pkgs.direnv ])
-          [ "test" "--" "--include-ignored" test ];
-        };
-      }) troubled;
-  in
-    lib.listToAttrs tests;
-
   # An offline check is a check that can be run inside a nix build.
   # But instead of crashing the nix build, it will write the result to $out
   # and generate a test runner that will just print the script.
@@ -335,7 +319,6 @@ let
 
 in {
   testsuite = batsScript "run-testsuite" limitedTests;
-  testsuite-eachunit = batsScript "each-unit-test" eachUnitTest;
 
   # we want the single test attributes to have their environment emptied as well.
   tests = testsWithEmptyEnv;

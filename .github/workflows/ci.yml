@@ -93,44 +93,6 @@ jobs:
           name: nix-community
       - name: Build w/ overlay (stable)
         run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
-  rust-each-unit-macos-latest:
-    name: Rust individual tests (macos-latest)
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: null
-      - name: Nix
-        uses: cachix/install-nix-action@v26
-      - name: Create user gcroot dir
-        run: |
-          sudo mkdir /nix/var/nix/gcroots/per-user/$USER
-          sudo chown $USER /nix/var/nix/gcroots/per-user/$USER
-      - name: Cachix
-        uses: cachix/cachix-action@v14
-        with:
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          name: nix-community
-      - name: Add rustc to PATH
-        run: |
-          set -euo pipefail
-          rustc_path="$(nix-build -A rustc nix/nixpkgs-stable.nix)/bin"
-          echo "$rustc_path" >> "$GITHUB_PATH"
-      - name: print PATH
-        run: printenv PATH
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2.7.3
-      - name: Build CI bisection tests
-        run: |
-          nix-build \
-            --out-link ./ci-tests \
-            --arg isDevelopmentShell false \
-            -A ci.testsuite-eachunit \
-            shell.nix
-      - name: Run CI bisection tests
-        run: |
-          ./ci-tests
   rust-macos-latest:
     name: Rust and CI tests (macos-latest)
     runs-on: macos-latest

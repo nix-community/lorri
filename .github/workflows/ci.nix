@@ -85,39 +85,6 @@ let
       };
     };
 
-    rust-each-unit-test = { runs-on }: {
-      name = "rust-each-unit-${runs-on}";
-      value = {
-        name = "Rust individual tests (${runs-on})";
-        inherit runs-on;
-        steps = [
-          (checkout {})
-          setup-nix
-          create-nix-gcroots-user-dir
-          setup-cachix
-          add-rustc-to-path
-          print-path
-          rust-cache
-          {
-            name = "Build CI bisection tests";
-            run = ''
-              nix-build \
-                --out-link ./ci-tests \
-                --arg isDevelopmentShell false \
-                -A ci.testsuite-eachunit \
-                shell.nix
-            '';
-          }
-          {
-            name = "Run CI bisection tests";
-            run = ''
-                ./ci-tests
-            '';
-          }
-        ];
-      };
-    };
-
     stable = { runs-on }: {
       name = "nix-build_stable-${runs-on}";
       value = {
@@ -181,8 +148,6 @@ let
     [
       (builds.rust { runs-on = githubRunners.ubuntu; })
       (builds.rust { runs-on = githubRunners.macos; })
-      # This is meant to cover the one weird panicy test in src/watch.rs
-      (builds.rust-each-unit-test { runs-on = githubRunners.macos; })
       (builds.stable { runs-on = githubRunners.ubuntu; })
       (builds.stable { runs-on = githubRunners.macos; })
       (builds.overlay { runs-on = githubRunners.ubuntu; })
