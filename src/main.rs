@@ -40,10 +40,6 @@ fn main() {
         }
     };
 
-    // TODO: Once the 'Termination' trait has been stabilised, 'Result<(), ExitError>' should implement
-    // 'Termination' and 'main' should return 'Result<(), ExitError>'.
-    // https://doc.rust-lang.org/std/process/trait.Termination.html
-    // https://github.com/rust-lang/rfcs/blob/master/text/1937-ques-in-main.md
     std::process::exit(exit_code);
 }
 
