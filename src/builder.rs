@@ -526,9 +526,10 @@ mod tests {
             parse_evaluation_line(
                 "downloading 'https://static.rust-lang.org/dist/channel-rust-stable.toml'..."
             ),
-            LogDatum::Text(String::from(
+            LogDatum::Text(
                 "downloading 'https://static.rust-lang.org/dist/channel-rust-stable.toml'..."
-            ))
+                    .to_string()
+            )
         );
     }
 

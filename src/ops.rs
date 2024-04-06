@@ -182,7 +182,7 @@ watch_file "$EVALUATION_ROOT"
 
     // direnv provides us with an environment variable if we are inside of its envrc execution.
     // Thus we can show a warning if the user runs it on their command line.
-    if std::env::var("DIRENV_IN_ENVRC") != Ok(String::from("1")) {
+    if std::env::var("DIRENV_IN_ENVRC") != Ok("1".to_string()) {
         warn!(logger, "`lorri direnv` should be executed by direnv from within an `.envrc` file. Run `lorri init` to get started.")
     }
 
@@ -750,10 +750,10 @@ impl UpgradeSource {
             .unwrap_or(cli::UpgradeSource::RollingRelease);
         Ok(match src {
             cli::UpgradeSource::RollingRelease => {
-                UpgradeSource::Branch(String::from("rolling-release"))
+                UpgradeSource::Branch("rolling-release".to_string())
             }
-            cli::UpgradeSource::Master => UpgradeSource::Branch(String::from("canon")),
-            cli::UpgradeSource::Canon => UpgradeSource::Branch(String::from("canon")),
+            cli::UpgradeSource::Master => UpgradeSource::Branch("canon".to_string()),
+            cli::UpgradeSource::Canon => UpgradeSource::Branch("canon".to_string()),
             cli::UpgradeSource::Branch(b) => UpgradeSource::Branch(b.branch),
             cli::UpgradeSource::Local(dest) => {
                 // make it absolute to not confuse ./upgrade.nix
