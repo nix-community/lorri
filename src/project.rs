@@ -187,7 +187,7 @@ pub struct NixGcRootUserDir(AbsPathBuf);
 impl NixGcRootUserDir {
     /// Try to create the user gcroot directory, or throw a useful error message.
     pub fn get_or_create(username: &Username) -> Result<Self, ExitError> {
-        let nix_var_nix = || AbsPathBuf::new_unchecked(PathBuf::from("/nix/var/nix/"));
+        let nix_var_nix = || AbsPathBuf::new_unchecked(&PathBuf::from("/nix/var/nix/"));
 
         let nix_gc_root_user_dir_root = std::env::var_os("NIX_STATE_DIR")
             .map_or_else(

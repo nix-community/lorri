@@ -51,7 +51,7 @@ impl AbsPathBuf {
     /// is returned (similar to `OsString.into_string()`)
     pub fn new(path: PathBuf) -> Result<Self, PathBuf> {
         if path.is_absolute() {
-            Ok(Self::new_unchecked(path))
+            Ok(Self::new_unchecked_normalized(&path))
         } else {
             Err(path)
         }
@@ -60,8 +60,17 @@ impl AbsPathBuf {
     /// Convert from a known absolute path.
     ///
     /// Passing a relative path is a programming bug (unchecked).
-    pub fn new_unchecked(path: PathBuf) -> Self {
-        AbsPathBuf(path)
+    pub fn new_unchecked(path: &PathBuf) -> Self {
+        Self::new_unchecked_normalized(path)
+    }
+
+    fn new_unchecked_normalized(path: &Path) -> Self {
+        let mut normalized = PathBuf::new();
+        // I didn’t find a better way to normalize a path (remove double `/` and `/./` and the like)
+        for c in path.components() {
+            normalized.push(c)
+        }
+        AbsPathBuf(normalized)
     }
 
     /// The absolute path, as `&Path`.
@@ -79,13 +88,13 @@ impl AbsPathBuf {
     pub fn join<P: AsRef<Path>>(&self, pb: P) -> Self {
         let mut new = self.0.to_owned();
         new.push(pb);
-        Self::new_unchecked(new)
+        Self::new_unchecked_normalized(&new)
     }
 
     /// Proxy through `with_file_name` for `PathBuf`
     pub fn with_file_name<S: AsRef<OsStr>>(&self, file_name: S) -> Self {
         // replacing the file name will never make the path relative
-        Self::new_unchecked(self.0.with_file_name(file_name))
+        Self::new_unchecked_normalized(&self.0.with_file_name(file_name))
     }
 }
 
@@ -97,7 +106,7 @@ impl AsRef<Path> for AbsPathBuf {
 
 /// A .nix file.
 ///
-/// Is guaranteed to have an absolute path by construction.
+/// Is guaranteed to have an absolute path by construction. We normalize its path, but do not resolve symlinks.
 #[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 pub struct NixFile(AbsPathBuf);
 
@@ -157,5 +166,29 @@ impl Never {
     /// This will never be called, so we can return anything.
     pub fn never<T>(&self) -> T {
         panic!("can never be called");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn abs_path_buf_normalizes() {
+        assert_eq!(
+            AbsPathBuf::new_unchecked(&PathBuf::from("/a//b/./c/.///de"))
+                .as_path()
+                .to_str(),
+            Some("/a/b/c/de"),
+            "dots and double slashes are removed"
+        );
+        assert_eq!(
+            AbsPathBuf::new_unchecked(&PathBuf::from("/a//b/../c/.///de"))
+                .as_path()
+                .to_str(),
+            Some("/a/b/../c/de"),
+            "parent .. is not removed, because it could lead to somewhere different after symlinks are resolved"
+        )
     }
 }
