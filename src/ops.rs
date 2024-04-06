@@ -65,7 +65,7 @@ pub fn get_paths() -> Result<crate::constants::Paths, error::ExitError> {
 /// Can be used together with `direnv`.
 
 /// See the documentation for lorri::cli::Command::Daemon for details.
-pub fn daemon(opts: crate::cli::DaemonOptions, logger: &slog::Logger) -> Result<(), ExitError> {
+pub fn op_daemon(opts: crate::cli::DaemonOptions, logger: &slog::Logger) -> Result<(), ExitError> {
     let extra_nix_options = match opts.extra_nix_options {
         None => NixOptions::empty(),
         Some(v) => NixOptions {
@@ -104,7 +104,7 @@ pub fn daemon(opts: crate::cli::DaemonOptions, logger: &slog::Logger) -> Result<
 ///
 /// See the documentation for lorri::cli::Command::Direnv for more
 /// details.
-pub fn direnv<W: std::io::Write>(
+pub fn op_direnv<W: std::io::Write>(
     project: Project,
     mut shell_output: W,
     logger: &slog::Logger,
@@ -233,7 +233,7 @@ where
 ///
 /// See the documentation for lorri::cli::Command::Info for more
 /// details.
-pub fn info(project: Project) -> Result<(), ExitError> {
+pub fn op_info(project: Project) -> Result<(), ExitError> {
     let root_paths = project.root_paths();
     let OutputPath { shell_gc_root } = &root_paths;
     if root_paths.all_exist() {
@@ -251,7 +251,7 @@ pub fn info(project: Project) -> Result<(), ExitError> {
 ///
 /// See the documentation for lorri::cli::Command::Init for
 /// more details
-pub fn init(logger: &slog::Logger) -> Result<(), ExitError> {
+pub fn op_init(logger: &slog::Logger) -> Result<(), ExitError> {
     create_if_missing(
         Path::new("./shell.nix"),
         TRIVIAL_SHELL_SRC,
@@ -293,7 +293,7 @@ fn create_if_missing(
 ///
 /// Can be used together with `direnv`.
 /// See the documentation for lorri::cli::Command::Ping_ for details.
-pub fn ping(nix_file: NixFile, logger: &slog::Logger) -> Result<(), ExitError> {
+pub fn op_ping(nix_file: NixFile, logger: &slog::Logger) -> Result<(), ExitError> {
     client::create(client::Timeout::from_millis(500), logger)?.write(&client::Ping {
         nix_file,
         rebuild: client::Rebuild::Always,
@@ -323,7 +323,11 @@ pub fn ping(nix_file: NixFile, logger: &slog::Logger) -> Result<(), ExitError> {
 /// This setup allows lorri to support almost any shell with minimal additional work. Only the step
 /// marked (*) must be adjusted, and only in case we want to customize the shell, e.g. changing the
 /// way the prompt looks.
-pub fn shell(project: Project, opts: ShellOptions, logger: &slog::Logger) -> Result<(), ExitError> {
+pub fn op_shell(
+    project: Project,
+    opts: ShellOptions,
+    logger: &slog::Logger,
+) -> Result<(), ExitError> {
     let lorri = env::current_exe()
         .with_context(|| "failed to determine lorri executable's path")
         .map_err(ExitError::environment_problem)?;
@@ -492,7 +496,10 @@ EVALUATION_ROOT="{}"
 /// Helper command to create a user shell
 ///
 /// See the documentation for `crate::ops::shell`.
-pub fn start_user_shell(project: Project, opts: StartUserShellOptions_) -> Result<(), ExitError> {
+pub fn op_start_user_shell(
+    project: Project,
+    opts: StartUserShellOptions_,
+) -> Result<(), ExitError> {
     // This temporary directory will not be cleaned up by lorri because we exec into the shell
     // process, which means that destructors will not be run. However, (1) the temporary files
     // lorri creates in this directory are only a few hundred bytes long; (2) the directory will be
@@ -632,7 +639,7 @@ struct StreamBuildError {
 ///
 /// See the documentation for lorri::cli::Command::StreamEvents_ for more
 /// details.
-pub fn stream_events(kind: EventKind, logger: &slog::Logger) -> Result<(), ExitError> {
+pub fn op_stream_events(kind: EventKind, logger: &slog::Logger) -> Result<(), ExitError> {
     let (tx_event, rx_event) = chan::unbounded::<Event>();
 
     let thread = {
@@ -786,7 +793,7 @@ impl UpgradeSource {
 ///
 /// Originally it was used as pre-release, that’s why there is support
 /// for updating to a special rolling-release branch.
-pub fn upgrade(
+pub fn op_upgrade(
     upgrade_target: cli::UpgradeTo,
     cas: &ContentAddressable,
     logger: &slog::Logger,
@@ -872,7 +879,11 @@ pub fn upgrade(
 ///
 /// See the documentation for lorri::cli::Command::Shell for more
 /// details.
-pub fn watch(project: Project, opts: WatchOptions, logger: &slog::Logger) -> Result<(), ExitError> {
+pub fn op_watch(
+    project: Project,
+    opts: WatchOptions,
+    logger: &slog::Logger,
+) -> Result<(), ExitError> {
     let username = project::Username::from_env_var().map_err(ExitError::temporary)?;
     let nix_gc_root_user_dir = project::NixGcRootUserDir::get_or_create(&username)?;
     if opts.once {

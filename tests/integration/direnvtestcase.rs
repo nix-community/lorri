@@ -67,7 +67,7 @@ impl DirenvTestCase {
     /// the environment DirEnv would produce.
     pub fn get_direnv_variables(&self) -> DirenvEnv {
         let envrc = File::create(self.projectdir.path().join(".envrc")).unwrap();
-        ops::direnv(self.project.clone(), envrc, &self.logger).unwrap();
+        ops::op_direnv(self.project.clone(), envrc, &self.logger).unwrap();
 
         {
             let mut allow = self.direnv_cmd();

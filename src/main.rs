@@ -116,39 +116,39 @@ fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> 
                 }
             };
             let (project, _logger) = with_project(&nix_file)?;
-            ops::info(project)
+            ops::op_info(project)
         }
         Command::Gc(opts) => ops::gc(logger, opts),
         Command::Direnv(opts) => {
             let (project, logger) = with_project(&opts.nix_file)?;
-            ops::direnv(project, /* shell_output */ std::io::stdout(), &logger)
+            ops::op_direnv(project, /* shell_output */ std::io::stdout(), &logger)
         }
         Command::Shell(opts) => {
             let (project, logger) = with_project(&opts.nix_file)?;
-            ops::shell(project, opts, &logger)
+            ops::op_shell(project, opts, &logger)
         }
 
         Command::Watch(opts) => {
             let (project, logger) = with_project(&opts.nix_file)?;
-            ops::watch(project, opts, &logger)
+            ops::op_watch(project, opts, &logger)
         }
         Command::Daemon(opts) => {
             install_signal_handler();
-            ops::daemon(opts, logger)
+            ops::op_daemon(opts, logger)
         }
-        Command::Upgrade(opts) => ops::upgrade(opts, paths.cas_store(), logger),
-        Command::Init => ops::init(logger),
+        Command::Upgrade(opts) => ops::op_upgrade(opts, paths.cas_store(), logger),
+        Command::Init => ops::op_init(logger),
 
         Command::Internal { command } => match command {
             Internal_::Ping_(opts) => {
                 let nix_file = find_nix_file(&opts.nix_file)?;
-                ops::ping(nix_file, logger)
+                ops::op_ping(nix_file, logger)
             }
             Internal_::StartUserShell_(opts) => {
                 let (project, _logger) = with_project(&opts.nix_file)?;
-                ops::start_user_shell(project, opts)
+                ops::op_start_user_shell(project, opts)
             }
-            Internal_::StreamEvents_(se) => ops::stream_events(se.kind, logger),
+            Internal_::StreamEvents_(se) => ops::op_stream_events(se.kind, logger),
         },
     }
 }
