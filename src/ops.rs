@@ -236,17 +236,22 @@ where
 pub fn op_info(project: Project) -> Result<(), ExitError> {
     let root_paths = project.root_paths();
     let OutputPath { shell_gc_root } = &root_paths;
+
     let gc_root = if root_paths.all_exist() {
         format!("shell_gc_root: {}", shell_gc_root.0.display())
     } else {
         "GC roots do not exist. Has the project been built with lorri yet?".to_string()
     };
+
     print!(
         "\
+Lorri Project: {}
 Garbage Collector Roots: {}
 ",
+        project.nix_file.display(),
         gc_root
     );
+
     Ok(())
 }
 
