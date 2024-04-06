@@ -100,15 +100,26 @@ fn create_project(paths: &constants::Paths, shell_nix: NixFile) -> Result<Projec
 fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> {
     let paths = lorri::ops::get_paths()?;
 
+    let with_project_resolved =
+        |nix_file| -> std::result::Result<(Project, slog::Logger), ExitError> {
+            let project = create_project(&lorri::ops::get_paths()?, nix_file)?;
+            let logger = logger.new(o!("nix_file" => project.nix_file.clone()));
+            Ok((project, logger))
+        };
     let with_project = |nix_file| -> std::result::Result<(Project, slog::Logger), ExitError> {
-        let project = create_project(&lorri::ops::get_paths()?, find_nix_file(nix_file)?)?;
-        let logger = logger.new(o!("nix_file" => project.nix_file.clone()));
-        Ok((project, logger))
+        with_project_resolved(find_nix_file(nix_file)?)
     };
 
     match opts.command {
         Command::Info(opts) => {
-            let (project, _logger) = with_project(&opts.nix_file)?;
+            let nix_file = match opts.nix_file {
+                Some(f) => f,
+                None => {
+                    slog::info!(logger, "Printing info for `./shell.nix`. If you want info on a different project, pass `--shell-file`");
+                    PathBuf::from("./shell.nix")
+                }
+            };
+            let (project, _logger) = with_project(&nix_file)?;
             ops::info(project)
         }
         Command::Gc(opts) => ops::gc(logger, opts),
