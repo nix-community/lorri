@@ -196,22 +196,6 @@ mod tests {
             std::str::from_utf8(&out.stderr).unwrap()
         );
         Ok(())
-
-        // TODO: provide .instantiate(), which does a plain nix-instantiate
-        // and returns the .drv file.
-        // let res = nix::CallOpts::expression(TRIVIAL_SHELL_SRC)
-        //     .instantiate();
-
-        // match res {
-        //     Ok(_drv) => Ok(()),
-        //     Err(nix::InstantiateError::ExecutionFailed(output)) =>
-        //         panic!(
-        //             "stdout:\n{}\nstderr:{}\n",
-        //             std::str::from_utf8(&output.stdout).unwrap(),
-        //             std::str::from_utf8(&output.stderr).unwrap()
-        //         ),
-        //     Err(nix::InstantiateError::Io(io)) => Err(io)
-        // }
     }
     #[test]
     fn test_locate_config_file() {
