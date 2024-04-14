@@ -187,7 +187,7 @@ impl Daemon {
             else {
                 break;
             };
-            let project = crate::project::Project::new(project_file, gc_root_dir, cas.clone())
+            let project = crate::project::Project::new(project_file, gc_root_dir)
                 // TODO: the project needs to create its gc root dir
                 .unwrap();
 
@@ -214,9 +214,10 @@ impl Daemon {
                     let extra_nix_options = extra_nix_options.clone();
                     let logger = logger.clone();
                     let logger2 = logger.clone();
+                    let cas2 = cas.clone();
                     let project_file = project.file.as_nix_file();
 
-                    match BuildLoop::new(project, extra_nix_options, logger) {
+                    match BuildLoop::new(project, extra_nix_options, cas2, logger) {
                         Ok(build_loop) => {
                             let _ = join_set.spawn(async move {
                                 build_loop.forever(tx_build_events, rx_ping).await

@@ -365,6 +365,7 @@ pub async fn op_ping(
 /// way the prompt looks.
 pub async fn op_shell(
     project: Project,
+    cas: &ContentAddressable,
     opts: ShellOptions,
     logger: &slog::Logger,
 ) -> Result<(), ExitError> {
@@ -388,9 +389,9 @@ pub async fn op_shell(
         if opts.cached {
             cached?
         } else {
-            build_root(&project, cached.is_ok(), logger).await?
+            build_root(&project, cached.is_ok(), cas, logger).await?
         },
-        &project.cas,
+        cas,
         logger,
     )
     .await?;
@@ -423,6 +424,7 @@ pub async fn op_shell(
 async fn build_root(
     project: &Project,
     cached: bool,
+    cas: &ContentAddressable,
     logger: &slog::Logger,
 ) -> Result<PathBuf, ExitError> {
     let logger2 = logger.clone();
@@ -454,8 +456,7 @@ async fn build_root(
     // TODO: add the ability to pass extra_nix_options to shell
     let run_result = match &project.file {
         ProjectFile::ShellNix(nix_file) => {
-            builder::instantiate_and_build(nix_file, &project.cas, &NixOptions::empty(), &logger2)
-                .await
+            builder::instantiate_and_build(nix_file, &cas, &NixOptions::empty(), &logger2).await
         }
         ProjectFile::FlakeNix(installable) => builder::flake(installable, &logger2).await,
     };
@@ -530,7 +531,7 @@ EVALUATION_ROOT="{}"
 ///
 /// See the documentation for `crate::ops::shell`.
 pub fn op_start_user_shell(
-    project: Project,
+    cas: &ContentAddressable,
     opts: StartUserShellOptions_,
 ) -> Result<(), ExitError> {
     // This temporary directory will not be cleaned up by lorri because we exec into the shell
@@ -538,7 +539,7 @@ pub fn op_start_user_shell(
     // lorri creates in this directory are only a few hundred bytes long; (2) the directory will be
     // cleaned up on reboot or whenever the OS decides to purge temporary directories.
     let tempdir = tempfile::tempdir().expect("failed to create temporary directory");
-    let e = shell_cmd(opts.shell_path.as_ref(), &project.cas, tempdir.path()).exec();
+    let e = shell_cmd(opts.shell_path.as_ref(), cas, tempdir.path()).exec();
 
     // 'exec' will never return on success, so if we get here, we know something has gone wrong.
     panic!("failed to exec into '{}': {}", opts.shell_path.display(), e);
@@ -738,19 +739,24 @@ pub async fn op_stream_events(
 /// details.
 pub async fn op_watch(
     project: Project,
+    cas: &ContentAddressable,
     opts: WatchOptions,
     logger: &slog::Logger,
 ) -> Result<(), ExitError> {
     if opts.once {
-        main_run_once(project, logger).await
+        main_run_once(project, cas, logger).await
     } else {
-        main_run_forever(project, logger).await
+        main_run_forever(project, cas, logger).await
     }
 }
 
-async fn main_run_once(project: Project, logger: &slog::Logger) -> Result<(), ExitError> {
+async fn main_run_once(
+    project: Project,
+    cas: &ContentAddressable,
+    logger: &slog::Logger,
+) -> Result<(), ExitError> {
     // TODO: add the ability to pass extra_nix_options to watch
-    let build_loop = BuildLoop::new(project, NixOptions::empty(), logger.clone())
+    let build_loop = BuildLoop::new(project, NixOptions::empty(), cas.clone(), logger.clone())
         .map_err(ExitError::temporary)?;
     match build_loop.once().await {
         Ok(msg) => {
@@ -947,13 +953,18 @@ pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions) -> Result<(), ExitErro
     Ok(())
 }
 
-async fn main_run_forever(project: Project, logger: &slog::Logger) -> Result<(), ExitError> {
+async fn main_run_forever(
+    project: Project,
+    cas: &ContentAddressable,
+    logger: &slog::Logger,
+) -> Result<(), ExitError> {
     let (tx_build_results, mut rx_build_results) = unbounded_channel();
     let (tx_ping, rx_ping) = channel(10);
     let logger2 = logger.clone();
+    let cas2 = cas.clone();
     // TODO: add the ability to pass extra_nix_options to watch
     let build_loop = tokio::task::spawn(async move {
-        match BuildLoop::new(project, NixOptions::empty(), logger2) {
+        match BuildLoop::new(project, NixOptions::empty(), cas2, logger2) {
             Ok(bl) => bl.forever(tx_build_results, rx_ping).await,
             Err(e) => Err(ExitError::temporary(e)),
         }

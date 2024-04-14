@@ -71,7 +71,7 @@ pub fn is_file_in_current_directory(name: &Path) -> anyhow::Result<Option<AbsPat
 }
 
 fn create_project(paths: &constants::Paths, shell_nix: ProjectFile) -> Result<Project, ExitError> {
-    Project::new(shell_nix, paths.gc_root_dir(), paths.cas_store().clone()).map_err(|err| {
+    Project::new(shell_nix, paths.gc_root_dir()).map_err(|err| {
         ExitError::temporary(anyhow::anyhow!(err).context("Could not set up project paths"))
     })
 }
@@ -98,12 +98,12 @@ async fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitE
         }
         Command::Shell(opts) => {
             let (project, logger) = with_project(logger, &opts.source.clone().try_into()?)?;
-            ops::op_shell(project, opts, &logger).await
+            ops::op_shell(project, &paths.cas_store(), opts, &logger).await
         }
 
         Command::Watch(opts) => {
             let (project, logger) = with_project(logger, &opts.source.clone().try_into()?)?;
-            ops::op_watch(project, opts, &logger).await
+            ops::op_watch(project, &paths.cas_store(), opts, &logger).await
         }
         Command::Daemon(opts) => {
             ctrlc::set_handler(move || {
@@ -116,10 +116,7 @@ async fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitE
 
         Command::Internal { command } => match command {
             Internal_::Ping_(opts) => ops::op_ping(&paths, opts.source.try_into()?, logger).await,
-            Internal_::StartUserShell_(opts) => {
-                let (project, _logger) = with_project(logger, &opts.source.clone().try_into()?)?;
-                ops::op_start_user_shell(project, opts)
-            }
+            Internal_::StartUserShell_(opts) => ops::op_start_user_shell(paths.cas_store(), opts),
             Internal_::StreamEvents_(se) => ops::op_stream_events(&paths, se.kind, logger).await,
         },
     }
