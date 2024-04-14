@@ -426,7 +426,7 @@ async fn build_root(
         loop {
             // Show `--cached` hint once after some time has passed
             if let Some(start_time) = start {
-                if start_time.elapsed() >= Duration::from_millis(10_000) {
+                if start_time.elapsed() >= Duration::from_secs(3) {
                     eprintln!(
                         "\nHint: you can use `lorri shell --cached` to use the most recent \
                          environment that was built successfully."
