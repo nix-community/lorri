@@ -131,6 +131,11 @@ impl AbsPathBuf {
         self.0.display()
     }
 
+    /// Print a path to a json string, assuming it is UTF-8, converting any non-utf codeblocks to replacement characters
+    pub fn to_json_value(&self) -> serde_json::Value {
+        path_to_json_string(self.0.as_path())
+    }
+
     /// Joins a path to the end of this absolute path.
     /// If the path is absolute, it will replace this absolute path.
     pub fn join<P: AsRef<Path>>(&self, pb: P) -> Self {
@@ -177,13 +182,22 @@ impl NixFile {
     pub fn as_absolute_path(&self) -> &Path {
         self.0.as_path()
     }
-}
 
-impl NixFile {
     /// `display` the path.
     pub fn display(&self) -> std::path::Display {
         self.0.display()
     }
+
+    /// Print a path to a json string, assuming it is UTF-8, converting any non-utf codeblocks to replacement characters
+    pub fn to_json_value(&self) -> serde_json::Value {
+        path_to_json_string(self.0.as_path())
+    }
+}
+
+/// Print a path to a json string, assuming it is UTF-8, converting any non-utf codeblocks to replacement characters
+fn path_to_json_string(p: &Path) -> serde_json::Value {
+    let s = p.as_os_str().to_string_lossy().into_owned();
+    serde_json::json!(s)
 }
 
 impl From<AbsPathBuf> for NixFile {

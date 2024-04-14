@@ -66,7 +66,7 @@ impl DirenvTestCase {
     }
 
     /// Execute the build loop one time
-    pub async fn evaluate(&mut self) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
+    pub async fn evaluate(&mut self) -> Result<builder::OutputPath, BuildError> {
         let bl = BuildLoop::new(
             self.project.clone(),
             NixOptions::empty(),
