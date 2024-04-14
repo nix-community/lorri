@@ -27,6 +27,7 @@ pub mod osstrlines;
 pub mod pathreduction;
 pub mod project;
 pub mod socket;
+pub mod sqlite;
 pub mod watch;
 
 use std::cmp::Reverse;
