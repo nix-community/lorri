@@ -121,7 +121,12 @@ fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> 
         Command::Gc(opts) => ops::gc(logger, opts),
         Command::Direnv(opts) => {
             let (project, logger) = with_project(&opts.nix_file)?;
-            ops::op_direnv(project, /* shell_output */ std::io::stdout(), &logger)
+            ops::op_direnv(
+                project,
+                &paths,
+                /* shell_output */ std::io::stdout(),
+                &logger,
+            )
         }
         Command::Shell(opts) => {
             let (project, logger) = with_project(&opts.nix_file)?;
@@ -142,13 +147,13 @@ fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> 
         Command::Internal { command } => match command {
             Internal_::Ping_(opts) => {
                 let nix_file = find_nix_file(&opts.nix_file)?;
-                ops::op_ping(nix_file, logger)
+                ops::op_ping(&paths, nix_file, logger)
             }
             Internal_::StartUserShell_(opts) => {
                 let (project, _logger) = with_project(&opts.nix_file)?;
                 ops::op_start_user_shell(project, opts)
             }
-            Internal_::StreamEvents_(se) => ops::op_stream_events(se.kind, logger),
+            Internal_::StreamEvents_(se) => ops::op_stream_events(&paths, se.kind, logger),
         },
     }
 }

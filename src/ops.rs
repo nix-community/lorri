@@ -107,6 +107,7 @@ pub fn op_daemon(opts: crate::cli::DaemonOptions, logger: &slog::Logger) -> Resu
 /// details.
 pub fn op_direnv<W: std::io::Write>(
     project: Project,
+    paths: &Paths,
     mut shell_output: W,
     logger: &slog::Logger,
 ) -> Result<(), ExitError> {
@@ -118,7 +119,8 @@ pub fn op_direnv<W: std::io::Write>(
     let ping_sent = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
         debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
-        client::create::<client::Ping>(client::Timeout::from_millis(500), logger)
+        client::create::<client::Ping>(paths, client::Timeout::from_millis(500), logger)
+            .map_err(ExitError::from)
             .and_then(|c| {
                 c.write(&client::Ping {
                     nix_file: project.nix_file,
@@ -308,8 +310,8 @@ fn create_if_missing(
 ///
 /// Can be used together with `direnv`.
 /// See the documentation for lorri::cli::Command::Ping_ for details.
-pub fn op_ping(nix_file: NixFile, logger: &slog::Logger) -> Result<(), ExitError> {
-    client::create(client::Timeout::from_millis(500), logger)?.write(&client::Ping {
+pub fn op_ping(paths: &Paths, nix_file: NixFile, logger: &slog::Logger) -> Result<(), ExitError> {
+    client::create(paths, client::Timeout::from_millis(500), logger)?.write(&client::Ping {
         nix_file,
         rebuild: client::Rebuild::Always,
     })?;
@@ -654,17 +656,23 @@ struct StreamBuildError {
 ///
 /// See the documentation for lorri::cli::Command::StreamEvents_ for more
 /// details.
-pub fn op_stream_events(kind: EventKind, logger: &slog::Logger) -> Result<(), ExitError> {
+pub fn op_stream_events(
+    paths: &Paths,
+    kind: EventKind,
+    logger: &slog::Logger,
+) -> Result<(), ExitError> {
     let (tx_event, rx_event) = chan::unbounded::<Event>();
 
     let thread = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
         debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
         let logger2 = logger.clone();
+        let paths2 = (*paths).clone();
         // This async will not block when it is dropped,
         // since it only reads messages and don’t want to block exit in the Snapshot case.
         Async::<Result<(), ExitError>>::run_and_linger(logger, move || {
             let client = client::create::<client::StreamEvents>(
+                &paths2,
                 // infinite timeout because we are listening indefinitely
                 client::Timeout::Infinite,
                 &logger2,

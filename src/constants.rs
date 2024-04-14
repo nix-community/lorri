@@ -6,6 +6,7 @@ use directories::ProjectDirs;
 use thiserror::Error;
 
 /// Path constants like the GC root directory.
+#[derive(Clone)]
 pub struct Paths {
     gc_root_dir: AbsPathBuf,
     // TODO: make SocketPath
