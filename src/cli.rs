@@ -322,6 +322,9 @@ pub enum GcSubcommand {
         /// Also delete the root of projects that were last built before this amount of time, e.g. 30d.
         #[arg(long = "older-than", value_parser = clap::builder::ValueParser::new(human_friendly_duration))]
         older_than: Option<Duration>,
+        /// Only print which gc roots would be deleted. No `--json` output yet.
+        #[arg(long = "dry-run")]
+        dry_run: bool,
     },
 }
 
