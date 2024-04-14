@@ -4,7 +4,8 @@ mod direnv;
 pub mod error;
 
 use crate::build_loop::BuildLoop;
-use crate::build_loop::{Event, EventI, ReasonI};
+use crate::build_loop::Event;
+use crate::build_loop::Reason;
 use crate::builder;
 use crate::builder::OutputPath;
 use crate::cas::ContentAddressable;
@@ -19,10 +20,8 @@ use crate::nix::options::NixOptions;
 use crate::nix::CallOpts;
 use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
 use crate::ops::error::ExitError;
-use crate::project::{Project, ProjectFile};
+use crate::path_to_json_string;
 use crate::socket::path::SocketPath;
-use crate::NixFile;
-
 use std::ffi::OsStr;
 use std::io::{Error, Write};
 use std::os::unix::process::CommandExt;
@@ -39,6 +38,8 @@ use std::{fmt::Debug, fs::remove_dir_all};
 
 use anyhow::Context;
 
+use crate::project::{Project, ProjectFile};
+use serde_json::json;
 use slog::{debug, info, warn};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{channel, unbounded_channel};
@@ -643,36 +644,6 @@ impl FromStr for EventKind {
     }
 }
 
-// These types are just transparent newtype wrappers to implement a different serde class and JsonEncode
-
-/// For now use the EventI structure, in the future we might want to split it off.
-/// At least it will show us that we need to change something here if we change it
-/// and it relates to this interface.
-#[derive(Serialize)]
-#[serde(transparent)]
-struct StreamEvent(EventI<StreamNixFile, StreamReason, StreamOutputPath, StreamBuildError>);
-
-/// Nix files are encoded as strings
-#[derive(Serialize)]
-#[serde(transparent)]
-struct StreamNixFile(String);
-
-/// Same here, the reason contains a nix file which has to be converted to a string.
-#[derive(Serialize)]
-#[serde(transparent)]
-struct StreamReason(ReasonI<String>);
-
-/// And same here, OutputPaths are GcRoots and have to be converted as well.
-#[derive(Serialize)]
-#[serde(transparent)]
-struct StreamOutputPath(OutputPath<String>);
-
-/// Just expose the error message for now.
-#[derive(Serialize)]
-struct StreamBuildError {
-    message: String,
-}
-
 /// Run to output a stream of build events in a machine-parseable form.
 ///
 /// See the documentation for lorri::cli::Command::StreamEvents_ for more
@@ -718,20 +689,37 @@ pub async fn op_stream_events(
                     (_, EventKind::All)
                     | (false, EventKind::Snapshot)
                     | (true, EventKind::Live) => {
-                        fn nix_file_string(nix_file: NixFile) -> String {
-                            nix_file.display().to_string()
-                        }
-                        let mut vec = serde_json::to_vec(&StreamEvent(ev.map(
-                            |nix_file| StreamNixFile(nix_file_string(nix_file)),
-                            |reason| StreamReason(reason.map(nix_file_string)),
-                            |output_path| {
-                                StreamOutputPath(output_path.map(|o| o.display().to_string()))
-                            },
-                            |build_error| StreamBuildError {
-                                message: format!("{}", build_error),
-                            },
-                        )))
-                        .expect("couldn’t serialize event");
+                        let json: serde_json::Value = match ev {
+                            Event::SectionEnd => json!({"SectionEnd":{}}),
+                            Event::Started { nix_file, reason } => json!({
+                              "Started": {
+                                  "nix_file": nix_file.to_json_value(),
+                                  "reason": match reason {
+                                      Reason::PingReceived => json!({"PingReceived": {}}),
+                                      Reason::FilesChanged(files) => json!({"FilesChanged": files.iter().map(|p| path_to_json_string(p)).collect::<Vec<serde_json::Value>>()})
+                                  }
+                              }
+                            }),
+                            Event::Completed {
+                                nix_file,
+                                rooted_output_paths,
+                            } => json!({
+                              "Completed": {
+                                "nix_file": nix_file.to_json_value(),
+                                "rooted_output_paths": {
+                                    "shell_gc_root": rooted_output_paths.shell_gc_root.0.to_json_value()
+                                }
+                              }
+                            }),
+                            Event::Failure { nix_file, failure } => json!({
+                              "Failure": {
+                                "nix_file": nix_file.to_json_value(),
+                                "failure": { "message": format!("{}",  failure) }
+                              }
+                            }),
+                        };
+
+                        let mut vec = serde_json::to_vec(&json).expect("couldn't serialize event");
                         vec.extend_from_slice("\n".as_bytes());
                         tokio::io::stdout()
                             .write_all(&vec)

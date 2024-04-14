@@ -132,17 +132,14 @@ impl Project {
     }
 
     /// Return the filesystem paths for these roots.
-    pub fn root_paths(&self) -> OutputPath<RootPath> {
+    pub fn root_paths(&self) -> OutputPath {
         OutputPath {
             shell_gc_root: RootPath(self.gc_root(&Self::ENV_CONTEXT.into())),
         }
     }
 
     /// Create roots to store paths.
-    pub fn create_roots(
-        &self,
-        rooted_path: RootedPath,
-    ) -> Result<OutputPath<RootPath>, AddRootError> {
+    pub fn create_roots(&self, rooted_path: RootedPath) -> Result<OutputPath, AddRootError> {
         for path in rooted_path.extra_paths {
             let base = path
                 .as_path()
@@ -158,7 +155,7 @@ impl Project {
         &self,
         base_name: PathBuf,
         store_path: StorePath,
-    ) -> Result<OutputPath<RootPath>, AddRootError> {
+    ) -> Result<OutputPath, AddRootError> {
         // nix-store --add-root /tmp/test-root --realise
         let mut cmd = Command::new("nix-store");
         cmd.args([
@@ -196,7 +193,7 @@ impl RootPath {
     }
 }
 
-impl OutputPath<RootPath> {
+impl OutputPath {
     /// Check whether all all GC roots exist.
     pub fn all_exist(&self) -> bool {
         let crate::builder::OutputPath { shell_gc_root } = self;
