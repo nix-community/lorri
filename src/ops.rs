@@ -29,8 +29,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 use std::{collections::HashSet, env, fs::File, time::SystemTime};
@@ -418,8 +416,6 @@ async fn build_root(
     cached: bool,
     logger: &slog::Logger,
 ) -> Result<PathBuf, ExitError> {
-    let building = Arc::new(AtomicBool::new(true));
-    let building_clone = building.clone();
     let logger2 = logger.clone();
     let progress_thread = tokio::spawn(async move {
         // Keep track of the start time to display a hint to the user that they can use `--cached`,
@@ -427,7 +423,7 @@ async fn build_root(
         let mut start = if cached { Some(Instant::now()) } else { None };
 
         eprint!("lorri: building environment");
-        while building_clone.load(Ordering::SeqCst) {
+        loop {
             // Show `--cached` hint once after some time has passed
             if let Some(start_time) = start {
                 if start_time.elapsed() >= Duration::from_millis(10_000) {
@@ -444,7 +440,6 @@ async fn build_root(
             eprint!(".");
             tokio::io::stderr().flush().await.expect("couldn’t flush‽");
         }
-        eprintln!(". done");
     });
 
     // TODO: add the ability to pass extra_nix_options to shell
@@ -455,8 +450,8 @@ async fn build_root(
         }
         ProjectFile::FlakeNix(installable) => builder::flake(installable, &logger2).await,
     };
-    building.store(false, Ordering::SeqCst);
-    progress_thread.await.expect("cannot join progress_thread");
+    eprintln!(". done");
+    progress_thread.abort();
 
     let run_result = run_result
         .map_err(|e| {
