@@ -6,6 +6,13 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
+	version = 1076;
+	changes = ''
+	  Added `--dry-run` flag to `lorri gc rm`, to see which project roots would
+	  be removed.
+	'';
+      }
+      {
 	version = 1065;
 	changes = ''
 	  Improved the crash error message, providing an easier way to open an issue
