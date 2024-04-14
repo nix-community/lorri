@@ -131,6 +131,49 @@ rec {
           "rustc-dep-of-std" = [ "core" "compiler_builtins" ];
         };
       };
+      "ahash" = rec {
+        crateName = "ahash";
+        version = "0.8.11";
+        edition = "2018";
+        sha256 = "04chdfkls5xmhp1d48gnjsmglbqibizs3bpbj6rsj604m10si7g8";
+        authors = [
+          "Tom Kaitchuck <Tom.Kaitchuck@gmail.com>"
+        ];
+        dependencies = [
+          {
+            name = "cfg-if";
+            packageId = "cfg-if";
+          }
+          {
+            name = "once_cell";
+            packageId = "once_cell";
+            usesDefaultFeatures = false;
+            target = { target, features }: (!(("arm" == target."arch" or null) && ("none" == target."os" or null)));
+            features = [ "alloc" ];
+          }
+          {
+            name = "zerocopy";
+            packageId = "zerocopy";
+            usesDefaultFeatures = false;
+            features = [ "simd" ];
+          }
+        ];
+        buildDependencies = [
+          {
+            name = "version_check";
+            packageId = "version_check";
+          }
+        ];
+        features = {
+          "atomic-polyfill" = [ "dep:atomic-polyfill" "once_cell/atomic-polyfill" ];
+          "compile-time-rng" = [ "const-random" ];
+          "const-random" = [ "dep:const-random" ];
+          "default" = [ "std" "runtime-rng" ];
+          "getrandom" = [ "dep:getrandom" ];
+          "runtime-rng" = [ "getrandom" ];
+          "serde" = [ "dep:serde" ];
+        };
+      };
       "aho-corasick" = rec {
         crateName = "aho-corasick";
         version = "1.1.3";
@@ -589,6 +632,37 @@ rec {
         sha256 = "1439m3r3jy3xqck8aa13q658visn71ki76qa93cy55wkmalwlqsv";
 
       };
+      "crossbeam-channel" = rec {
+        crateName = "crossbeam-channel";
+        version = "0.5.14";
+        edition = "2021";
+        sha256 = "0wa41qybq5w8s70anb472myh4fid4aw6v65vws6wn528w9l6vfh6";
+        libName = "crossbeam_channel";
+        dependencies = [
+          {
+            name = "crossbeam-utils";
+            packageId = "crossbeam-utils";
+            usesDefaultFeatures = false;
+          }
+        ];
+        features = {
+          "default" = [ "std" ];
+          "std" = [ "crossbeam-utils/std" ];
+        };
+        resolvedDefaultFeatures = [ "default" "std" ];
+      };
+      "crossbeam-utils" = rec {
+        crateName = "crossbeam-utils";
+        version = "0.8.21";
+        edition = "2021";
+        sha256 = "0a3aa2bmc8q35fb67432w16wvi54sfmb69rk9h5bhd18vw0c99fh";
+        libName = "crossbeam_utils";
+        features = {
+          "default" = [ "std" ];
+          "loom" = [ "dep:loom" ];
+        };
+        resolvedDefaultFeatures = [ "std" ];
+      };
       "ctrlc" = rec {
         crateName = "ctrlc";
         version = "3.4.5";
@@ -903,18 +977,6 @@ rec {
         ];
 
       };
-      "foldhash" = rec {
-        crateName = "foldhash";
-        version = "0.1.4";
-        edition = "2021";
-        sha256 = "0vsxw2iwpgs7yy6l7pndm7b8nllaq5vdxwnmjn1qpm5kyzhzvlm0";
-        authors = [
-          "Orson Peters <orsonpeters@gmail.com>"
-        ];
-        features = {
-          "default" = [ "std" ];
-        };
-      };
       "fsevent-sys" = rec {
         crateName = "fsevent-sys";
         version = "4.1.0";
@@ -1065,40 +1127,41 @@ rec {
       };
       "hashbrown" = rec {
         crateName = "hashbrown";
-        version = "0.15.2";
+        version = "0.14.5";
         edition = "2021";
-        sha256 = "12dj0yfn59p3kh3679ac0w1fagvzf4z2zp87a13gbbqbzw0185dz";
+        sha256 = "1wa1vy1xs3mp11bn3z9dv0jricgr6a2j0zkf1g19yz3vw4il89z5";
         authors = [
           "Amanieu d'Antras <amanieu@gmail.com>"
         ];
         dependencies = [
           {
-            name = "foldhash";
-            packageId = "foldhash";
+            name = "ahash";
+            packageId = "ahash";
             optional = true;
             usesDefaultFeatures = false;
           }
         ];
         features = {
+          "ahash" = [ "dep:ahash" ];
           "alloc" = [ "dep:alloc" ];
           "allocator-api2" = [ "dep:allocator-api2" ];
           "compiler_builtins" = [ "dep:compiler_builtins" ];
           "core" = [ "dep:core" ];
-          "default" = [ "default-hasher" "inline-more" "allocator-api2" "equivalent" "raw-entry" ];
-          "default-hasher" = [ "dep:foldhash" ];
+          "default" = [ "ahash" "inline-more" "allocator-api2" ];
           "equivalent" = [ "dep:equivalent" ];
           "nightly" = [ "allocator-api2?/nightly" "bumpalo/allocator_api" ];
           "rayon" = [ "dep:rayon" ];
-          "rustc-dep-of-std" = [ "nightly" "core" "compiler_builtins" "alloc" "rustc-internal-api" "raw-entry" ];
+          "rkyv" = [ "dep:rkyv" ];
+          "rustc-dep-of-std" = [ "nightly" "core" "compiler_builtins" "alloc" "rustc-internal-api" ];
           "serde" = [ "dep:serde" ];
         };
-        resolvedDefaultFeatures = [ "default-hasher" "inline-more" ];
+        resolvedDefaultFeatures = [ "ahash" "inline-more" ];
       };
       "hashlink" = rec {
         crateName = "hashlink";
-        version = "0.10.0";
+        version = "0.9.1";
         edition = "2018";
-        sha256 = "1h8lzvnl9qxi3zyagivzz2p1hp6shgddfmccyf6jv7s1cdicz0kk";
+        sha256 = "1byq4nyrflm5s6wdx5qwp96l1qbp2d0nljvrr5yqrsfy51qzz93b";
         authors = [
           "kyren <kerriganw@gmail.com>"
         ];
@@ -1107,7 +1170,7 @@ rec {
             name = "hashbrown";
             packageId = "hashbrown";
             usesDefaultFeatures = false;
-            features = [ "default-hasher" "inline-more" ];
+            features = [ "ahash" "inline-more" ];
           }
         ];
         features = {
@@ -1358,10 +1421,10 @@ rec {
       };
       "libsqlite3-sys" = rec {
         crateName = "libsqlite3-sys";
-        version = "0.31.0";
+        version = "0.30.1";
         edition = "2021";
         links = "sqlite3";
-        sha256 = "1m1zk77vb4wsw99g2m0vw27y03xsxc68whws2x53j4vw9ss3b2dd";
+        sha256 = "0jcikvgbj84xc7ikdmpc8m4y5lyqgrb9aqblphwk67kv95xgp69f";
         libName = "libsqlite3_sys";
         authors = [
           "The rusqlite developers"
@@ -1525,11 +1588,6 @@ rec {
             packageId = "regex";
           }
           {
-            name = "rusqlite";
-            packageId = "rusqlite";
-            features = [ "bundled" ];
-          }
-          {
             name = "serde";
             packageId = "serde";
           }
@@ -1562,6 +1620,11 @@ rec {
             name = "tokio";
             packageId = "tokio";
             features = [ "rt" "rt-multi-thread" "macros" "net" "time" "io-util" "io-std" "sync" "process" "fs" ];
+          }
+          {
+            name = "tokio-rusqlite";
+            packageId = "tokio-rusqlite";
+            features = [ "bundled" ];
           }
           {
             name = "urlencoding";
@@ -2294,9 +2357,9 @@ rec {
       };
       "rusqlite" = rec {
         crateName = "rusqlite";
-        version = "0.33.0";
+        version = "0.32.1";
         edition = "2021";
-        sha256 = "041imwmjch5wwwc5wlv8nln998dwfzyag83v7zz2jqbgrdd5wv8w";
+        sha256 = "0vlx040bppl414pbjgbp7qr4jdxwszi9krx0m63zzf2f2whvflvp";
         authors = [
           "The rusqlite developers"
         ];
@@ -2338,9 +2401,8 @@ rec {
           "csv" = [ "dep:csv" ];
           "csvtab" = [ "csv" "vtab" ];
           "in_gecko" = [ "modern_sqlite" "libsqlite3-sys/in_gecko" ];
-          "jiff" = [ "dep:jiff" ];
           "loadable_extension" = [ "libsqlite3-sys/loadable_extension" ];
-          "modern-full" = [ "array" "backup" "blob" "modern_sqlite" "chrono" "collation" "column_decltype" "csvtab" "extra_check" "functions" "hooks" "i128_blob" "jiff" "limits" "load_extension" "serde_json" "serialize" "series" "time" "trace" "unlock_notify" "url" "uuid" "vtab" "window" ];
+          "modern-full" = [ "array" "backup" "blob" "modern_sqlite" "chrono" "collation" "column_decltype" "csvtab" "extra_check" "functions" "hooks" "i128_blob" "limits" "load_extension" "serde_json" "series" "time" "trace" "unlock_notify" "url" "uuid" "vtab" "window" ];
           "modern_sqlite" = [ "libsqlite3-sys/bundled_bindings" ];
           "preupdate_hook" = [ "libsqlite3-sys/preupdate_hook" "hooks" ];
           "rusqlite-macros" = [ "dep:rusqlite-macros" ];
@@ -3250,6 +3312,48 @@ rec {
         ];
 
       };
+      "tokio-rusqlite" = rec {
+        crateName = "tokio-rusqlite";
+        version = "0.6.0";
+        edition = "2021";
+        sha256 = "0id96bxi1mq6y99hq865nmx851h9plng94brql0g8xmniqvh2mdn";
+        libName = "tokio_rusqlite";
+        authors = [
+          "Programatik <programatik29@gmail.com>"
+          "Adi Salimgereev <adisalimgereev@gmail.com>"
+        ];
+        dependencies = [
+          {
+            name = "crossbeam-channel";
+            packageId = "crossbeam-channel";
+          }
+          {
+            name = "rusqlite";
+            packageId = "rusqlite";
+          }
+          {
+            name = "tokio";
+            packageId = "tokio";
+            features = [ "sync" ];
+          }
+        ];
+        devDependencies = [
+          {
+            name = "rusqlite";
+            packageId = "rusqlite";
+            features = [ "bundled" ];
+          }
+          {
+            name = "tokio";
+            packageId = "tokio";
+            features = [ "full" ];
+          }
+        ];
+        features = {
+          "bundled" = [ "rusqlite/bundled" ];
+        };
+        resolvedDefaultFeatures = [ "bundled" ];
+      };
       "unicode-ident" = rec {
         crateName = "unicode-ident";
         version = "1.0.16";
@@ -3311,6 +3415,16 @@ rec {
           "smallvec_v1_" = [ "dep:smallvec_v1_" ];
         };
         resolvedDefaultFeatures = [ "default" "std" ];
+      };
+      "version_check" = rec {
+        crateName = "version_check";
+        version = "0.9.5";
+        edition = "2015";
+        sha256 = "0nhhi4i5x89gm911azqbn7avs9mdacw2i3vcz3cnmz3mv4rqz4hb";
+        authors = [
+          "Sergio Benitez <sb@sergio.bz>"
+        ];
+
       };
       "walkdir" = rec {
         crateName = "walkdir";
@@ -4096,6 +4210,68 @@ rec {
           "bitflags" = [ "dep:bitflags" ];
         };
         resolvedDefaultFeatures = [ "bitflags" ];
+      };
+      "zerocopy" = rec {
+        crateName = "zerocopy";
+        version = "0.7.35";
+        edition = "2018";
+        sha256 = "1w36q7b9il2flg0qskapgi9ymgg7p985vniqd09vi0mwib8lz6qv";
+        authors = [
+          "Joshua Liebow-Feeser <joshlf@google.com>"
+        ];
+        dependencies = [
+          {
+            name = "zerocopy-derive";
+            packageId = "zerocopy-derive";
+            optional = true;
+          }
+          {
+            name = "zerocopy-derive";
+            packageId = "zerocopy-derive";
+            target = { target, features }: false;
+          }
+        ];
+        devDependencies = [
+          {
+            name = "zerocopy-derive";
+            packageId = "zerocopy-derive";
+          }
+        ];
+        features = {
+          "__internal_use_only_features_that_work_on_stable" = [ "alloc" "derive" "simd" ];
+          "byteorder" = [ "dep:byteorder" ];
+          "default" = [ "byteorder" ];
+          "derive" = [ "zerocopy-derive" ];
+          "simd-nightly" = [ "simd" ];
+          "zerocopy-derive" = [ "dep:zerocopy-derive" ];
+        };
+        resolvedDefaultFeatures = [ "simd" ];
+      };
+      "zerocopy-derive" = rec {
+        crateName = "zerocopy-derive";
+        version = "0.7.35";
+        edition = "2018";
+        sha256 = "0gnf2ap2y92nwdalzz3x7142f2b83sni66l39vxp2ijd6j080kzs";
+        procMacro = true;
+        libName = "zerocopy_derive";
+        authors = [
+          "Joshua Liebow-Feeser <joshlf@google.com>"
+        ];
+        dependencies = [
+          {
+            name = "proc-macro2";
+            packageId = "proc-macro2";
+          }
+          {
+            name = "quote";
+            packageId = "quote";
+          }
+          {
+            name = "syn";
+            packageId = "syn";
+          }
+        ];
+
       };
     };
 
