@@ -419,6 +419,24 @@ rec {
         };
         resolvedDefaultFeatures = [ "default" "std" ];
       };
+      "cc" = rec {
+        crateName = "cc";
+        version = "1.2.15";
+        edition = "2018";
+        sha256 = "1bq1c3qbarhx3z10bfpk8df2kq2akx7k0v68sm1z8xx5xrcy4dn7";
+        authors = [
+          "Alex Crichton <alex@alexcrichton.com>"
+        ];
+        dependencies = [
+          {
+            name = "shlex";
+            packageId = "shlex";
+          }
+        ];
+        features = {
+          "parallel" = [ "dep:libc" "dep:jobserver" ];
+        };
+      };
       "cfg-if" = rec {
         crateName = "cfg-if";
         version = "1.0.0";
@@ -788,6 +806,33 @@ rec {
         };
         resolvedDefaultFeatures = [ "std" ];
       };
+      "fallible-iterator" = rec {
+        crateName = "fallible-iterator";
+        version = "0.3.0";
+        edition = "2018";
+        sha256 = "0ja6l56yka5vn4y4pk6hn88z0bpny7a8k1919aqjzp0j1yhy9k1a";
+        libName = "fallible_iterator";
+        authors = [
+          "Steven Fackler <sfackler@gmail.com>"
+        ];
+        features = {
+          "default" = [ "alloc" ];
+          "std" = [ "alloc" ];
+        };
+        resolvedDefaultFeatures = [ "alloc" "default" ];
+      };
+      "fallible-streaming-iterator" = rec {
+        crateName = "fallible-streaming-iterator";
+        version = "0.1.9";
+        edition = "2015";
+        sha256 = "0nj6j26p71bjy8h42x6jahx1hn0ng6mc2miwpgwnp8vnwqf4jq3k";
+        libName = "fallible_streaming_iterator";
+        authors = [
+          "Steven Fackler <sfackler@gmail.com>"
+        ];
+        features = {
+        };
+      };
       "fastrand" = rec {
         crateName = "fastrand";
         version = "2.3.0";
@@ -857,6 +902,18 @@ rec {
           }
         ];
 
+      };
+      "foldhash" = rec {
+        crateName = "foldhash";
+        version = "0.1.4";
+        edition = "2021";
+        sha256 = "0vsxw2iwpgs7yy6l7pndm7b8nllaq5vdxwnmjn1qpm5kyzhzvlm0";
+        authors = [
+          "Orson Peters <orsonpeters@gmail.com>"
+        ];
+        features = {
+          "default" = [ "std" ];
+        };
       };
       "fsevent-sys" = rec {
         crateName = "fsevent-sys";
@@ -1005,6 +1062,58 @@ rec {
           "write" = [ "dep:indexmap" ];
         };
         resolvedDefaultFeatures = [ "read" "read-core" ];
+      };
+      "hashbrown" = rec {
+        crateName = "hashbrown";
+        version = "0.15.2";
+        edition = "2021";
+        sha256 = "12dj0yfn59p3kh3679ac0w1fagvzf4z2zp87a13gbbqbzw0185dz";
+        authors = [
+          "Amanieu d'Antras <amanieu@gmail.com>"
+        ];
+        dependencies = [
+          {
+            name = "foldhash";
+            packageId = "foldhash";
+            optional = true;
+            usesDefaultFeatures = false;
+          }
+        ];
+        features = {
+          "alloc" = [ "dep:alloc" ];
+          "allocator-api2" = [ "dep:allocator-api2" ];
+          "compiler_builtins" = [ "dep:compiler_builtins" ];
+          "core" = [ "dep:core" ];
+          "default" = [ "default-hasher" "inline-more" "allocator-api2" "equivalent" "raw-entry" ];
+          "default-hasher" = [ "dep:foldhash" ];
+          "equivalent" = [ "dep:equivalent" ];
+          "nightly" = [ "allocator-api2?/nightly" "bumpalo/allocator_api" ];
+          "rayon" = [ "dep:rayon" ];
+          "rustc-dep-of-std" = [ "nightly" "core" "compiler_builtins" "alloc" "rustc-internal-api" "raw-entry" ];
+          "serde" = [ "dep:serde" ];
+        };
+        resolvedDefaultFeatures = [ "default-hasher" "inline-more" ];
+      };
+      "hashlink" = rec {
+        crateName = "hashlink";
+        version = "0.10.0";
+        edition = "2018";
+        sha256 = "1h8lzvnl9qxi3zyagivzz2p1hp6shgddfmccyf6jv7s1cdicz0kk";
+        authors = [
+          "kyren <kerriganw@gmail.com>"
+        ];
+        dependencies = [
+          {
+            name = "hashbrown";
+            packageId = "hashbrown";
+            usesDefaultFeatures = false;
+            features = [ "default-hasher" "inline-more" ];
+          }
+        ];
+        features = {
+          "serde" = [ "dep:serde" ];
+          "serde_impl" = [ "serde" ];
+        };
       };
       "heck" = rec {
         crateName = "heck";
@@ -1247,6 +1356,55 @@ rec {
         };
         resolvedDefaultFeatures = [ "call" "default" "redox_syscall" "std" ];
       };
+      "libsqlite3-sys" = rec {
+        crateName = "libsqlite3-sys";
+        version = "0.31.0";
+        edition = "2021";
+        links = "sqlite3";
+        sha256 = "1m1zk77vb4wsw99g2m0vw27y03xsxc68whws2x53j4vw9ss3b2dd";
+        libName = "libsqlite3_sys";
+        authors = [
+          "The rusqlite developers"
+        ];
+        buildDependencies = [
+          {
+            name = "cc";
+            packageId = "cc";
+            optional = true;
+          }
+          {
+            name = "pkg-config";
+            packageId = "pkg-config";
+            optional = true;
+          }
+          {
+            name = "vcpkg";
+            packageId = "vcpkg";
+            optional = true;
+          }
+        ];
+        features = {
+          "bindgen" = [ "dep:bindgen" ];
+          "buildtime_bindgen" = [ "bindgen" "pkg-config" "vcpkg" ];
+          "bundled" = [ "cc" "bundled_bindings" ];
+          "bundled-sqlcipher" = [ "bundled" ];
+          "bundled-sqlcipher-vendored-openssl" = [ "bundled-sqlcipher" "openssl-sys/vendored" ];
+          "bundled-windows" = [ "cc" "bundled_bindings" ];
+          "cc" = [ "dep:cc" ];
+          "default" = [ "min_sqlite_version_3_14_0" ];
+          "loadable_extension" = [ "prettyplease" "quote" "syn" ];
+          "min_sqlite_version_3_14_0" = [ "pkg-config" "vcpkg" ];
+          "openssl-sys" = [ "dep:openssl-sys" ];
+          "pkg-config" = [ "dep:pkg-config" ];
+          "prettyplease" = [ "dep:prettyplease" ];
+          "preupdate_hook" = [ "buildtime_bindgen" ];
+          "quote" = [ "dep:quote" ];
+          "session" = [ "preupdate_hook" "buildtime_bindgen" ];
+          "syn" = [ "dep:syn" ];
+          "vcpkg" = [ "dep:vcpkg" ];
+        };
+        resolvedDefaultFeatures = [ "bundled" "bundled_bindings" "cc" "default" "min_sqlite_version_3_14_0" "pkg-config" "vcpkg" ];
+      };
       "linux-raw-sys" = rec {
         crateName = "linux-raw-sys";
         version = "0.4.15";
@@ -1365,6 +1523,11 @@ rec {
           {
             name = "regex";
             packageId = "regex";
+          }
+          {
+            name = "rusqlite";
+            packageId = "rusqlite";
+            features = [ "bundled" ];
           }
           {
             name = "serde";
@@ -1838,6 +2001,17 @@ rec {
         libName = "pin_project_lite";
 
       };
+      "pkg-config" = rec {
+        crateName = "pkg-config";
+        version = "0.3.31";
+        edition = "2018";
+        sha256 = "1wk6yp2phl91795ia0lwkr3wl4a9xkrympvhqq8cxk4d75hwhglm";
+        libName = "pkg_config";
+        authors = [
+          "Alex Crichton <alex@alexcrichton.com>"
+        ];
+
+      };
       "powerfmt" = rec {
         crateName = "powerfmt";
         version = "0.2.0";
@@ -2117,6 +2291,73 @@ rec {
           "unicode" = [ "unicode-age" "unicode-bool" "unicode-case" "unicode-gencat" "unicode-perl" "unicode-script" "unicode-segment" ];
         };
         resolvedDefaultFeatures = [ "default" "std" "unicode" "unicode-age" "unicode-bool" "unicode-case" "unicode-gencat" "unicode-perl" "unicode-script" "unicode-segment" ];
+      };
+      "rusqlite" = rec {
+        crateName = "rusqlite";
+        version = "0.33.0";
+        edition = "2021";
+        sha256 = "041imwmjch5wwwc5wlv8nln998dwfzyag83v7zz2jqbgrdd5wv8w";
+        authors = [
+          "The rusqlite developers"
+        ];
+        dependencies = [
+          {
+            name = "bitflags";
+            packageId = "bitflags 2.8.0";
+          }
+          {
+            name = "fallible-iterator";
+            packageId = "fallible-iterator";
+          }
+          {
+            name = "fallible-streaming-iterator";
+            packageId = "fallible-streaming-iterator";
+          }
+          {
+            name = "hashlink";
+            packageId = "hashlink";
+          }
+          {
+            name = "libsqlite3-sys";
+            packageId = "libsqlite3-sys";
+          }
+          {
+            name = "smallvec";
+            packageId = "smallvec";
+          }
+        ];
+        features = {
+          "array" = [ "vtab" ];
+          "buildtime_bindgen" = [ "libsqlite3-sys/buildtime_bindgen" ];
+          "bundled" = [ "libsqlite3-sys/bundled" "modern_sqlite" ];
+          "bundled-full" = [ "modern-full" "bundled" ];
+          "bundled-sqlcipher" = [ "libsqlite3-sys/bundled-sqlcipher" "bundled" ];
+          "bundled-sqlcipher-vendored-openssl" = [ "libsqlite3-sys/bundled-sqlcipher-vendored-openssl" "bundled-sqlcipher" ];
+          "bundled-windows" = [ "libsqlite3-sys/bundled-windows" ];
+          "chrono" = [ "dep:chrono" ];
+          "csv" = [ "dep:csv" ];
+          "csvtab" = [ "csv" "vtab" ];
+          "in_gecko" = [ "modern_sqlite" "libsqlite3-sys/in_gecko" ];
+          "jiff" = [ "dep:jiff" ];
+          "loadable_extension" = [ "libsqlite3-sys/loadable_extension" ];
+          "modern-full" = [ "array" "backup" "blob" "modern_sqlite" "chrono" "collation" "column_decltype" "csvtab" "extra_check" "functions" "hooks" "i128_blob" "jiff" "limits" "load_extension" "serde_json" "serialize" "series" "time" "trace" "unlock_notify" "url" "uuid" "vtab" "window" ];
+          "modern_sqlite" = [ "libsqlite3-sys/bundled_bindings" ];
+          "preupdate_hook" = [ "libsqlite3-sys/preupdate_hook" "hooks" ];
+          "rusqlite-macros" = [ "dep:rusqlite-macros" ];
+          "serde_json" = [ "dep:serde_json" ];
+          "serialize" = [ "modern_sqlite" ];
+          "series" = [ "vtab" ];
+          "session" = [ "libsqlite3-sys/session" "hooks" ];
+          "sqlcipher" = [ "libsqlite3-sys/sqlcipher" ];
+          "time" = [ "dep:time" ];
+          "unlock_notify" = [ "libsqlite3-sys/unlock_notify" ];
+          "url" = [ "dep:url" ];
+          "uuid" = [ "dep:uuid" ];
+          "wasm32-wasi-vfs" = [ "libsqlite3-sys/wasm32-wasi-vfs" ];
+          "window" = [ "functions" ];
+          "with-asan" = [ "libsqlite3-sys/with-asan" ];
+        };
+        resolvedDefaultFeatures = [ "bundled" "modern_sqlite" ];
       };
       "rustc-demangle" = rec {
         crateName = "rustc-demangle";
@@ -2399,6 +2640,24 @@ rec {
         };
         resolvedDefaultFeatures = [ "default" "std" ];
       };
+      "shlex" = rec {
+        crateName = "shlex";
+        version = "1.3.0";
+        edition = "2015";
+        sha256 = "0r1y6bv26c1scpxvhg2cabimrmwgbp4p3wy6syj9n0c4s3q2znhg";
+        authors = [
+          "comex <comexk@gmail.com>"
+          "Fenhl <fenhl@fenhl.net>"
+          "Adrian Taylor <adetaylor@chromium.org>"
+          "Alex Touchet <alextouchet@outlook.com>"
+          "Daniel Parks <dp+git@oxidized.org>"
+          "Garrett Berg <googberg@gmail.com>"
+        ];
+        features = {
+          "default" = [ "std" ];
+        };
+        resolvedDefaultFeatures = [ "default" "std" ];
+      };
       "signal-hook-registry" = rec {
         crateName = "signal-hook-registry";
         version = "1.4.2";
@@ -2470,6 +2729,22 @@ rec {
           "nested-values" = [ "erased-serde" "serde" "serde_json" "slog/nested-values" ];
           "serde" = [ "dep:serde" ];
           "serde_json" = [ "dep:serde_json" ];
+        };
+      };
+      "smallvec" = rec {
+        crateName = "smallvec";
+        version = "1.14.0";
+        edition = "2018";
+        sha256 = "1z8wpr53x6jisklqhkkvkgyi8s5cn69h2d2alhqfxahzxwiq7kvz";
+        authors = [
+          "The Servo Project Developers"
+        ];
+        features = {
+          "arbitrary" = [ "dep:arbitrary" ];
+          "const_new" = [ "const_generics" ];
+          "drain_keep_rest" = [ "drain_filter" ];
+          "malloc_size_of" = [ "dep:malloc_size_of" ];
+          "serde" = [ "dep:serde" ];
         };
       };
       "socket2" = rec {
@@ -3009,6 +3284,16 @@ rec {
         features = {
         };
         resolvedDefaultFeatures = [ "default" ];
+      };
+      "vcpkg" = rec {
+        crateName = "vcpkg";
+        version = "0.2.15";
+        edition = "2015";
+        sha256 = "09i4nf5y8lig6xgj3f7fyrvzd3nlaw4znrihw8psidvv5yk4xkdc";
+        authors = [
+          "Jim McGrath <jimmc2@gmail.com>"
+        ];
+
       };
       "vec1" = rec {
         crateName = "vec1";

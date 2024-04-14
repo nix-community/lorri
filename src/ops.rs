@@ -3,6 +3,7 @@
 mod direnv;
 pub mod error;
 
+use crate::sqlite;
 use crate::build_loop::BuildLoop;
 use crate::build_loop::Event;
 use crate::build_loop::Reason;
