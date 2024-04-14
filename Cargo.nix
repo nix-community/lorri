@@ -734,6 +734,20 @@ rec {
         ];
 
       };
+      "either" = rec {
+        crateName = "either";
+        version = "1.13.0";
+        edition = "2018";
+        sha256 = "1w2c1mybrd7vljyxk77y9f4w9dyjrmp3yp82mk7bcm8848fazcb0";
+        authors = [
+          "bluss"
+        ];
+        features = {
+          "default" = [ "use_std" ];
+          "serde" = [ "dep:serde" ];
+        };
+        resolvedDefaultFeatures = [ "use_std" ];
+      };
       "errno" = rec {
         crateName = "errno";
         version = "0.3.10";
@@ -1111,6 +1125,27 @@ rec {
         };
         resolvedDefaultFeatures = [ "default" ];
       };
+      "itertools" = rec {
+        crateName = "itertools";
+        version = "0.12.1";
+        edition = "2018";
+        sha256 = "0s95jbb3ndj1lvfxyq5wanc0fm0r6hg6q4ngb92qlfdxvci10ads";
+        authors = [
+          "bluss"
+        ];
+        dependencies = [
+          {
+            name = "either";
+            packageId = "either";
+            usesDefaultFeatures = false;
+          }
+        ];
+        features = {
+          "default" = [ "use_std" ];
+          "use_std" = [ "use_alloc" "either/use_std" ];
+        };
+        resolvedDefaultFeatures = [ "default" "use_alloc" "use_std" ];
+      };
       "itoa" = rec {
         crateName = "itoa";
         version = "1.0.14";
@@ -1297,6 +1332,10 @@ rec {
           {
             name = "fastrand";
             packageId = "fastrand";
+          }
+          {
+            name = "itertools";
+            packageId = "itertools";
           }
           {
             name = "md5";
