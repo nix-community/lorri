@@ -238,7 +238,8 @@ impl BuildLoop {
                 let extra_nix_options = dat.extra_nix_options.clone();
                 let logger2 = dat.logger.clone();
                 tokio::task::spawn(async move {
-                    builder::run(&nix_file, &cas, &extra_nix_options, &logger2).await
+                    builder::instantiate_and_build(&nix_file, &cas, &extra_nix_options, &logger2)
+                        .await
                 })
             }
             project::ProjectFile::FlakeNix(i) => {
