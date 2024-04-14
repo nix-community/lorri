@@ -288,7 +288,7 @@ mod tests {
     use std::path::PathBuf;
     use std::thread::sleep;
     use std::time::{self, Duration};
-    use tempfile::tempdir;
+    use tempfile::{tempdir, TempDir};
 
     // A test helper function for setting up shell workspaces for testing.
     //
@@ -417,6 +417,18 @@ mod tests {
         );
     }
 
+    /// Create a tempdir for our test and drop it after the function runs.
+    fn with_test_tempdir<F>(f: F)
+    where
+        F: FnOnce(&std::path::Path),
+    {
+        let temp: TempDir = tempdir().unwrap();
+
+        // TODO: We use a subdirectory for our tests, because the watcher (for whatever reason) also watches the parent directory, which means we start watching `/tmp` in our tests …
+        f(&temp.path().join("testdir"));
+        drop(temp);
+    }
+
     #[cfg(target_os = "macos")]
     fn macos_eat_late_notifications(watcher: &mut Watch) {
         // Sometimes a brand new watch will send a CREATE notification
@@ -446,129 +458,126 @@ mod tests {
     #[test]
     fn trivial_watch_whole_directory() {
         let mut watcher = Watch::new(crate::logging::test_logger()).expect("failed creating Watch");
-        let temp = tempdir().unwrap();
-        let t = temp.path().as_os_str();
+        with_test_tempdir(|t| {
+            expect_bash(r#"mkdir -p "$1"/foo"#, [t]);
+            expect_bash(r#"touch "$1"/foo/bar"#, [t]);
+            watcher
+                .extend(vec![WatchPathBuf::Recursive(t.to_path_buf())])
+                .unwrap();
 
-        expect_bash(r#"mkdir -p "$1"/foo"#, [t]);
-        expect_bash(r#"touch "$1"/foo/bar"#, [t]);
-        watcher
-            .extend(vec![WatchPathBuf::Recursive(temp.path().to_path_buf())])
-            .unwrap();
+            expect_bash(r#"echo 1 > "$1/baz""#, [t]);
+            assert_file_changed_within(&watcher, "baz", WATCHER_TIMEOUT);
 
-        expect_bash(r#"echo 1 > "$1/baz""#, [t]);
-        assert_file_changed_within(&watcher, "baz", WATCHER_TIMEOUT);
-
-        expect_bash(r#"echo 1 > "$1/foo/bar""#, [t]);
-        assert_file_changed_within(&watcher, "bar", WATCHER_TIMEOUT);
+            expect_bash(r#"echo 1 > "$1/foo/bar""#, [t]);
+            assert_file_changed_within(&watcher, "bar", WATCHER_TIMEOUT);
+        })
     }
 
     #[test]
     fn trivial_watch_directory_not_recursively() {
         let mut watcher = Watch::new(crate::logging::test_logger()).expect("failed creating Watch");
-        let temp = tempdir().unwrap();
-        let t = temp.path().as_os_str();
+        with_test_tempdir(|t| {
+            expect_bash(r#"mkdir -p "$1"/foo"#, [t]);
+            expect_bash(r#"touch "$1"/foo/bar"#, [t]);
+            watcher
+                .extend(vec![WatchPathBuf::Normal(t.to_path_buf())])
+                .unwrap();
 
-        expect_bash(r#"mkdir -p "$1"/foo"#, [t]);
-        expect_bash(r#"touch "$1"/foo/bar"#, [t]);
-        watcher
-            .extend(vec![WatchPathBuf::Normal(temp.path().to_path_buf())])
-            .unwrap();
+            expect_bash(r#"touch "$1/baz""#, [t]);
+            assert_file_changed_within(&watcher, "baz", WATCHER_TIMEOUT);
 
-        expect_bash(r#"touch "$1/baz""#, [t]);
-        assert_file_changed_within(&watcher, "baz", WATCHER_TIMEOUT);
-
-        expect_bash(r#"echo 1 > "$1/foo/bar""#, [t]);
-        assert_none_within(&watcher, WATCHER_TIMEOUT);
+            expect_bash(r#"echo 1 > "$1/foo/bar""#, [t]);
+            assert_none_within(&watcher, WATCHER_TIMEOUT);
+        })
     }
 
     #[test]
     fn trivial_watch_specific_file() {
         let mut watcher = Watch::new(crate::logging::test_logger()).expect("failed creating Watch");
-        let temp = tempdir().unwrap();
-        let t = temp.path().as_os_str();
 
-        expect_bash(r#"mkdir -p "$1""#, [t]);
-        expect_bash(r#"touch "$1/foo""#, [t]);
-        watcher
-            .extend(vec![WatchPathBuf::Recursive(temp.path().join("foo"))])
-            .unwrap();
-        macos_eat_late_notifications(&mut watcher);
+        with_test_tempdir(|t| {
+            expect_bash(r#"mkdir -p "$1""#, [t]);
+            expect_bash(r#"touch "$1/foo""#, [t]);
+            watcher
+                .extend(vec![WatchPathBuf::Recursive(t.join("foo"))])
+                .unwrap();
+            macos_eat_late_notifications(&mut watcher);
 
-        expect_bash(r#"echo 1 > "$1/foo""#, [t]);
-        sleep(WATCHER_TIMEOUT);
-        assert_file_changed_within(&watcher, "foo", WATCHER_TIMEOUT);
+            expect_bash(r#"echo 1 > "$1/foo""#, [t]);
+            sleep(WATCHER_TIMEOUT);
+            assert_file_changed_within(&watcher, "foo", WATCHER_TIMEOUT);
+        })
     }
 
     #[test]
     fn rename_over_vim() {
         // Vim renames files in to place for atomic writes
         let mut watcher = Watch::new(crate::logging::test_logger()).expect("failed creating Watch");
-        let temp = tempdir().unwrap();
-        let t = temp.path().as_os_str();
 
-        expect_bash(r#"mkdir -p "$1""#, [t]);
-        expect_bash(r#"touch "$1/foo""#, [t]);
-        watcher
-            .extend(vec![WatchPathBuf::Recursive(temp.path().join("foo"))])
-            .unwrap();
-        macos_eat_late_notifications(&mut watcher);
+        with_test_tempdir(|t| {
+            expect_bash(r#"mkdir -p "$1""#, [t]);
+            expect_bash(r#"touch "$1/foo""#, [t]);
+            watcher
+                .extend(vec![WatchPathBuf::Recursive(t.join("foo"))])
+                .unwrap();
+            macos_eat_late_notifications(&mut watcher);
 
-        // bar is not watched, expect error
-        expect_bash(r#"echo 1 > "$1/bar""#, [t]);
-        assert_none_within(&watcher, WATCHER_TIMEOUT);
+            // bar is not watched, expect error
+            expect_bash(r#"echo 1 > "$1/bar""#, [t]);
+            assert_none_within(&watcher, WATCHER_TIMEOUT);
 
-        // Rename bar to foo, expect a notification
-        expect_bash(r#"mv "$1/bar" "$1/foo""#, [t]);
-        assert_file_changed_within(&watcher, "foo", WATCHER_TIMEOUT);
+            // Rename bar to foo, expect a notification
+            expect_bash(r#"mv "$1/bar" "$1/foo""#, [t]);
+            assert_file_changed_within(&watcher, "foo", WATCHER_TIMEOUT);
 
-        // Do it a second time
-        expect_bash(r#"echo 1 > "$1/bar""#, [t]);
-        assert_none_within(&watcher, WATCHER_TIMEOUT);
+            // Do it a second time
+            expect_bash(r#"echo 1 > "$1/bar""#, [t]);
+            assert_none_within(&watcher, WATCHER_TIMEOUT);
 
-        // Rename bar to foo, expect a notification
-        expect_bash(r#"mv "$1/bar" "$1/foo""#, [t]);
-        assert_file_changed_within(&watcher, "foo", WATCHER_TIMEOUT);
+            // Rename bar to foo, expect a notification
+            expect_bash(r#"mv "$1/bar" "$1/foo""#, [t]);
+            assert_file_changed_within(&watcher, "foo", WATCHER_TIMEOUT);
+        })
     }
 
     #[test]
-    fn walk_path_topo_filetree() -> std::io::Result<()> {
-        let temp = tempdir().unwrap();
+    fn walk_path_topo_filetree() {
+        with_test_tempdir(|t| {
+            let files = vec![("a", "b"), ("a", "c"), ("a/d", "e"), ("x/y", "z")];
+            for (dir, file) in files {
+                std::fs::create_dir_all(t.join(dir)).unwrap();
+                std::fs::write(t.join(dir).join(file), []).unwrap();
+            }
 
-        let files = vec![("a", "b"), ("a", "c"), ("a/d", "e"), ("x/y", "z")];
-        for (dir, file) in files {
-            std::fs::create_dir_all(temp.path().join(dir))?;
-            std::fs::write(temp.path().join(dir).join(file), [])?;
-        }
+            let res = super::walk_path_topo(t.to_owned()).unwrap();
 
-        let res = super::walk_path_topo(temp.path().to_owned())?;
-
-        // check that the list is topolocially sorted
-        // by making sure *no* later path is a prefix of a previous path.
-        let mut inv = res.clone();
-        inv.reverse();
-        for i in 0..inv.len() {
-            for predecessor in inv.iter().skip(i + 1) {
-                assert!(
+            // check that the list is topolocially sorted
+            // by making sure *no* later path is a prefix of a previous path.
+            let mut inv = res.clone();
+            inv.reverse();
+            for i in 0..inv.len() {
+                for predecessor in inv.iter().skip(i + 1) {
+                    assert!(
                 !predecessor.starts_with(&inv[i]),
                 "{:?} is a prefix of {:?}, even though it comes later in list, thus topological order is not given!\nFull list: {:#?}",
                 inv[i], predecessor, res
             )
+                }
             }
-        }
 
-        // make sure the resulting list contains the same
-        // paths as the original list.
-        let mut res2 = res.clone();
-        res2.sort();
-        let mut all_paths = [
-            "", "a", // direct files come before nested directories
-            "a/b", "a/c", "x", "a/d", "a/d/e", "x/y", "x/y/z",
-        ]
-        .iter()
-        .map(|p| temp.path().join(p).to_owned())
-        .collect::<Vec<_>>();
-        all_paths.sort();
-        assert_eq!(res2, all_paths);
-        Ok(())
+            // make sure the resulting list contains the same
+            // paths as the original list.
+            let mut res2 = res.clone();
+            res2.sort();
+            let mut all_paths = [
+                "", "a", // direct files come before nested directories
+                "a/b", "a/c", "x", "a/d", "a/d/e", "x/y", "x/y/z",
+            ]
+            .iter()
+            .map(|p| t.join(p))
+            .collect::<Vec<_>>();
+            all_paths.sort();
+            assert_eq!(res2, all_paths);
+        })
     }
 }
