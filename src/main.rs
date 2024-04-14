@@ -85,7 +85,7 @@ async fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitE
             let (project, logger) = with_project(logger, &opts.source.try_into()?)?;
             ops::op_info(&paths, project, &logger).await
         }
-        Command::Gc(opts) => ops::gc(logger, opts),
+        Command::Gc(opts) => ops::op_gc(logger, opts),
         Command::Direnv(opts) => {
             let (project, logger) = with_project(logger, &opts.source.try_into()?)?;
             ops::op_direnv(
