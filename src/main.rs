@@ -96,6 +96,10 @@ fn create_project(paths: &constants::Paths, shell_nix: ProjectFile) -> Result<Pr
 async fn run_command(orig_logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> {
     let paths = ops::get_paths()?;
 
+    lorri::sqlite::migrate_gc_roots(orig_logger.clone(), paths.clone())
+        .await
+        .unwrap();
+
     match opts.command {
         Command::Info(opts) => {
             let (project, logger) = with_project(orig_logger, &opts.source.try_into()?)?;
