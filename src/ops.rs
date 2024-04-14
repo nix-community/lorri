@@ -13,7 +13,7 @@ use crate::cli::ShellOptions;
 use crate::cli::StartUserShellOptions_;
 use crate::cli::WatchOptions;
 use crate::constants::Paths;
-use crate::daemon::client;
+use crate::daemon::client::{self, DaemonInfo};
 use crate::daemon::Daemon;
 use crate::nix;
 use crate::nix::options::NixOptions;
@@ -236,9 +236,18 @@ where
 ///
 /// See the documentation for lorri::cli::Command::Info for more
 /// details.
-pub fn op_info(paths: &Paths, project: Project) -> Result<(), ExitError> {
+pub fn op_info(paths: &Paths, project: Project, logger: &slog::Logger) -> Result<(), ExitError> {
     let root_paths = project.root_paths();
     let OutputPath { shell_gc_root } = &root_paths;
+    let daemon_status =
+        match client::create::<client::DaemonInfo>(paths, client::Timeout::from_millis(50), logger)
+        {
+            Err(init_error) => format!("`lorri daemon` is not up: {}", init_error),
+            Ok(client) => match client.comunicate(&DaemonInfo {}) {
+                Ok(()) => "`lorri daemon` is running".to_string(),
+                Err(err) => format!("Problem connecting to the `lorri daemon`: {}", err),
+            },
+        };
 
     let gc_root = if root_paths.all_exist() {
         format!("{}", shell_gc_root.0.display())
@@ -254,11 +263,13 @@ Project Garbage Collector Root: {}
 General:
 Lorri User GC Root Dir: {}
 Lorri Daemon Socket: {}
+Lorri Daemon Status: {}
 ",
         project.nix_file.display(),
         gc_root,
         paths.gc_root_dir().display(),
-        paths.daemon_socket_file().display()
+        paths.daemon_socket_file().display(),
+        daemon_status
     );
 
     Ok(())

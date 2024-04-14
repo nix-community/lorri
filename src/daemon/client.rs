@@ -1,13 +1,12 @@
 //! Create clients for the daemon.
 use crate::constants::Paths;
-use crate::ops::error::ExitError;
 use crate::socket::communicate;
 use crate::socket::communicate::client::InitError;
 use crate::socket::communicate::{client::Client, Handler};
 use crate::socket::path::SocketPath;
 use slog::debug;
 
-pub use crate::socket::communicate::{Ping, Rebuild, StreamEvents};
+pub use crate::socket::communicate::{DaemonInfo, Ping, Rebuild, StreamEvents};
 pub use crate::socket::read_writer::Timeout;
 
 /// Create a connected client or exit.

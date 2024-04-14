@@ -36,6 +36,8 @@ pub trait Handler {
 /// Enum of all communication modes the lorri daemon supports.
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum CommunicationType {
+    /// Return some information about the running daemon
+    DaemonInfo,
     /// Ping the daemon from a project to tell it to watch & evaluate
     Ping,
     /// Stream events that happen in the daemon to the client, as they happen.
@@ -45,6 +47,18 @@ pub enum CommunicationType {
 /// No message can be sent through this socket end (empty type).
 #[derive(Serialize, Deserialize)]
 pub enum NoMessage {}
+
+/// Message sent by the client to ask the server about some status info
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DaemonInfo {}
+
+impl Handler for DaemonInfo {
+    type Resp = ();
+
+    fn communication_type() -> CommunicationType {
+        CommunicationType::DaemonInfo
+    }
+}
 
 /// Message sent by the client to ask the server to start
 /// watching `nix_file`. See `CommunicationType::Ping`.
@@ -179,6 +193,11 @@ pub mod listener {
 
     /// All handlers we have available to read messages and reply.
     impl Handlers {
+        /// React to a DaemonInfo message
+        pub fn daemon_info(&self) -> ReadWriter<DaemonInfo, <DaemonInfo as Handler>::Resp> {
+            ReadWriter::new(&self.socket)
+        }
+
         /// React to a ping message
         pub fn ping(&self) -> ReadWriter<Ping, <Ping as Handler>::Resp> {
             ReadWriter::new(&self.socket)
@@ -305,6 +324,18 @@ pub mod client {
                 read_type: PhantomData,
                 write_type: PhantomData,
             })
+        }
+
+        /// Write a message to the connected `Listener`, then wait for the reply. The configured timeout counts for the whole roundtrip.
+        pub fn comunicate(&self, mes: &W) -> Result<R, Error>
+        where
+            W: serde::Serialize,
+            R: serde::de::DeserializeOwned,
+        {
+            let sock = self.socket.as_ref().ok_or(Error::NotConnected)?;
+            let mut rw: ReadWriter<R, W> = ReadWriter::new(sock);
+            rw.communicate(self.timeout, mes)
+                .map_err(|e| Error::Message(e))
         }
 
         /// Read a message returned by the connected `Listener`.

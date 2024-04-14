@@ -1,11 +1,12 @@
 //! Serve the lorri daemon on a unix socket.
 use crate::daemon::{IndicateActivity, LoopHandlerEvent};
 use crate::run_async::Async;
-use crate::socket::communicate;
 use crate::socket::communicate::listener::{Connection, Listener};
+use crate::socket::communicate::{self};
 use crate::socket::communicate::{CommunicationType, Ping, StreamEvents};
 use crate::socket::path::{BindError, SocketPath};
 use crate::Never;
+use communicate::DaemonInfo;
 use crossbeam_channel as chan;
 use slog::{debug, info};
 use std::collections::HashMap;
@@ -95,6 +96,24 @@ impl Server {
                 // handle all events
                 // TODO: it would be good if we didn’t have to match on the communication type here, but I don’t see a way to do that.
                 match communication_type {
+                    CommunicationType::DaemonInfo => {
+                        match handlers
+                            .daemon_info()
+                            .read(communicate::DEFAULT_READ_TIMEOUT)
+                        {
+                            Ok(DaemonInfo {}) => {
+                                let mut rw = handlers.daemon_info();
+                                // TODO: the server could return its info here
+                                match rw.write(communicate::DEFAULT_READ_TIMEOUT, &()) {
+                                    Ok(()) => {}
+                                    Err(err) => {
+                                        debug!(logger, "client vanished, closing socket"; "communication_type" => format!("{:?}", communication_type), "error" => format!("{:?}", err));
+                                    }
+                                }
+                            }
+                            Err(_) => todo!(),
+                        }
+                    }
                     CommunicationType::Ping => {
                         match handlers.ping().read(communicate::DEFAULT_READ_TIMEOUT) {
                             Ok(Ping { nix_file, rebuild }) => tx_activity
