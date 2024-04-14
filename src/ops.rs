@@ -22,6 +22,7 @@ use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
 use crate::ops::error::ExitError;
 use crate::path_to_json_string;
 use crate::socket::path::SocketPath;
+use crate::AbsPathBuf;
 use std::ffi::OsStr;
 use std::io::{Error, Write};
 use std::os::unix::process::CommandExt;
@@ -38,6 +39,7 @@ use anyhow::Context;
 
 use crate::project::{Project, ProjectFile};
 use serde_json::json;
+use serde_json::Value;
 use slog::{debug, info, warn};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{channel, unbounded_channel};
@@ -771,7 +773,7 @@ async fn main_run_once(project: Project, logger: &slog::Logger) -> Result<(), Ex
 /// Represents a gc root along with some metadata, used for json output of lorri gc info
 struct GcRootInfo {
     /// directory where root is stored
-    gc_dir: PathBuf,
+    gc_dir: AbsPathBuf,
     /// nix file from which the root originates. If None, then the root is considered dead.
     nix_file: Option<PathBuf>,
     /// timestamp of the last build
@@ -795,7 +797,7 @@ fn list_roots(logger: &slog::Logger) -> Result<Vec<GcRootInfo>, ExitError> {
             );
             continue;
         }
-        let gc_dir = entry.path();
+        let gc_dir = AbsPathBuf::new(entry.path()).expect("entry.path() should always be absolute");
         let gc_root_dir = gc_dir.join("gc_root");
         if !std::fs::metadata(&gc_root_dir).map_or(false, |m| m.is_dir()) {
             debug!(
@@ -842,13 +844,26 @@ struct RemovalStatus {
 }
 
 /// Print or remove gc roots depending on cli options.
-pub fn gc(logger: &slog::Logger, opts: cli::GcOptions) -> Result<(), ExitError> {
+pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions) -> Result<(), ExitError> {
     let infos = list_roots(logger)?;
     match opts.action {
         cli::GcSubcommand::Info => {
             if opts.json {
-                serde_json::to_writer(std::io::stdout(), &infos)
-                    .expect("could not serialize gc roots");
+                serde_json::to_writer(
+                    std::io::stdout(),
+                    &infos
+                        .iter()
+                        .map(|info| {
+                            json!({
+                                "gc_dir": info.gc_dir.to_json_value(),
+                                "nix_file": info.nix_file.as_ref().map_or(Value::Null, |n| path_to_json_string(&n)),
+                                "timestamp": info.timestamp,
+                                "alive": info.alive
+                            })
+                        })
+                        .collect::<Vec<_>>(),
+                )
+                .expect("could not serialize gc roots");
             } else {
                 for info in infos {
                     let target = match info.nix_file {
