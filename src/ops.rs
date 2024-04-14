@@ -374,7 +374,14 @@ pub async fn op_shell(
             "`lorri shell` requires the `SHELL` environment variable to be set"
         ))
     })?;
-    let cached = cached_root(&project);
+    let root_paths = project.root_paths();
+    let cached = if !root_paths.all_exist() {
+        Err(ExitError::temporary(anyhow::anyhow!(
+            "project has not previously been built successfully",
+        )))
+    } else {
+        Ok(root_paths.shell_gc_root.0.as_path().to_owned())
+    };
     let mut bash_cmd = bash_cmd(
         if opts.cached {
             cached?
@@ -481,17 +488,6 @@ async fn build_root(
         .0
         .as_path()
         .to_owned())
-}
-
-fn cached_root(project: &Project) -> Result<PathBuf, ExitError> {
-    let root_paths = project.root_paths();
-    if !root_paths.all_exist() {
-        Err(ExitError::temporary(anyhow::anyhow!(
-            "project has not previously been built successfully",
-        )))
-    } else {
-        Ok(root_paths.shell_gc_root.0.as_path().to_owned())
-    }
 }
 
 /// Instantiates a `Command` to start bash.
