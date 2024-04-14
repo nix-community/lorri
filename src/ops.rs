@@ -12,6 +12,7 @@ use crate::cli;
 use crate::cli::ShellOptions;
 use crate::cli::StartUserShellOptions_;
 use crate::cli::WatchOptions;
+use crate::constants::Paths;
 use crate::daemon::client;
 use crate::daemon::Daemon;
 use crate::nix;
@@ -233,23 +234,29 @@ where
 ///
 /// See the documentation for lorri::cli::Command::Info for more
 /// details.
-pub fn op_info(project: Project) -> Result<(), ExitError> {
+pub fn op_info(paths: &Paths, project: Project) -> Result<(), ExitError> {
     let root_paths = project.root_paths();
     let OutputPath { shell_gc_root } = &root_paths;
 
     let gc_root = if root_paths.all_exist() {
-        format!("shell_gc_root: {}", shell_gc_root.0.display())
+        format!("{}", shell_gc_root.0.display())
     } else {
         "GC roots do not exist. Has the project been built with lorri yet?".to_string()
     };
 
     print!(
         "\
-Lorri Project: {}
-Garbage Collector Roots: {}
+Project Shell File: {}
+Project Garbage Collector Root: {}
+
+General:
+Lorri User GC Root Dir: {}
+Lorri Daemon Socket: {}
 ",
         project.nix_file.display(),
-        gc_root
+        gc_root,
+        paths.gc_root_dir().display(),
+        paths.daemon_socket_file().display()
     );
 
     Ok(())
