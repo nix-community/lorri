@@ -2,6 +2,7 @@
 //! evaluate and build a given Nix file.
 
 use crate::builder::{self, BuildError, RootedPath};
+use crate::cas::ContentAddressable;
 use crate::daemon::LoopHandlerEvent;
 use crate::nix::options::NixOptions;
 use crate::pathreduction::reduce_paths;
@@ -76,6 +77,8 @@ pub struct BuildLoopDat {
     project: Project,
     /// Extra options to pass to each nix invocation
     extra_nix_options: NixOptions,
+    /// Content addressable store to save static files in.
+    cas: ContentAddressable,
     logger: slog::Logger,
 }
 
@@ -88,6 +91,7 @@ impl BuildLoop {
     pub fn new(
         project: Project,
         extra_nix_options: NixOptions,
+        cas: ContentAddressable,
         logger: slog::Logger,
     ) -> anyhow::Result<BuildLoop> {
         let mut watch = Watch::try_new(&logger).map_err(|err| anyhow!(err))?;
@@ -100,6 +104,7 @@ impl BuildLoop {
                 project,
                 extra_nix_options,
                 logger,
+                cas,
             },
             watch,
         })
@@ -234,7 +239,7 @@ impl BuildLoop {
         match &dat.project.file {
             project::ProjectFile::ShellNix(nf) => {
                 let nix_file = nf.clone();
-                let cas = dat.project.cas.clone();
+                let cas = dat.cas.clone();
                 let extra_nix_options = dat.extra_nix_options.clone();
                 let logger2 = dat.logger.clone();
                 tokio::task::spawn(async move {

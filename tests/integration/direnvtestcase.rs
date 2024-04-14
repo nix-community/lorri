@@ -26,6 +26,7 @@ pub struct DirenvTestCase {
     #[allow(dead_code)]
     pub cachedir: TempDir,
     project: Project,
+    cas: ContentAddressable,
     logger: slog::Logger,
 }
 
@@ -55,12 +56,13 @@ impl DirenvTestCase {
         let cachedir = AbsPathBuf::new(cachedir_tmp.path().to_owned()).unwrap();
 
         let cas = ContentAddressable::new(cachedir.join("cas")).unwrap();
-        let project = Project::new(project_file, &cachedir.join("gc_roots"), cas).unwrap();
+        let project = Project::new(project_file, &cachedir.join("gc_roots")).unwrap();
 
         DirenvTestCase {
             projectdir,
             cachedir: cachedir_tmp,
             project,
+            cas,
             logger: lorri::logging::test_logger("direnv"),
         }
     }
@@ -70,6 +72,7 @@ impl DirenvTestCase {
         let bl = BuildLoop::new(
             self.project.clone(),
             NixOptions::empty(),
+            self.cas.clone(),
             self.logger.clone(),
         )
         .expect("could not set up build loop");

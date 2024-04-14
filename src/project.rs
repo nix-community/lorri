@@ -3,7 +3,6 @@
 use thiserror::Error;
 
 use crate::builder::{OutputPath, RootedPath};
-use crate::cas::ContentAddressable;
 use crate::nix::StorePath;
 use crate::{AbsPathBuf, Installable, NixFile};
 use std::ffi::OsStr;
@@ -24,9 +23,6 @@ pub struct Project {
 
     /// Hash of the nix file’s absolute path.
     hash: String,
-
-    /// Content-addressable store to save static files in
-    pub cas: ContentAddressable,
 }
 
 /// ProjectFile describes the build source Nix file for a watched project
@@ -85,11 +81,7 @@ impl Project {
     /// Construct a `Project` from nix file path
     /// and the base GC root directory
     /// (as returned by `Paths.gc_root_dir()`),
-    pub fn new(
-        file: ProjectFile,
-        gc_root_dir: &AbsPathBuf,
-        cas: ContentAddressable,
-    ) -> std::io::Result<Project> {
+    pub fn new(file: ProjectFile, gc_root_dir: &AbsPathBuf) -> std::io::Result<Project> {
         let hash = format!(
             "{:x}",
             md5::compute(file.as_absolute_path().as_os_str().as_bytes())
@@ -116,7 +108,6 @@ impl Project {
             file,
             gc_root_path: project_gc_root,
             hash,
-            cas,
         })
     }
 
