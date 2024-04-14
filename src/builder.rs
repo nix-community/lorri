@@ -429,7 +429,7 @@ pub struct RunResult {
 ///
 /// Instruments the nix file to gain extra information,
 /// which is valuable even if the build fails.
-pub async fn run(
+pub async fn instantiate_and_build(
     root_nix_file: &NixFile,
     cas: &ContentAddressable,
     extra_nix_options: &NixOptions,
@@ -917,7 +917,7 @@ in {}
         print!("{}", nix_drv);
 
         // build, because instantiate doesn’t return the build output (obviously …)
-        run(
+        instantiate_and_build(
             &crate::NixFile::from(cas.file_from_string(&nix_drv)?),
             &cas,
             &NixOptions::empty(),
@@ -939,7 +939,7 @@ in {}
             &format!("dep = {};", drv("dep", r#"args = [ "-c" "exit 1" ];"#)),
         ))?);
 
-        if let Err(BuildError::Exit { .. }) = run(
+        if let Err(BuildError::Exit { .. }) = instantiate_and_build(
             &d,
             &cas,
             &NixOptions::empty(),

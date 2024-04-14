@@ -450,7 +450,8 @@ async fn build_root(
     // TODO: add the ability to pass extra_nix_options to shell
     let run_result = match &project.file {
         ProjectFile::ShellNix(nix_file) => {
-            builder::run(nix_file, &project.cas, &NixOptions::empty(), &logger2).await
+            builder::instantiate_and_build(nix_file, &project.cas, &NixOptions::empty(), &logger2)
+                .await
         }
         ProjectFile::FlakeNix(installable) => builder::flake(installable, &logger2).await,
     };
