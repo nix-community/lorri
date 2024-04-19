@@ -32,6 +32,7 @@ pub mod watch;
 
 use std::cmp::Reverse;
 use std::ffi::OsStr;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use std::{env, io};
@@ -139,6 +140,11 @@ impl AbsPathBuf {
         path_to_json_string(self.0.as_path())
     }
 
+    /// Convert to bytes to store in sqlite
+    pub fn to_sql(&self) -> impl tokio_rusqlite::ToSql {
+        self.as_path().as_os_str().as_bytes().to_owned()
+    }
+
     /// Joins a path to the end of this absolute path.
     /// If the path is absolute, it will replace this absolute path.
     pub fn join<P: AsRef<Path>>(&self, pb: P) -> Self {
@@ -194,6 +200,11 @@ impl NixFile {
     /// Print a path to a json string, assuming it is UTF-8, converting any non-utf codeblocks to replacement characters
     pub fn to_json_value(&self) -> serde_json::Value {
         path_to_json_string(self.0.as_path())
+    }
+
+    /// Convert to bytes to store in sqlite
+    pub fn to_sql(&self) -> impl tokio_rusqlite::ToSql {
+        self.0.to_sql()
     }
 }
 

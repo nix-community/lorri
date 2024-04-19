@@ -3,6 +3,7 @@ use lorri::cli::{Arguments, Command, Internal_, Verbosity};
 use lorri::ops;
 use lorri::ops::error::ExitError;
 use lorri::project::{Project, ProjectFile};
+use lorri::sqlite::Sqlite;
 use lorri::{constants, AbsPathBuf};
 use lorri::{logging, AbsDirPathBuf};
 use slog::{debug, error, o};
@@ -92,13 +93,12 @@ fn create_project(paths: &constants::Paths, shell_nix: ProjectFile) -> Result<Pr
 }
 
 /// Run the main function of the relevant command.
-
 async fn run_command(orig_logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> {
     let paths = ops::get_paths()?;
+    let conn = Sqlite::new_connection(&paths.sqlite_db).await;
 
-    lorri::sqlite::migrate_gc_roots(orig_logger.clone(), paths.clone())
-        .await
-        .unwrap();
+    // TODO: TMP
+    conn.migrate_gc_roots(&orig_logger, &paths).await.unwrap();
 
     match opts.command {
         Command::Info(opts) => {
