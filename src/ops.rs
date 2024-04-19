@@ -537,6 +537,7 @@ EVALUATION_ROOT="{}"
 ///
 /// See the documentation for `crate::ops::shell`.
 pub fn op_start_user_shell(
+    logger: &slog::Logger,
     cas: &ContentAddressable,
     opts: StartUserShellOptions_,
 ) -> Result<(), ExitError> {
@@ -545,13 +546,18 @@ pub fn op_start_user_shell(
     // lorri creates in this directory are only a few hundred bytes long; (2) the directory will be
     // cleaned up on reboot or whenever the OS decides to purge temporary directories.
     let tempdir = tempfile::tempdir().expect("failed to create temporary directory");
-    let e = shell_cmd(opts.shell_path.as_ref(), cas, tempdir.path()).exec();
+    let e = shell_cmd(logger, opts.shell_path.as_ref(), cas, tempdir.path()).exec();
 
     // 'exec' will never return on success, so if we get here, we know something has gone wrong.
     panic!("failed to exec into '{}': {}", opts.shell_path.display(), e);
 }
 
-fn shell_cmd(shell_path: &Path, cas: &ContentAddressable, tempdir: &Path) -> Command {
+fn shell_cmd(
+    logger: &slog::Logger,
+    shell_path: &Path,
+    cas: &ContentAddressable,
+    tempdir: &Path,
+) -> Command {
     let mut cmd = Command::new(shell_path);
 
     match shell_path
@@ -616,7 +622,9 @@ PS1="(lorri) ${PS1}"
             cmd.env("ZDOTDIR", tempdir);
         }
         // Add handling for other supported shells here.
-        _ => {}
+        _ => {
+            warn!(logger, "We can only open shells for bash and zsh at the moment, try using our direnv support instead. It supports as many shells as direnv does!")
+        }
     }
     cmd
 }
