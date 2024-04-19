@@ -92,17 +92,17 @@ fn create_project(paths: &constants::Paths, shell_nix: ProjectFile) -> Result<Pr
 }
 
 /// Run the main function of the relevant command.
-async fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> {
+async fn run_command(orig_logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> {
     let paths = ops::get_paths()?;
 
     match opts.command {
         Command::Info(opts) => {
-            let (project, logger) = with_project(logger, &opts.source.try_into()?)?;
+            let (project, logger) = with_project(orig_logger, &opts.source.try_into()?)?;
             ops::op_info(&paths, project, &logger).await
         }
-        Command::Gc(opts) => ops::op_gc(logger, opts),
+        Command::Gc(opts) => ops::op_gc(orig_logger, opts),
         Command::Direnv(opts) => {
-            let (project, logger) = with_project(logger, &opts.source.try_into()?)?;
+            let (project, logger) = with_project(orig_logger, &opts.source.try_into()?)?;
             ops::op_direnv(
                 project,
                 &paths,
@@ -112,12 +112,12 @@ async fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitE
             .await
         }
         Command::Shell(opts) => {
-            let (project, logger) = with_project(logger, &opts.source.clone().try_into()?)?;
+            let (project, logger) = with_project(orig_logger, &opts.source.clone().try_into()?)?;
             ops::op_shell(project, &paths.cas_store(), opts, &logger).await
         }
 
         Command::Watch(opts) => {
-            let (project, logger) = with_project(logger, &opts.source.clone().try_into()?)?;
+            let (project, logger) = with_project(orig_logger, &opts.source.clone().try_into()?)?;
             ops::op_watch(project, &paths.cas_store(), opts, &logger).await
         }
         Command::Daemon(opts) => {
@@ -125,14 +125,20 @@ async fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitE
                 std::process::exit(0);
             })
             .expect("Error setting SIGINT and SIGTERM handler");
-            ops::op_daemon(opts, logger).await
+            ops::op_daemon(opts, orig_logger).await
         }
-        Command::Init => ops::op_init(TRIVIAL_SHELL_SRC, DEFAULT_ENVRC, logger),
+        Command::Init => ops::op_init(TRIVIAL_SHELL_SRC, DEFAULT_ENVRC, orig_logger),
 
         Command::Internal { command } => match command {
-            Internal_::Ping_(opts) => ops::op_ping(&paths, opts.source.try_into()?, logger).await,
-            Internal_::StartUserShell_(opts) => ops::op_start_user_shell(paths.cas_store(), opts),
-            Internal_::StreamEvents_(se) => ops::op_stream_events(&paths, se.kind, logger).await,
+            Internal_::Ping_(opts) => {
+                ops::op_ping(&paths, opts.source.try_into()?, orig_logger).await
+            }
+            Internal_::StartUserShell_(opts) => {
+                ops::op_start_user_shell(orig_logger, paths.cas_store(), opts)
+            }
+            Internal_::StreamEvents_(se) => {
+                ops::op_stream_events(&paths, se.kind, orig_logger).await
+            }
         },
     }
 }

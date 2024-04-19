@@ -6,6 +6,12 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
+	version = 1102;
+	changes = ''
+	  `Display a warning if the user uses a shell that we don’t support.
+	'';
+      }
+      {
 	version = 1076;
 	changes = ''
 	  Added `--dry-run` flag to `lorri gc rm`, to see which project roots would
