@@ -121,7 +121,7 @@ pub async fn op_direnv<W: std::io::Write>(
             Ok(mut client) => {
                 let res = client
                     .write(&communicate::Ping {
-                        project_file: project.file.clone(),
+                        project_file: project.project_file.clone(),
                         rebuild: communicate::Rebuild::OnlyIfNotYetWatching,
                     })
                     .await
@@ -278,7 +278,7 @@ Lorri User GC Root Dir: {}
 Lorri Daemon Socket: {}
 Lorri Daemon Status: {}
 ",
-        project.file.as_nix_file().display(),
+        project.project_file.as_nix_file().display(),
         gc_root,
         paths.gc_root_dir().display(),
         paths.daemon_socket_file().display(),
@@ -419,7 +419,7 @@ pub async fn op_shell(
             OsStr::new("--"),
             lorri.as_os_str(),
             &shell,
-            project.file.as_absolute_path().as_os_str(),
+            project.project_file.as_absolute_path().as_os_str(),
         ])
         .status()
         .expect("failed to execute bash");
@@ -467,7 +467,7 @@ async fn build_root(
     });
 
     // TODO: add the ability to pass extra_nix_options to shell
-    let run_result = match &project.file {
+    let run_result = match &project.project_file {
         ProjectFile::ShellNix(nix_file) => {
             builder::instantiate_and_build(nix_file, &cas, &NixOptions::empty(), &logger2).await
         }
