@@ -133,7 +133,7 @@ impl AbsPathBuf {
     }
 
     /// Print a path to a json string, assuming it is UTF-8, converting any non-utf codeblocks to replacement characters
-    pub fn to_json_value(&self) -> serde_json::Value {
+    pub fn to_json_string(&self) -> serde_json::Value {
         path_to_json_string(self.0.as_path())
     }
 

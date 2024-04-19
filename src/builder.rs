@@ -845,7 +845,7 @@ impl OutputPath {
     pub fn to_json_value(&self) -> serde_json::Value {
         json!(
             {
-                "shell_gc_root": self.shell_gc_root.0.to_json_value()
+                "shell_gc_root": self.shell_gc_root.0.to_json_string()
             }
         )
     }

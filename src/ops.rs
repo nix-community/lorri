@@ -38,8 +38,7 @@ use crate::daemon::client::Timeout;
 use crate::project::{GcRootInfo, Project, ProjectFile};
 use crate::socket::communicate;
 use itertools::Itertools;
-use serde_json::json;
-use serde_json::Value;
+use serde_json::{json, Value};
 use slog::{debug, info, warn};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{channel, unbounded_channel};
@@ -774,8 +773,8 @@ async fn main_run_once(
 }
 
 /// Print or remove gc roots depending on cli options.
-pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions) -> Result<(), ExitError> {
-    let infos = project::list_roots(logger)?;
+pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions, paths: &Paths) -> Result<(), ExitError> {
+    let infos = project::list_roots(logger, paths)?;
     match opts.action {
         cli::GcSubcommand::Info => {
             if opts.json {
@@ -785,8 +784,8 @@ pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions) -> Result<(), ExitErro
                         .iter()
                         .map(|info| {
                             json!({
-                                "gc_dir": info.gc_dir.to_json_value(),
-                                "nix_file": info.nix_file.as_ref().map_or(Value::Null, |n| path_to_json_string(&n)),
+                                "gc_dir": info.gc_dir.to_json_string(),
+                                "nix_file": info.nix_file.to_json_string(),
                                 "timestamp": info.timestamp,
                                 "alive": info.alive
                             })
@@ -811,14 +810,13 @@ pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions) -> Result<(), ExitErro
                 .into_iter()
                 .filter(|root| {
                     all || !root.alive
-                        || root
-                            .nix_file
-                            .as_ref()
-                            .map_or(false, |p| files_to_remove.contains(p))
+                        || files_to_remove.contains(root.nix_file.as_path())
                         || older_than.map_or(false, |limit| {
-                            root.timestamp
-                                .elapsed()
-                                .map_or(false, |actual| actual > limit)
+                            match root.timestamp {
+                                // always remove gcroots for which we could not figure out a timestamp
+                                None => true,
+                                Some(t) => t.elapsed().map_or(false, |actual| actual > limit),
+                            }
                         })
                 })
                 .collect();
@@ -851,11 +849,23 @@ pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions) -> Result<(), ExitErro
                                 // Error, if any
                                 "error": err,
                                 // The root we tried to remove
-                                "root": info
+                                "root": {
+                                    "gc_dir": info.gc_dir,
+                                    "nix_file": info.nix_file.to_json_string(),
+                                    // we use the Serialize instance for SystemTime
+                                    "timestamp": info.timestamp,
+                                    "alive": info.alive
+                                }
                             }),
                             Ok(info) => json!({
                                 "error": null,
-                                "root": info
+                                "root": {
+                                    "gc_dir": info.gc_dir,
+                                    "nix_file": info.nix_file.to_json_string(),
+                                    // we use the Serialize instance for SystemTime
+                                    "timestamp": info.timestamp,
+                                    "alive": info.alive
+                                }
                             }),
                         })
                         .collect::<Vec<_>>();
