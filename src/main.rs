@@ -142,7 +142,7 @@ fn with_project(
     project_file: &ProjectFile,
 ) -> Result<(Project, slog::Logger), ExitError> {
     let project = create_project(&ops::get_paths()?, project_file.clone())?;
-    let logger = logger.new(o!("nix_file" => project.file.clone()));
+    let logger = logger.new(o!("nix_file" => project.project_file.clone()));
     Ok((project, logger))
 }
 

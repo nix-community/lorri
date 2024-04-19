@@ -101,7 +101,7 @@ impl BuildLoop {
     ) -> anyhow::Result<BuildLoop> {
         let mut watch = Watch::try_new(&logger).map_err(|err| anyhow!(err))?;
         watch.filter.add_to_watch(vec![WatchPathBuf::Normal(
-            project.file.as_absolute_path().to_owned(),
+            project.project_file.as_absolute_path().to_owned(),
         )]);
 
         Ok(BuildLoop {
@@ -157,7 +157,7 @@ impl BuildLoop {
                  (false, true) => "not running, scheduled",
                  (true, false) => "running, nothing scheduled"
                 },
-               "project" => &self.dat.project.file);
+               "project" => &self.dat.project.project_file);
 
             let send_event = |msg| {
                 tx_events
@@ -193,14 +193,14 @@ impl BuildLoop {
                     match self.handle_run_result(run_result) {
                         Ok(rooted_output_paths) => {
                             send_event(Event::Completed {
-                                nix_file: self.dat.project.file.as_nix_file().clone(),
+                                nix_file: self.dat.project.project_file.as_nix_file().clone(),
                                 rooted_output_paths,
                             });
                         }
                         Err(e) => {
                             if e.is_actionable() {
                                 send_event(Event::Failure {
-                                    nix_file: self.dat.project.file.as_nix_file().clone(),
+                                    nix_file: self.dat.project.project_file.as_nix_file().clone(),
                                     failure: e,
                                 })
                             } else {
@@ -212,7 +212,7 @@ impl BuildLoop {
                 Msg::Changed(changed) => {
                     // TODO: this is not a started, this is just a scheduled!
                     send_event(Event::Started {
-                        nix_file: self.dat.project.file.as_nix_file().clone(),
+                        nix_file: self.dat.project.project_file.as_nix_file().clone(),
                         reason: Reason::FilesChanged(changed),
                     });
                     // start a build, or if one is already running, schedule it.
@@ -225,7 +225,7 @@ impl BuildLoop {
                 Msg::Pinged => {
                     // TODO: this is not a started, this is just a scheduled!
                     send_event(Event::Started {
-                        nix_file: self.dat.project.file.as_nix_file().clone(),
+                        nix_file: self.dat.project.project_file.as_nix_file().clone(),
                         reason: Reason::PingReceived,
                     });
                     // start a build, or if one is already running, schedule it.
@@ -241,7 +241,7 @@ impl BuildLoop {
 
     /// Start an actual build, asynchronously.
     fn start_build(dat: BuildLoopDat) -> JoinHandle<Result<builder::RunResult, BuildError>> {
-        match &dat.project.file {
+        match &dat.project.project_file {
             project::ProjectFile::ShellNix(nf) => {
                 let nix_file = nf.clone();
                 let cas = dat.cas.clone();

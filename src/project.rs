@@ -15,7 +15,7 @@ use std::process::{Command, Stdio};
 #[derive(Clone)]
 pub struct Project {
     /// Absolute path to this project’s nix file.
-    pub file: ProjectFile,
+    pub project_file: ProjectFile,
 
     /// Directory in which this project’s
     /// garbage collection roots are stored.
@@ -82,20 +82,19 @@ impl Project {
     /// and the base GC root directory
     /// (as returned by `Paths.gc_root_dir()`),
     pub fn new_and_gc_nix_files(
-        file: ProjectFile,
+        project_file: ProjectFile,
         gc_root_dir: &AbsPathBuf,
     ) -> std::io::Result<Project> {
-        let hash = format!(
-            "{:x}",
-            md5::compute(file.as_absolute_path().as_os_str().as_bytes())
-        );
-        let project_gc_root = gc_root_dir.join(&hash).join("gc_root");
+        let project = Self::new_internal(project_file.clone(), gc_root_dir)?;
 
-        std::fs::create_dir_all(&project_gc_root)?;
+        // Adjust the nix_file symlink to point to this project’s nix file
 
-        let nix_file_symlink = project_gc_root.join("nix_file");
+        // A symlink from our gc_root_path directory back to the nix file which created this project.
+        // Used to implement garbage collection.
+        let nix_file_symlink = project.gc_root_path.join("nix_file");
+
         let (remove, create) = match std::fs::read_link(&nix_file_symlink) {
-            Ok(path) if path == file.as_absolute_path() => (false, false),
+            Ok(path) if path == project_file.as_absolute_path() => (false, false),
             Ok(_) => (true, true),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => (false, true),
             Err(_) => (true, true),
@@ -104,11 +103,26 @@ impl Project {
             std::fs::remove_file(&nix_file_symlink)?;
         }
         if create {
-            std::os::unix::fs::symlink(file.as_absolute_path(), nix_file_symlink)?;
+            std::os::unix::fs::symlink(project_file.as_absolute_path(), nix_file_symlink)?;
         }
 
+        Ok(project)
+    }
+
+    fn new_internal(
+        project_file: ProjectFile,
+        gc_root_dir: &AbsPathBuf,
+    ) -> std::io::Result<Project> {
+        let hash = format!(
+            "{:x}",
+            md5::compute(project_file.as_absolute_path().as_os_str().as_bytes())
+        );
+        let project_gc_root = gc_root_dir.join(&hash).join("gc_root");
+
+        std::fs::create_dir_all(&project_gc_root)?;
+
         Ok(Project {
-            file,
+            project_file,
             gc_root_path: project_gc_root,
             hash,
         })

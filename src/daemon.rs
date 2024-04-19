@@ -174,7 +174,7 @@ impl Daemon {
                 // TODO: the project needs to create its gc root dir
                 .unwrap();
 
-            let key = project.file.as_nix_file().clone();
+            let key = project.project_file.as_nix_file().clone();
             let project_is_watched = handler_threads.get(&key);
 
             match (project_is_watched, rebuild) {
@@ -198,7 +198,7 @@ impl Daemon {
                     let logger = logger.clone();
                     let logger2 = logger.clone();
                     let cas2 = cas.clone();
-                    let project_file = project.file.as_nix_file();
+                    let project_file = project.project_file.as_nix_file();
 
                     match BuildLoop::new(project, extra_nix_options, cas2, logger) {
                         Ok(build_loop) => {
