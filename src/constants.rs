@@ -12,6 +12,8 @@ pub struct Paths {
     // TODO: make SocketPath
     daemon_socket_file: AbsPathBuf,
     cas_store: ContentAddressable,
+    /// TODO: replace
+    pub sqlite_db: AbsPathBuf,
 }
 
 /// Everything that can happen when creating `Paths`.
@@ -100,6 +102,8 @@ impl Paths {
                     err,
                 }
             })?,
+            // TODO: replace with the real path
+            sqlite_db: abs_cache_dir.join("test-db.sqlite"),
         })
     }
 
