@@ -22,7 +22,6 @@ use crate::path_to_json_string;
 use crate::socket::path::SocketPath;
 use crate::{builder, project};
 use std::ffi::OsStr;
-use std::fs::remove_dir_all;
 use std::io::{Error, Write};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -782,7 +781,7 @@ pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions, paths: &Paths) -> Resu
                     std::io::stdout(),
                     &infos
                         .iter()
-                        .map(|info| {
+                        .map(|(info, _project)| {
                             json!({
                                 "gc_dir": info.gc_dir.to_json_string(),
                                 "nix_file": info.nix_file.to_json_string(),
@@ -794,7 +793,7 @@ pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions, paths: &Paths) -> Resu
                 )
                 .expect("could not serialize gc roots");
             } else {
-                for info in infos {
+                for (info, _project) in infos {
                     println!("{}", info.format_pretty_oneline());
                 }
             }
@@ -806,13 +805,13 @@ pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions, paths: &Paths) -> Resu
             dry_run,
         } => {
             let files_to_remove: HashSet<PathBuf> = shell_file.into_iter().collect();
-            let to_remove: Vec<GcRootInfo> = infos
+            let to_remove: Vec<(GcRootInfo, Project)> = infos
                 .into_iter()
-                .filter(|root| {
-                    all || !root.alive
-                        || files_to_remove.contains(root.nix_file.as_path())
+                .filter(|(info, _project)| {
+                    all || !info.alive
+                        || files_to_remove.contains(info.nix_file.as_path())
                         || older_than.map_or(false, |limit| {
-                            match root.timestamp {
+                            match info.timestamp {
                                 // always remove gcroots for which we could not figure out a timestamp
                                 None => true,
                                 Some(t) => t.elapsed().map_or(false, |actual| actual > limit),
@@ -824,21 +823,17 @@ pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions, paths: &Paths) -> Resu
             if dry_run {
                 if to_remove.len() > 0 {
                     println!("--dry-run: Would delete the following GC roots:");
-                    for info in to_remove {
+                    for (info, _project) in to_remove {
                         println!("{}", info.format_pretty_oneline());
                     }
                 } else {
                     println!("--dry-run: Would not delete any GC roots");
                 }
             } else {
-                for info in to_remove {
-                    match remove_dir_all(&info.gc_dir) {
-                        Ok(_) => {
-                            result.push(Ok(info));
-                        }
-                        Err(e) => {
-                            result.push(Err((info, e.to_string())));
-                        }
+                for (info, project) in to_remove {
+                    match project.remove_project() {
+                        Ok(()) => result.push(Ok(info)),
+                        Err(e) => result.push(Err((info, e.to_string()))),
                     }
                 }
                 if opts.json {

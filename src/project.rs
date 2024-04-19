@@ -266,6 +266,11 @@ impl Project {
 
         Ok(OutputPath::new(RootPath(self.gc_root(&base_name))))
     }
+
+    /// Removes this project from lorri. Removes the GC root and consumes the project.
+    pub fn remove_project(self) -> std::io::Result<()> {
+        std::fs::remove_dir_all(self.project_root_dir)
+    }
 }
 
 /// A path to a gc root.
@@ -314,7 +319,10 @@ impl AddRootError {
 }
 
 /// Returns a list of existing gc roots along with some metadata
-pub fn list_roots(logger: &slog::Logger, paths: &Paths) -> Result<Vec<GcRootInfo>, ExitError> {
+pub fn list_roots(
+    logger: &slog::Logger,
+    paths: &Paths,
+) -> Result<Vec<(GcRootInfo, Project)>, ExitError> {
     let mut res = Vec::new();
     let gc_root_dir_iter = std::fs::read_dir(paths.gc_root_dir()).map_err(|e| {
         ExitError::environment_problem(
@@ -367,12 +375,15 @@ pub fn list_roots(logger: &slog::Logger, paths: &Paths) -> Result<Vec<GcRootInfo
         let timestamp = project.last_built_timestamp();
 
         let alive = project.project_file.as_absolute_path().is_file();
-        res.push(GcRootInfo {
-            gc_dir: project.project_root_dir.clone(),
-            nix_file: project.project_file.as_nix_file().0,
-            timestamp,
-            alive,
-        });
+        res.push((
+            GcRootInfo {
+                gc_dir: project.project_root_dir.clone(),
+                nix_file: project.project_file.as_nix_file().0,
+                timestamp,
+                alive,
+            },
+            project,
+        ));
     }
     Ok(res)
 }
