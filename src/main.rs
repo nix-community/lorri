@@ -92,6 +92,7 @@ fn create_project(paths: &constants::Paths, shell_nix: ProjectFile) -> Result<Pr
 }
 
 /// Run the main function of the relevant command.
+
 async fn run_command(orig_logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> {
     let paths = ops::get_paths()?;
 

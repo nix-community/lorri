@@ -1,12 +1,12 @@
 //! Wrap a nix file and manage corresponding state.
 
+use slog::{debug, warn};
 use thiserror::Error;
 
 use crate::builder::{OutputPath, RootedPath};
 use crate::nix::StorePath;
 use crate::ops::error::ExitError;
 use crate::{ops, AbsPathBuf, Installable, NixFile};
-use slog::debug;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -276,18 +276,38 @@ impl GcRootInfo {
 pub fn list_roots(logger: &slog::Logger) -> Result<Vec<GcRootInfo>, ExitError> {
     let paths = ops::get_paths()?;
     let mut res = Vec::new();
-    let gc_root_dir = paths.gc_root_dir();
-    for entry in std::fs::read_dir(gc_root_dir)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
-            debug!(
-                logger,
-                "Skipping {} which should be a directory",
-                entry.path().display()
-            );
-            continue;
+    let gc_root_dir_iter = std::fs::read_dir(paths.gc_root_dir()).map_err(|e| {
+        ExitError::environment_problem(
+            anyhow::anyhow!(e).context("Cannot read lorri gc root directory"),
+        )
+    })?;
+    let project_gc_root_dirs = {
+        let mut res = vec![];
+        for entry in gc_root_dir_iter {
+            match entry {
+                Err(e) => {
+                    warn!(logger, "Cannot read gc project directory: {}", e)
+                }
+                Ok(entry) => {
+                    if let Ok(ft) = entry.file_type() {
+                        if ft.is_dir() {
+                            res.push(entry);
+                            continue;
+                        }
+                    }
+                    warn!(
+                        logger,
+                        "Skipping {} which should be a directory",
+                        entry.path().display()
+                    );
+                }
+            }
         }
-        let gc_dir = AbsPathBuf::new(entry.path()).expect("entry.path() should always be absolute");
+        res
+    };
+    for project_gc_root_dir in project_gc_root_dirs {
+        let gc_dir = AbsPathBuf::new(project_gc_root_dir.path())
+            .expect("entry.path() should always be absolute");
         let gc_root_dir = gc_dir.join("gc_root");
         if !std::fs::metadata(&gc_root_dir).map_or(false, |m| m.is_dir()) {
             debug!(
