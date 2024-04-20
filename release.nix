@@ -6,6 +6,13 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
+	version = 1107;
+	changes = ''
+	  `lorri gc info`: print elapsed time down to the second,
+	   e.g. 15 minutes ago, 10 seconds ago.
+	'';
+      }
+      {
 	version = 1102;
 	changes = ''
 	  `Display a warning if the user uses a shell that we don’t support.
