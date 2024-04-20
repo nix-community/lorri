@@ -95,13 +95,13 @@ impl Daemon {
         let extra_nix_options = self.extra_nix_options.clone();
         let gc_root_dir = gc_root_dir.clone();
         let sqlite_path = sqlite_path.clone();
-        let mut conn = Sqlite::new_connection(&sqlite_path).await;
+        let conn = Sqlite::new_connection(&sqlite_path).await;
         let join_set = Self::build_instruction_handler(
             tx_build_events,
             extra_nix_options,
             rx_activity,
             &gc_root_dir,
-            &mut conn,
+            conn,
             cas,
             &logger3,
         )
@@ -164,7 +164,7 @@ impl Daemon {
         extra_nix_options: NixOptions,
         mut rx_activity: Receiver<IndicateActivity>,
         gc_root_dir: &AbsPathBuf,
-        conn: &mut Sqlite,
+        conn: Sqlite,
         cas: crate::cas::ContentAddressable,
         logger: &slog::Logger,
     ) -> JoinSet<()> {
@@ -183,11 +183,14 @@ impl Daemon {
             else {
                 break;
             };
-            let project =
-                crate::project::Project::new_and_gc_nix_files(conn, project_file, gc_root_dir)
-                    .await
-                    // TODO: the project needs to create its gc root dir
-                    .unwrap();
+            let project = crate::project::Project::new_and_gc_nix_files(
+                conn.clone(),
+                project_file,
+                gc_root_dir,
+            )
+            .await
+            // TODO: the project needs to create its gc root dir
+            .unwrap();
 
             let key = project.project_file.as_nix_file().clone();
             let project_is_watched = handler_threads.get(&key);

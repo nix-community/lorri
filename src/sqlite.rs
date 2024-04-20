@@ -7,6 +7,7 @@ use std::time::SystemTime;
 use tokio_rusqlite::{named_params, Connection, Transaction};
 
 /// Wrapper around our sqlite connection object.
+#[derive(Clone, Debug)]
 pub struct Sqlite {
     conn: tokio_rusqlite::Connection,
 }
@@ -36,7 +37,7 @@ impl Sqlite {
         })
         .await;
 
-        Self { conn }
+        Sqlite { conn }
     }
 
     /// Migrate the GC roots into our sqlite
@@ -44,8 +45,9 @@ impl Sqlite {
         &self,
         logger: &slog::Logger,
         paths: &Paths,
+        conn: Sqlite,
     ) -> Result<(), ExitError> {
-        let infos = project::list_roots_migration(&logger, &paths, ListRootsSort::NoSorting)?;
+        let infos = project::list_roots_migration(&logger, &paths, conn, ListRootsSort::NoSorting)?;
 
         self.conn
             .call_unwrap(move |conn| {

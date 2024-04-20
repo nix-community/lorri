@@ -161,3 +161,25 @@ where
         }
     }
 }
+
+/// Spit up sqlite errors into programming errors, setup/environment issues and temporary things like full disk
+impl ExitAs for rusqlite::Error {
+    fn exit_as(&self) -> ExitErrorType {
+        match self {
+            rusqlite::Error::SqliteFailure(err, _msg) => match err.code {
+                rusqlite::ErrorCode::CannotOpen
+                | rusqlite::ErrorCode::PermissionDenied
+                | rusqlite::ErrorCode::ReadOnly
+                | rusqlite::ErrorCode::NoLargeFileSupport
+                | rusqlite::ErrorCode::NotADatabase => ExitErrorType::EnvironmentProblem,
+                rusqlite::ErrorCode::OutOfMemory
+                | rusqlite::ErrorCode::SystemIoFailure
+                | rusqlite::ErrorCode::DatabaseCorrupt
+                | rusqlite::ErrorCode::DiskFull => ExitErrorType::Temporary,
+
+                _ => ExitErrorType::Panic,
+            },
+            _ => ExitErrorType::Panic,
+        }
+    }
+}
