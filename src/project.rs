@@ -1,18 +1,21 @@
 //! Wrap a nix file and manage corresponding state.
 
-use slog::warn;
+use anyhow::Context;
 use thiserror::Error;
 
 use crate::builder::{OutputPath, RootedPath};
 use crate::constants::Paths;
 use crate::nix::StorePath;
 use crate::ops::error::ExitError;
+use crate::sqlite::Sqlite;
 use crate::{pretty_time_ago, AbsPathBuf, Installable, NixFile, TimeAgo};
+use slog::warn;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::SystemTime;
+use tokio_rusqlite::named_params;
 
 /// A “project” knows how to handle the lorri state
 /// for a given nix file.
@@ -97,32 +100,60 @@ impl Project {
     /// Construct a `Project` from nix file path
     /// and the base GC root directory
     /// (as returned by `Paths.gc_root_dir()`),
-    pub fn new_and_gc_nix_files(
+    pub async fn new_and_gc_nix_files(
+        conn: &mut Sqlite,
         project_file: ProjectFile,
         gc_root_dir: &AbsPathBuf,
     ) -> std::io::Result<Project> {
         let project = Self::new_internal(project_file.clone(), gc_root_dir)?;
 
         // Adjust the nix_file symlink to point to this project’s nix file
+        conn.in_transaction(move |t| {
+            dbg!(
+                "inserting new project into db for {:?}",
+                &project.project_file
+            );
+            t.execute(
+                r#"
+              INSERT INTO gc_roots (nix_file, is_flake, flake_installable)
+              VALUES (:nix_file, :is_flake, :flake_installable)
+              ON CONFLICT (nix_file) DO NOTHING
+            "#,
+                named_params!(
+                    ":nix_file": project.project_file.as_nix_file().to_sql(),
+                    ":is_flake": match project.project_file {
+                        ProjectFile::ShellNix(_) => false,
+                        ProjectFile::FlakeNix(_) => true
+                    },
+                    ":flake_installable":  match &project.project_file {
+                        ProjectFile::ShellNix(_) => None,
+                        // The f.context was already used by `as_nix_file()` above
+                        ProjectFile::FlakeNix(ref f) => Some(f.installable.clone())
+                    },
+                ),
+            )
+            .expect("cannot insert new gc roots");
+            // Adjust the nix_file symlink to point to this project’s nix file
 
-        // A symlink from our gc_root_path directory back to the nix file which created this project.
-        // Used to implement garbage collection.
-        let nix_file_symlink = project.nix_file_backlink();
+            // A symlink from our gc_root_path directory back to the nix file which created this project.
+            // Used to implement garbage collection.
+            let nix_file_symlink = project.nix_file_backlink();
 
-        let (remove, create) = match std::fs::read_link(&nix_file_symlink) {
-            Ok(path) if path == project_file.as_absolute_path() => (false, false),
-            Ok(_) => (true, true),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (false, true),
-            Err(_) => (true, true),
-        };
-        if remove {
-            std::fs::remove_file(&nix_file_symlink)?;
-        }
-        if create {
-            std::os::unix::fs::symlink(project_file.as_absolute_path(), nix_file_symlink)?;
-        }
-
-        Ok(project)
+            let (remove, create) = match std::fs::read_link(&nix_file_symlink) {
+                Ok(path) if path == project_file.as_absolute_path() => (false, false),
+                Ok(_) => (true, true),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => (false, true),
+                Err(_) => (true, true),
+            };
+            if remove {
+                std::fs::remove_file(&nix_file_symlink)?;
+            }
+            if create {
+                std::os::unix::fs::symlink(project_file.as_absolute_path(), nix_file_symlink)?;
+            }
+            Ok(project)
+        })
+        .await
     }
 
     fn new_internal(
@@ -159,16 +190,19 @@ impl Project {
             "nix_file symlink is a relative path, this should not happen: {link:?}"
         ));
         let project_file = match original_file.as_path().file_name().map(OsStr::to_str) {
-            Some(Some("flake.nix")) => ProjectFile::flake_unknown_installable(
-                AbsPathBuf::new(
-                    original_file
-                        .as_path()
-                        .parent()
-                        .expect(&format!("flake.nix not in directory {original_file:?}"))
-                        .to_owned(),
-                )
-                .unwrap(),
-            ),
+            Some(Some("flake.nix")) => {
+                let p = ProjectFile::flake_unknown_installable(
+                    AbsPathBuf::new(
+                        original_file
+                            .as_path()
+                            .parent()
+                            .expect(&format!("flake.nix not in directory {original_file:?}"))
+                            .to_owned(),
+                    )
+                    .unwrap(),
+                );
+                p
+            }
             Some(_) => ProjectFile::ShellNix(NixFile(original_file)),
             None => {
                 panic!(
@@ -272,8 +306,20 @@ impl Project {
     }
 
     /// Removes this project from lorri. Removes the GC root and consumes the project.
-    pub fn remove_project(self) -> std::io::Result<()> {
-        std::fs::remove_dir_all(self.project_root_dir)
+    pub async fn remove_project(self, conn: &mut Sqlite) -> anyhow::Result<()> {
+        conn.in_transaction(move |t| {
+            std::fs::remove_dir_all(&self.project_root_dir).context(format!(
+                "Unable to remove the project directory from {}",
+                self.project_root_dir.display()
+            ))?;
+
+            t.execute(
+                "DELETE FROM gc_roots WHERE nix_file = :nix_file",
+                named_params!(":nix_file": self.project_file.as_nix_file().to_sql()),
+            )?;
+            Ok(())
+        })
+        .await
     }
 }
 
@@ -332,11 +378,11 @@ pub enum ListRootsSort {
 }
 
 /// Returns a list of existing gc roots along with some metadata
-pub fn list_roots(
+fn list_roots_impl(
     logger: &slog::Logger,
     paths: &Paths,
     list_roots_sort: ListRootsSort,
-) -> Result<Vec<(GcRootInfo, Project)>, ExitError> {
+) -> Result<Vec<ListRoots>, ExitError> {
     let mut res = Vec::new();
     let gc_root_dir_iter = std::fs::read_dir(paths.gc_root_dir()).map_err(|e| {
         ExitError::environment_problem(
@@ -388,16 +434,12 @@ pub fn list_roots(
             };
         let timestamp = project.last_built_timestamp();
 
-        let alive = project.project_file.as_absolute_path().is_file();
-        res.push((
-            GcRootInfo {
-                gc_dir: project.project_root_dir.clone(),
-                nix_file: project.project_file.as_nix_file().0,
-                timestamp,
-                project_file_exists: alive,
-            },
+        let project_file_exists = project.project_file.as_absolute_path().is_file();
+        res.push(ListRoots {
             project,
-        ));
+            timestamp,
+            project_file_exists,
+        });
     }
     match list_roots_sort {
         ListRootsSort::NoSorting => {}
@@ -405,8 +447,12 @@ pub fn list_roots(
             let now = SystemTime::now();
             res.sort_by_key(|r| {
                 (
-                    r.0.timestamp.map(|t| TimeAgo::from_system_time(now, t)),
-                    r.1.project_file.as_nix_file().as_absolute_path().to_owned(),
+                    r.timestamp.map(|t| TimeAgo::from_system_time(now, t)),
+                    r.project
+                        .project_file
+                        .as_nix_file()
+                        .as_absolute_path()
+                        .to_owned(),
                 )
             })
         }
@@ -414,12 +460,82 @@ pub fn list_roots(
     Ok(res)
 }
 
+struct ListRoots {
+    project: Project,
+    timestamp: Option<SystemTime>,
+    project_file_exists: bool,
+}
+
+/// List roots for doing the sqlite migration
+pub fn list_roots_migration(
+    logger: &slog::Logger,
+    paths: &Paths,
+    list_roots_sort: ListRootsSort,
+) -> Result<Vec<ListRootsMigration>, ExitError> {
+    Ok(list_roots_impl(logger, paths, list_roots_sort)?
+        .into_iter()
+        .map(
+            |ListRoots {
+                 project, timestamp, ..
+             }| {
+                ListRootsMigration {
+                    nix_file: project.project_file.as_nix_file(),
+                    is_flake: match project.project_file {
+                        ProjectFile::ShellNix(_) => false,
+                        ProjectFile::FlakeNix(_) => true,
+                    },
+                    timestamp,
+                }
+            },
+        )
+        .collect())
+}
+
+/// Result of [list_roots_migration]
+pub struct ListRootsMigration {
+    /// absolute path to the nix file
+    pub nix_file: NixFile,
+    /// Whether the nix file is a flake.nix
+    /// (we don’t know the flake installable when migrating from the old directory structure)
+    pub is_flake: bool,
+    /// timestamp the GC was last built
+    pub timestamp: Option<SystemTime>,
+}
+
+/// Returns a list of existing gc roots along with some metadata
+pub fn list_roots_gc(
+    logger: &slog::Logger,
+    paths: &Paths,
+    list_roots_sort: ListRootsSort,
+) -> Result<Vec<(GcRootInfo, Project)>, ExitError> {
+    Ok(list_roots_impl(logger, paths, list_roots_sort)?
+        .into_iter()
+        .map(
+            |ListRoots {
+                 project,
+                 timestamp,
+                 project_file_exists,
+             }| {
+                (
+                    GcRootInfo {
+                        gc_dir: project.project_root_dir.clone(),
+                        nix_file: project.project_file.as_nix_file().0,
+                        timestamp,
+                        project_file_exists,
+                    },
+                    project,
+                )
+            },
+        )
+        .collect())
+}
+
 /// Represents a gc root along with some metadata, used for json output of lorri gc info
 #[derive(Debug)]
 pub struct GcRootInfo {
     /// directory where root is stored
     pub gc_dir: AbsPathBuf,
-    /// nix file from which the root originates. If None, then the root is considered dead.
+    /// nix file from which the root originates.
     pub nix_file: AbsPathBuf,
     /// timestamp of the last build
     pub timestamp: Option<SystemTime>,

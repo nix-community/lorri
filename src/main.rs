@@ -4,7 +4,7 @@ use lorri::ops;
 use lorri::ops::error::ExitError;
 use lorri::project::{Project, ProjectFile};
 use lorri::sqlite::Sqlite;
-use lorri::{constants, AbsPathBuf};
+use lorri::AbsPathBuf;
 use lorri::{logging, AbsDirPathBuf};
 use slog::{debug, error, o};
 use std::fmt::Write as FmtWrite;
@@ -86,28 +86,24 @@ pub fn is_file_in_current_directory(name: &Path) -> anyhow::Result<Option<AbsPat
     })
 }
 
-fn create_project(paths: &constants::Paths, shell_nix: ProjectFile) -> Result<Project, ExitError> {
-    Project::new_and_gc_nix_files(shell_nix, paths.gc_root_dir()).map_err(|err| {
-        ExitError::temporary(anyhow::anyhow!(err).context("Could not set up project paths"))
-    })
-}
-
 /// Run the main function of the relevant command.
 async fn run_command(orig_logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> {
     let paths = ops::get_paths()?;
-    let conn = Sqlite::new_connection(&paths.sqlite_db).await;
+    let mut conn = Sqlite::new_connection(&paths.sqlite_db).await;
 
     // TODO: TMP
     conn.migrate_gc_roots(&orig_logger, &paths).await.unwrap();
 
     match opts.command {
         Command::Info(opts) => {
-            let (project, logger) = with_project(orig_logger, &opts.source.try_into()?)?;
+            let (project, logger) =
+                with_project(&mut conn, orig_logger, &opts.source.try_into()?).await?;
             ops::op_info(&paths, project, &logger).await
         }
         Command::Gc(opts) => ops::op_gc(orig_logger, opts, &paths).await,
         Command::Direnv(opts) => {
-            let (project, logger) = with_project(orig_logger, &opts.source.try_into()?)?;
+            let (project, logger) =
+                with_project(&mut conn, orig_logger, &opts.source.try_into()?).await?;
             ops::op_direnv(
                 project,
                 &paths,
@@ -117,12 +113,14 @@ async fn run_command(orig_logger: &slog::Logger, opts: Arguments) -> Result<(), 
             .await
         }
         Command::Shell(opts) => {
-            let (project, logger) = with_project(orig_logger, &opts.source.clone().try_into()?)?;
+            let (project, logger) =
+                with_project(&mut conn, orig_logger, &opts.source.clone().try_into()?).await?;
             ops::op_shell(project, &paths.cas_store(), opts, &logger).await
         }
 
         Command::Watch(opts) => {
-            let (project, logger) = with_project(orig_logger, &opts.source.clone().try_into()?)?;
+            let (project, logger) =
+                with_project(&mut conn, orig_logger, &opts.source.clone().try_into()?).await?;
             ops::op_watch(project, &paths.cas_store(), opts, &logger).await
         }
         Command::Daemon(opts) => {
@@ -148,12 +146,18 @@ async fn run_command(orig_logger: &slog::Logger, opts: Arguments) -> Result<(), 
     }
 }
 
-fn with_project(
+async fn with_project(
+    conn: &mut Sqlite,
     logger: &slog::Logger,
     project_file: &ProjectFile,
 ) -> Result<(Project, slog::Logger), ExitError> {
-    let project = create_project(&ops::get_paths()?, project_file.clone())?;
-    let logger = logger.new(o!("nix_file" => project.project_file.clone()));
+    let project =
+        Project::new_and_gc_nix_files(conn, project_file.clone(), ops::get_paths()?.gc_root_dir())
+            .await
+            .map_err(|err| {
+                ExitError::temporary(anyhow::anyhow!(err).context("Could not set up project paths"))
+            })?;
+    let logger = logger.new(o!("nix_file" => project_file.clone()));
     Ok((project, logger))
 }
 

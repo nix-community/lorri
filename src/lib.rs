@@ -30,6 +30,7 @@ pub mod socket;
 pub mod sqlite;
 pub mod watch;
 
+use rusqlite::types::ToSqlOutput;
 use std::cmp::Reverse;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
@@ -141,8 +142,11 @@ impl AbsPathBuf {
     }
 
     /// Convert to bytes to store in sqlite
-    pub fn to_sql(&self) -> impl tokio_rusqlite::ToSql {
-        self.as_path().as_os_str().as_bytes().to_owned()
+    pub fn to_sql(&self) -> ToSqlOutput {
+        match self.as_path().to_str() {
+            None => ToSqlOutput::from(self.as_path().as_os_str().as_bytes().to_owned()),
+            Some(str) => ToSqlOutput::from(str),
+        }
     }
 
     /// Joins a path to the end of this absolute path.
@@ -203,7 +207,7 @@ impl NixFile {
     }
 
     /// Convert to bytes to store in sqlite
-    pub fn to_sql(&self) -> impl tokio_rusqlite::ToSql {
+    pub fn to_sql(&self) -> ToSqlOutput {
         self.0.to_sql()
     }
 }

@@ -20,6 +20,7 @@ use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
 use crate::ops::error::ExitError;
 use crate::path_to_json_string;
 use crate::socket::path::SocketPath;
+use crate::sqlite::Sqlite;
 use crate::{builder, project};
 use std::ffi::OsStr;
 use std::io::{Error, Write};
@@ -77,6 +78,7 @@ pub async fn op_daemon(
     daemon
         .serve(
             &SocketPath::from(paths.daemon_socket_file().clone()),
+            &paths.sqlite_db,
             paths.gc_root_dir(),
             paths.cas_store().clone(),
             logger,
@@ -778,9 +780,10 @@ pub async fn op_gc(
     opts: cli::GcOptions,
     paths: &Paths,
 ) -> Result<(), ExitError> {
+    let mut conn = Sqlite::new_connection(&paths.sqlite_db).await;
     match opts.action {
         cli::GcSubcommand::Info => {
-            let infos = project::list_roots(logger, paths, ListRootsSort::MoreRecentLast)?;
+            let infos = project::list_roots_gc(logger, paths, ListRootsSort::MoreRecentLast)?;
             if opts.json {
                 write_gc_info_json(&infos, std::io::stdout())
                     .expect("could not serialize gc roots");
@@ -795,7 +798,7 @@ pub async fn op_gc(
             dry_run,
         } => {
             let files_to_remove: HashSet<PathBuf> = shell_file.into_iter().collect();
-            let infos = project::list_roots(logger, paths, ListRootsSort::NoSorting)?;
+            let infos = project::list_roots_gc(logger, paths, ListRootsSort::NoSorting)?;
             let to_remove = gc_find_roots_to_remove(all, older_than, files_to_remove, infos);
             if dry_run {
                 if to_remove.len() > 0 {
@@ -807,7 +810,7 @@ pub async fn op_gc(
                     println!("--dry-run: Would not delete any GC roots");
                 }
             } else {
-                let res = gc_remove_roots(to_remove).await;
+                let res = gc_remove_roots(&mut conn, to_remove).await;
                 if opts.json {
                     write_gc_rm_json(&res, std::io::stdout());
                 } else {
@@ -858,11 +861,12 @@ pub fn gc_find_roots_to_remove(
 
 /// GC: Remove the given GC roots
 pub async fn gc_remove_roots(
+    mut conn: &mut Sqlite,
     to_remove: Vec<(GcRootInfo, Project)>,
 ) -> Vec<Result<GcRootInfo, (GcRootInfo, String)>> {
     let mut res = vec![];
     for (info, project) in to_remove {
-        match project.remove_project() {
+        match project.remove_project(&mut conn).await {
             Ok(()) => res.push(Ok(info)),
             Err(e) => res.push(Err((info, e.to_string()))),
         }

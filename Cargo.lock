@@ -534,6 +534,7 @@ dependencies = [
  "notify-debouncer-full",
  "os_info",
  "regex",
+ "rusqlite",
  "serde",
  "serde_derive",
  "serde_json",

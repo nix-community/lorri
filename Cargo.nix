@@ -1588,6 +1588,11 @@ rec {
             packageId = "regex";
           }
           {
+            name = "rusqlite";
+            packageId = "rusqlite";
+            features = [ "bundled" ];
+          }
+          {
             name = "serde";
             packageId = "serde";
           }
