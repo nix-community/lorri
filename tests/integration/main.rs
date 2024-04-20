@@ -9,5 +9,5 @@ mod direnv;
 mod direnvtestcase;
 mod envrc;
 mod envrctestcase;
-mod gc;
+mod test_op_gc;
 mod trivial;

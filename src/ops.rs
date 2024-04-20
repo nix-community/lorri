@@ -746,7 +746,8 @@ pub async fn op_watch(
     }
 }
 
-async fn main_run_once(
+/// Run the build loop once for the given project.
+pub async fn main_run_once(
     project: Project,
     cas: &ContentAddressable,
     logger: &slog::Logger,
@@ -772,30 +773,19 @@ async fn main_run_once(
 }
 
 /// Print or remove gc roots depending on cli options.
-pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions, paths: &Paths) -> Result<(), ExitError> {
+pub async fn op_gc(
+    logger: &slog::Logger,
+    opts: cli::GcOptions,
+    paths: &Paths,
+) -> Result<(), ExitError> {
     match opts.action {
         cli::GcSubcommand::Info => {
             let infos = project::list_roots(logger, paths, ListRootsSort::MoreRecentLast)?;
             if opts.json {
-                serde_json::to_writer(
-                    std::io::stdout(),
-                    &infos
-                        .iter()
-                        .map(|(info, _project)| {
-                            json!({
-                                "gc_dir": info.gc_dir.to_json_string(),
-                                "nix_file": info.nix_file.to_json_string(),
-                                "timestamp": info.timestamp,
-                                "alive": info.project_file_exists
-                            })
-                        })
-                        .collect::<Vec<_>>(),
-                )
-                .expect("could not serialize gc roots");
+                write_gc_info_json(&infos, std::io::stdout())
+                    .expect("could not serialize gc roots");
             } else {
-                for (info, _project) in infos {
-                    println!("{}", info.format_pretty_oneline());
-                }
+                write_gc_info_human_readable(&infos, &mut std::io::stdout());
             }
         }
         cli::GcSubcommand::Rm {
@@ -806,21 +796,7 @@ pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions, paths: &Paths) -> Resu
         } => {
             let files_to_remove: HashSet<PathBuf> = shell_file.into_iter().collect();
             let infos = project::list_roots(logger, paths, ListRootsSort::NoSorting)?;
-            let to_remove: Vec<(GcRootInfo, Project)> = infos
-                .into_iter()
-                .filter(|(info, _project)| {
-                    all || !info.project_file_exists
-                        || files_to_remove.contains(info.nix_file.as_path())
-                        || older_than.map_or(false, |limit| {
-                            match info.timestamp {
-                                // always remove gcroots for which we could not figure out a timestamp
-                                None => true,
-                                Some(t) => t.elapsed().map_or(false, |actual| actual > limit),
-                            }
-                        })
-                })
-                .collect();
-            let mut result = Vec::new();
+            let to_remove = gc_find_roots_to_remove(all, older_than, files_to_remove, infos);
             if dry_run {
                 if to_remove.len() > 0 {
                     println!("--dry-run: Would delete the following GC roots:");
@@ -831,44 +807,11 @@ pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions, paths: &Paths) -> Resu
                     println!("--dry-run: Would not delete any GC roots");
                 }
             } else {
-                for (info, project) in to_remove {
-                    match project.remove_project() {
-                        Ok(()) => result.push(Ok(info)),
-                        Err(e) => result.push(Err((info, e.to_string()))),
-                    }
-                }
+                let res = gc_remove_roots(to_remove).await;
                 if opts.json {
-                    let res = result
-                        .into_iter()
-                        .map(|r| match r {
-                            Err((info, err)) => json!({
-                                // Error, if any
-                                "error": err,
-                                // The root we tried to remove
-                                "root": {
-                                    "gc_dir": info.gc_dir,
-                                    "nix_file": info.nix_file.to_json_string(),
-                                    // we use the Serialize instance for SystemTime
-                                    "timestamp": info.timestamp,
-                                    "alive": info.project_file_exists
-                                }
-                            }),
-                            Ok(info) => json!({
-                                "error": null,
-                                "root": {
-                                    "gc_dir": info.gc_dir,
-                                    "nix_file": info.nix_file.to_json_string(),
-                                    // we use the Serialize instance for SystemTime
-                                    "timestamp": info.timestamp,
-                                    "alive": info.project_file_exists
-                                }
-                            }),
-                        })
-                        .collect::<Vec<_>>();
-                    serde_json::to_writer(std::io::stdout(), &res)
-                        .expect("failed to serialize result");
+                    write_gc_rm_json(&res, std::io::stdout());
                 } else {
-                    let (ok, err): (Vec<_>, Vec<_>) = result.into_iter().partition_result();
+                    let (ok, err): (Vec<_>, Vec<_>) = res.into_iter().partition_result();
                     println!("Removed {} gc roots.", ok.len());
                     if err.len() > 0 {
                         for (info, e) in err {
@@ -888,6 +831,106 @@ pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions, paths: &Paths) -> Resu
         }
     }
     Ok(())
+}
+
+/// GC: Find all roots that should be removed for the given GC operation
+pub fn gc_find_roots_to_remove(
+    all: bool,
+    older_than: Option<Duration>,
+    files_to_remove: HashSet<PathBuf>,
+    infos: Vec<(GcRootInfo, Project)>,
+) -> Vec<(GcRootInfo, Project)> {
+    infos
+        .into_iter()
+        .filter(|(info, _project)| {
+            all || !info.project_file_exists
+                || files_to_remove.contains(info.nix_file.as_path())
+                || older_than.map_or(false, |limit| {
+                    match info.timestamp {
+                        // always remove gcroots for which we could not figure out a timestamp
+                        None => true,
+                        Some(t) => t.elapsed().map_or(false, |actual| actual > limit),
+                    }
+                })
+        })
+        .collect()
+}
+
+/// GC: Remove the given GC roots
+pub async fn gc_remove_roots(
+    to_remove: Vec<(GcRootInfo, Project)>,
+) -> Vec<Result<GcRootInfo, (GcRootInfo, String)>> {
+    let mut res = vec![];
+    for (info, project) in to_remove {
+        match project.remove_project() {
+            Ok(()) => res.push(Ok(info)),
+            Err(e) => res.push(Err((info, e.to_string()))),
+        }
+    }
+    res
+}
+
+/// GC: Write the result of removing GC roots as JSON
+pub fn write_gc_rm_json<W: Write>(
+    result: &Vec<Result<GcRootInfo, (GcRootInfo, String)>>,
+    writer: W,
+) {
+    let res = result
+        .into_iter()
+        .map(|r| match r {
+            Err((info, err)) => json!({
+                // Error, if any
+                "error": err,
+                // The root we tried to remove
+                "root": {
+                    "gc_dir": info.gc_dir,
+                    "nix_file": info.nix_file.to_json_string(),
+                    // we use the Serialize instance for SystemTime
+                    "timestamp": info.timestamp,
+                    "alive": info.project_file_exists
+                }
+            }),
+            Ok(info) => json!({
+                "error": null,
+                "root": {
+                    "gc_dir": info.gc_dir,
+                    "nix_file": info.nix_file.to_json_string(),
+                    // we use the Serialize instance for SystemTime
+                    "timestamp": info.timestamp,
+                    "alive": info.project_file_exists
+                }
+            }),
+        })
+        .collect::<Vec<_>>();
+    serde_json::to_writer(writer, &res).expect("failed to serialize result");
+}
+
+/// Write the GC info to a human-readable representation
+pub fn write_gc_info_human_readable<W: Write>(infos: &Vec<(GcRootInfo, Project)>, writer: &mut W) {
+    for (info, _project) in infos {
+        writeln!(writer, "{}", info.format_pretty_oneline()).expect("write stdout failed");
+    }
+}
+
+/// Write the GC info to a json representation
+pub fn write_gc_info_json<W: Write>(
+    infos: &Vec<(GcRootInfo, Project)>,
+    stdout1: W,
+) -> serde_json::Result<()> {
+    serde_json::to_writer(
+        stdout1,
+        &infos
+            .iter()
+            .map(|(info, _project)| {
+                json!({
+                    "gc_dir": info.gc_dir.to_json_string(),
+                    "nix_file": info.nix_file.to_json_string(),
+                    "timestamp": info.timestamp,
+                    "alive": info.project_file_exists
+                })
+            })
+            .collect::<Vec<_>>(),
+    )
 }
 
 async fn main_run_forever(
