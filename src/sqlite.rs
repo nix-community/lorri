@@ -1,18 +1,12 @@
 //! lorri data storage
 use crate::constants::Paths;
 use crate::ops::error::ExitError;
+use crate::project::ListRootsSort;
 use crate::{project, AbsPathBuf};
-use anyhow::Context;
-use slog::info;
-use std::os::unix::ffi::OsStrExt;
-use std::{
-    ffi::OsString,
-    os::unix::ffi::OsStringExt,
-    time::{Duration, SystemTime},
-};
+use std::time::SystemTime;
 use tokio_rusqlite::{named_params, Connection, Transaction};
 
-/// TODO
+/// Wrapper around our sqlite connection object.
 pub struct Sqlite {
     conn: tokio_rusqlite::Connection,
 }
@@ -27,8 +21,14 @@ impl Sqlite {
             conn.execute_batch(
                 r#"CREATE TABLE IF NOT EXISTS gc_roots (
                         id INTEGER PRIMARY KEY,
-                        nix_file PATH NOT NULL,
-                        last_updated EPOCH_TIME
+                        -- absolute file path to the nix file
+                        nix_file TEXT UNIQUE NOT NULL,
+                        -- last time the gc_root was built and linked
+                        last_updated EPOCH_TIME,
+                        -- if is_flake is set, this gc root refers to a nix flake.nix file
+                        is_flake BOOLEAN NOT NULL default FALSE,
+                        -- only if is_flake, might still be NULL if no INSTALLABLE was ever specified.
+                        flake_installable TEXT default NULL
                 );
                 "#,
             )
@@ -45,61 +45,67 @@ impl Sqlite {
         logger: &slog::Logger,
         paths: &Paths,
     ) -> Result<(), ExitError> {
-        let infos = project::list_roots(&logger, &paths)?;
+        let infos = project::list_roots_migration(&logger, &paths, ListRootsSort::NoSorting)?;
 
-        let logger2 = logger.clone();
-
-        let mut res = self
-            .conn
+        self.conn
             .call_unwrap(move |conn| {
-                let mut stmt = conn.prepare(
-                "INSERT INTO gc_roots (nix_file, last_updated) VALUES (:nix_file, :last_updated);",
-            )
-                .unwrap();
-                for (info, _project) in infos {
-                    let ts = info.timestamp.map(|t| {
+                conn.execute("DELETE FROM gc_roots", ()).unwrap();
+
+                let mut stmt = conn
+                    .prepare(
+                        r"INSERT OR REPLACE INTO gc_roots (nix_file, last_updated, is_flake)
+                          VALUES (:nix_file, :last_updated, :is_flake)",
+                    )
+                    .unwrap();
+
+                for info in infos {
+                    let last_updated = info.timestamp.map(|t| {
                         t.duration_since(SystemTime::UNIX_EPOCH)
                             .expect("expect file timestamp to be a unix timestamp")
                             .as_secs()
                     });
+
                     stmt.execute(named_params! {
-                        ":nix_file": info.nix_file.as_path().as_os_str().as_bytes().to_owned(),
-                        ":last_updated": ts
+                        ":nix_file": info.nix_file.to_sql(),
+                        ":last_updated": last_updated,
+                        ":is_flake": info.is_flake
                     })
                     .expect("cannot insert");
                 }
-
-                let mut stmt = conn
-                    .prepare("SELECT nix_file, last_updated from gc_roots")
-                    .unwrap();
-                let res = stmt
-                    .query_map((), |row| {
-                        let nix_file =
-                            OsString::from_vec(row.get::<_, Vec<u8>>("nix_file").unwrap());
-                        let t = row.get::<_, Option<u64>>("last_updated").unwrap().map(|u| {
-                            SystemTime::elapsed(&(SystemTime::UNIX_EPOCH + Duration::from_secs(u)))
-                                .unwrap()
-                        });
-                        Ok((nix_file, t, t.map(ago)))
-                    })
-                    .unwrap()
-                    .filter_map(|r| match r {
-                        Err(_) => None,
-                        Ok(r) => Some((r.0, r.1, r.2)),
-                    })
-                    .collect::<Vec<_>>();
-                Ok::<_, ExitError>(res)
             })
-            .await?;
+            .await;
 
-        res.sort_by_key(|r| r.1);
-        info!(logger2, "We have these nix files: {:#?}", res);
+        //         let mut stmt = conn
+        //             .prepare("SELECT nix_file, last_updated from gc_roots")
+        //             .unwrap();
+        //         let res = stmt
+        //             .query_map((), |row| {
+        //                 let nix_file =
+        //                     OsString::from_vec(row.get::<_, Vec<u8>>("nix_file").unwrap());
+        //                 let t = row.get::<_, Option<u64>>("last_updated").unwrap().map(|u| {
+        //                     SystemTime::elapsed(&(SystemTime::UNIX_EPOCH + Duration::from_secs(u)))
+        //                         .unwrap()
+        //                 });
+        //                 Ok((nix_file, t, t.map(ago)))
+        //             })
+        //             .unwrap()
+        //             .filter_map(|r| match r {
+        //                 Err(_) => None,
+        //                 Ok(r) => Some((r.0, r.1, r.2)),
+        //             })
+        //             .collect::<Vec<_>>();
+        //         Ok::<_, ExitError>(res)
+        //     })
+        //     .await?;
+        //
+        // res.sort_by_key(|r| r.1);
+        // info!(logger2, "We have these nix files: {:#?}", res);
 
         Ok(())
     }
 
     /// Run the given code in the context of a transaction, automatically aborting the transaction if the function returns `Err`, comitting if it returns `Ok`.
-    pub async fn in_transaction<F, R, E>(self, f: F) -> anyhow::Result<Result<R, E>>
+    pub async fn in_transaction<F, R, E>(&mut self, f: F) -> Result<R, E>
     where
         F: FnOnce(&mut Transaction) -> Result<R, E> + Send + 'static,
         R: Send + 'static,
@@ -108,38 +114,24 @@ impl Sqlite {
         self.conn
             .call_unwrap(|conn| {
                 let mut t = conn.transaction()?;
-                match f(&mut t) {
+                // We do not have to abort manually on panic in f, because commit() is never
+                // called in that case and so sqlite will never complete the transaction.
+                Ok::<_, rusqlite::Error>(match f(&mut t) {
                     Err(e) => {
                         t.rollback()?;
-                        Ok(Err(e))
+                        Err(e)
                     }
                     Ok(o) => {
                         t.commit()?;
-                        Ok(Ok(o))
+                        Ok(o)
                     }
-                }
+                })
             })
             .await
-            .map_err(|e: tokio_rusqlite::Error| anyhow::Error::new(e))
-            .context("executing sqlite transaction failed")
+            // We assume the transaction meta-command will succeed, otherwise panic.
+            // We only use a single connection thread via tokio_rusqlite, so we should
+            // never run into the SQLITE_BUSY case and I think it’s ok to panic on resource shortages
+            // in lorri. See https://www.sqlite.org/lang_transaction.html for all error cases.
+            .expect("executing sqlite transaction failed")
     }
-}
-
-fn ago(dur: Duration) -> String {
-    let secs = dur.as_secs();
-    let mins = dur.as_secs() / 60;
-    let hours = dur.as_secs() / (60 * 60);
-    let days = dur.as_secs() / (60 * 60 * 24);
-
-    if days > 0 {
-        return format!("{} days ago", days);
-    }
-    if hours > 0 {
-        return format!("{} hours ago", hours);
-    }
-    if mins > 0 {
-        return format!("{} minutes ago", mins);
-    }
-
-    format!("{} seconds ago", secs)
 }

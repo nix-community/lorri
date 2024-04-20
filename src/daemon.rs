@@ -10,6 +10,7 @@ use crate::project::ProjectFile;
 use crate::socket::communicate;
 use crate::socket::communicate::listener::Listener;
 use crate::socket::path::SocketPath;
+use crate::sqlite::Sqlite;
 use crate::{AbsPathBuf, NixFile};
 use slog::{debug, info};
 use std::collections::HashMap;
@@ -70,6 +71,7 @@ impl Daemon {
     pub async fn serve(
         self,
         socket_path: &SocketPath,
+        sqlite_path: &AbsPathBuf,
         gc_root_dir: &AbsPathBuf,
         cas: crate::cas::ContentAddressable,
         logger: &slog::Logger,
@@ -91,11 +93,14 @@ impl Daemon {
         let tx_build_events = self.tx_build_events.clone();
         let extra_nix_options = self.extra_nix_options.clone();
         let gc_root_dir = gc_root_dir.clone();
+        let sqlite_path = sqlite_path.clone();
+        let mut conn = Sqlite::new_connection(&sqlite_path).await;
         let join_set = Self::build_instruction_handler(
             tx_build_events,
             extra_nix_options,
             rx_activity,
             &gc_root_dir,
+            &mut conn,
             cas,
             &logger3,
         )
@@ -152,6 +157,7 @@ impl Daemon {
         extra_nix_options: NixOptions,
         mut rx_activity: Receiver<IndicateActivity>,
         gc_root_dir: &AbsPathBuf,
+        conn: &mut Sqlite,
         cas: crate::cas::ContentAddressable,
         logger: &slog::Logger,
     ) -> JoinSet<()> {
@@ -170,9 +176,11 @@ impl Daemon {
             else {
                 break;
             };
-            let project = crate::project::Project::new_and_gc_nix_files(project_file, gc_root_dir)
-                // TODO: the project needs to create its gc root dir
-                .unwrap();
+            let project =
+                crate::project::Project::new_and_gc_nix_files(conn, project_file, gc_root_dir)
+                    .await
+                    // TODO: the project needs to create its gc root dir
+                    .unwrap();
 
             let key = project.project_file.as_nix_file().clone();
             let project_is_watched = handler_threads.get(&key);

@@ -24,6 +24,7 @@ thiserror = "2.0.11"
 tokio = { features = ["rt", "rt-multi-thread", "macros", "net", "time", "io-util", "io-std", "sync", "process", "fs"], version = "1.43.0" }
 clap = { version = "4.5.30", features = ["derive", "error-context"] }
 tokio-rusqlite = { version = "0.6.0", features = ["bundled"] }
+rusqlite = { version = "0.32.1", features = ["bundled"] }
 
 # logging;
 slog = { version = "2.7.0", features = [
