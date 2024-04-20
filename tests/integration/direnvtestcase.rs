@@ -71,11 +71,10 @@ impl DirenvTestCase {
         let cachedir = AbsPathBuf::new(cachedir_tmp.path().to_owned()).unwrap();
 
         let cas = ContentAddressable::new(cachedir.join("cas")).unwrap();
-        let mut conn = Sqlite::new_connection(&cachedir.join("sqlite")).await;
-        let project =
-            Project::new_and_gc_nix_files(&mut conn, project_file, &cachedir.join("gc_roots"))
-                .await
-                .unwrap();
+        let conn = Sqlite::new_connection(&cachedir.join("sqlite")).await;
+        let project = Project::new_and_gc_nix_files(conn, project_file, &cachedir.join("gc_roots"))
+            .await
+            .unwrap();
 
         DirenvTestCase {
             projectdir,

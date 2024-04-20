@@ -29,6 +29,8 @@ pub struct Project {
 
     /// Hash of the nix file’s absolute path.
     hash: String,
+
+    conn: Sqlite,
 }
 
 /// ProjectFile describes the build source Nix file for a watched project
@@ -101,18 +103,15 @@ impl Project {
     /// and the base GC root directory
     /// (as returned by `Paths.gc_root_dir()`),
     pub async fn new_and_gc_nix_files(
-        conn: &mut Sqlite,
+        mut conn: Sqlite,
         project_file: ProjectFile,
         gc_root_dir: &AbsPathBuf,
     ) -> std::io::Result<Project> {
-        let project = Self::new_internal(project_file.clone(), gc_root_dir)?;
+        let project = Self::new_internal(project_file.clone(), gc_root_dir, conn.clone())?;
 
         // Adjust the nix_file symlink to point to this project’s nix file
         conn.in_transaction(move |t| {
-            dbg!(
-                "inserting new project into db for {:?}",
-                &project.project_file
-            );
+            dbg!("inserting new project into db for {:?}", &project_file);
             t.execute(
                 r#"
               INSERT INTO gc_roots (nix_file, is_flake, flake_installable)
@@ -159,6 +158,7 @@ impl Project {
     fn new_internal(
         project_file: ProjectFile,
         gc_root_dir: &AbsPathBuf,
+        conn: Sqlite,
     ) -> std::io::Result<Project> {
         let hash = format!(
             "{:x}",
@@ -172,6 +172,7 @@ impl Project {
             project_root_dir,
             project_file,
             hash,
+            conn,
         })
     }
 
@@ -179,6 +180,7 @@ impl Project {
     fn new_internal_from_existing_gc_dir(
         hash: String,
         gc_root_dir: &AbsPathBuf,
+        conn: Sqlite,
     ) -> Result<Project, anyhow::Error> {
         let project_root_dir = gc_root_dir.join(&hash);
 
@@ -215,6 +217,7 @@ impl Project {
             project_root_dir,
             project_file,
             hash,
+            conn,
         })
     }
 
@@ -306,20 +309,21 @@ impl Project {
     }
 
     /// Removes this project from lorri. Removes the GC root and consumes the project.
-    pub async fn remove_project(self, conn: &mut Sqlite) -> anyhow::Result<()> {
-        conn.in_transaction(move |t| {
-            std::fs::remove_dir_all(&self.project_root_dir).context(format!(
-                "Unable to remove the project directory from {}",
-                self.project_root_dir.display()
-            ))?;
+    pub async fn remove_project(mut self) -> anyhow::Result<()> {
+        self.conn
+            .in_transaction(move |t| {
+                std::fs::remove_dir_all(&self.project_root_dir).context(format!(
+                    "Unable to remove the project directory from {}",
+                    self.project_root_dir.display()
+                ))?;
 
-            t.execute(
-                "DELETE FROM gc_roots WHERE nix_file = :nix_file",
-                named_params!(":nix_file": self.project_file.as_nix_file().to_sql()),
-            )?;
-            Ok(())
-        })
-        .await
+                t.execute(
+                    "DELETE FROM gc_roots WHERE nix_file = :nix_file",
+                    named_params!(":nix_file": self.project_file.as_nix_file().to_sql()),
+                )?;
+                Ok(())
+            })
+            .await
     }
 }
 
@@ -381,6 +385,7 @@ pub enum ListRootsSort {
 fn list_roots_impl(
     logger: &slog::Logger,
     paths: &Paths,
+    conn: Sqlite,
     list_roots_sort: ListRootsSort,
 ) -> Result<Vec<ListRoots>, ExitError> {
     let mut res = Vec::new();
@@ -418,20 +423,23 @@ fn list_roots_impl(
             .file_name()
             .to_string_lossy()
             .into_owned();
-        let project =
-            match Project::new_internal_from_existing_gc_dir(hash.clone(), paths.gc_root_dir()) {
-                Err(e) => {
-                    warn!(
-                        logger,
-                        "Could not create project for hash {} in root dir {}, skipping: {}",
-                        &hash,
-                        paths.gc_root_dir().display(),
-                        e
-                    );
-                    continue;
-                }
-                Ok(p) => p,
-            };
+        let project = match Project::new_internal_from_existing_gc_dir(
+            hash.clone(),
+            paths.gc_root_dir(),
+            conn.clone(),
+        ) {
+            Err(e) => {
+                warn!(
+                    logger,
+                    "Could not create project for hash {} in root dir {}, skipping: {}",
+                    &hash,
+                    paths.gc_root_dir().display(),
+                    e
+                );
+                continue;
+            }
+            Ok(p) => p,
+        };
         let timestamp = project.last_built_timestamp();
 
         let project_file_exists = project.project_file.as_absolute_path().is_file();
@@ -470,9 +478,10 @@ struct ListRoots {
 pub fn list_roots_migration(
     logger: &slog::Logger,
     paths: &Paths,
+    conn: Sqlite,
     list_roots_sort: ListRootsSort,
 ) -> Result<Vec<ListRootsMigration>, ExitError> {
-    Ok(list_roots_impl(logger, paths, list_roots_sort)?
+    Ok(list_roots_impl(logger, paths, conn, list_roots_sort)?
         .into_iter()
         .map(
             |ListRoots {
@@ -506,9 +515,10 @@ pub struct ListRootsMigration {
 pub fn list_roots_gc(
     logger: &slog::Logger,
     paths: &Paths,
+    conn: Sqlite,
     list_roots_sort: ListRootsSort,
 ) -> Result<Vec<(GcRootInfo, Project)>, ExitError> {
-    Ok(list_roots_impl(logger, paths, list_roots_sort)?
+    Ok(list_roots_impl(logger, paths, conn, list_roots_sort)?
         .into_iter()
         .map(
             |ListRoots {

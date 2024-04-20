@@ -85,21 +85,23 @@ pub fn is_file_in_current_directory(name: &Path) -> anyhow::Result<Option<AbsPat
 /// Run the main function of the relevant command.
 async fn run_command(orig_logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> {
     let paths = ops::get_paths()?;
-    let mut conn = Sqlite::new_connection(&paths.sqlite_db).await;
+    let conn = Sqlite::new_connection(&paths.sqlite_db).await;
 
     // TODO: TMP
-    conn.migrate_gc_roots(&orig_logger, &paths).await.unwrap();
+    conn.migrate_gc_roots(&orig_logger, &paths, conn.clone())
+        .await
+        .unwrap();
 
     match opts.command {
         Command::Info(opts) => {
             let (project, logger) =
-                with_project(&mut conn, orig_logger, &opts.source.try_into()?).await?;
+                with_project(conn, orig_logger, &opts.source.try_into()?).await?;
             ops::op_info(&paths, project, &logger).await
         }
         Command::Gc(opts) => ops::op_gc(orig_logger, opts, &paths).await,
         Command::Direnv(opts) => {
             let (project, logger) =
-                with_project(&mut conn, orig_logger, &opts.source.try_into()?).await?;
+                with_project(conn, orig_logger, &opts.source.try_into()?).await?;
             ops::op_direnv(
                 project,
                 &paths,
@@ -110,13 +112,13 @@ async fn run_command(orig_logger: &slog::Logger, opts: Arguments) -> Result<(), 
         }
         Command::Shell(opts) => {
             let (project, logger) =
-                with_project(&mut conn, orig_logger, &opts.source.clone().try_into()?).await?;
+                with_project(conn, orig_logger, &opts.source.clone().try_into()?).await?;
             ops::op_shell(project, &paths.cas_store(), opts, &logger).await
         }
 
         Command::Watch(opts) => {
             let (project, logger) =
-                with_project(&mut conn, orig_logger, &opts.source.clone().try_into()?).await?;
+                with_project(conn, orig_logger, &opts.source.clone().try_into()?).await?;
             ops::op_watch(project, &paths.cas_store(), opts, &logger).await
         }
         Command::Daemon(opts) => {
@@ -143,7 +145,7 @@ async fn run_command(orig_logger: &slog::Logger, opts: Arguments) -> Result<(), 
 }
 
 async fn with_project(
-    conn: &mut Sqlite,
+    conn: Sqlite,
     logger: &slog::Logger,
     project_file: &ProjectFile,
 ) -> Result<(Project, slog::Logger), ExitError> {
