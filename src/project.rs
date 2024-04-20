@@ -16,7 +16,7 @@ use std::time::SystemTime;
 
 /// A “project” knows how to handle the lorri state
 /// for a given nix file.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Project {
     /// Absolute path to this project’s nix file.
     pub project_file: ProjectFile,
@@ -152,8 +152,12 @@ impl Project {
         let project_root_dir = gc_root_dir.join(&hash);
 
         let nix_file_symlink = project_root_dir.join("gc_root").join("nix_file");
-        let original_file = AbsPathBuf::new(std::fs::read_link(&nix_file_symlink)?)
-            .expect("nix_file symlink is a relative path, this should not happen");
+        let link = std::fs::read_link(&nix_file_symlink).map_err(|e| {
+            anyhow::Error::new(e).context(format!("Cannot fs::read_link {nix_file_symlink:?}"))
+        })?;
+        let original_file = AbsPathBuf::new(link.clone()).expect(&format!(
+            "nix_file symlink is a relative path, this should not happen: {link:?}"
+        ));
         let project_file = match original_file.as_path().file_name().map(OsStr::to_str) {
             Some(Some("flake.nix")) => ProjectFile::flake_unknown_installable(
                 AbsPathBuf::new(
@@ -411,6 +415,7 @@ pub fn list_roots(
 }
 
 /// Represents a gc root along with some metadata, used for json output of lorri gc info
+#[derive(Debug)]
 pub struct GcRootInfo {
     /// directory where root is stored
     pub gc_dir: AbsPathBuf,
