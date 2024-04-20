@@ -6,7 +6,7 @@ use thiserror::Error;
 use crate::builder::{OutputPath, RootedPath};
 use crate::nix::StorePath;
 use crate::ops::error::ExitError;
-use crate::{ops, AbsPathBuf, Installable, NixFile};
+use crate::{ops, pretty_time_ago, AbsPathBuf, Installable, NixFile};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -256,10 +256,7 @@ impl GcRootInfo {
         };
         let age = match self.timestamp.elapsed() {
             Err(_) => "future".to_owned(),
-            Ok(d) => {
-                let days = d.as_secs() / (24 * 60 * 60);
-                format!("{} days ago", days)
-            }
+            Ok(d) => pretty_time_ago(d),
         };
         let alive = if self.alive { "" } else { "[dead]" };
         format!(
