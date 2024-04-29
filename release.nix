@@ -6,6 +6,12 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
+        version = 1024;
+        changes = ''
+          Update the flake compatibility shim to work with nix > 2.7.
+        '';
+      }
+      {
         version = 951;
         changes = ''
           Provide a better error message when the user tries to use flakes,
