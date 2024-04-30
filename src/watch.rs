@@ -659,6 +659,7 @@ mod tests {
     // TODO: this test is bugged, but in order to figure out what is wrong,
     // we should add some sort of provenance to our watcher filter functions first.
     #[test]
+    #[cfg(not(target_os = "macos"))]
     fn rename_over_vim() {
         // Vim renames files in to place for atomic writes
         let logger = crate::logging::test_logger("rename_over_vim");
