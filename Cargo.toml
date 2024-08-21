@@ -22,9 +22,7 @@ tempfile = "3.16.0"
 anyhow = "1.0.95"
 thiserror = "2.0.11"
 tokio = { features = ["rt", "rt-multi-thread", "macros", "net", "time", "io-util", "io-std", "sync", "process", "fs"], version = "1.43.0" }
-
-# TODO: update to 0.3
-structopt = { version = "0.2", default-features = true, features = ["suggestions", "color", "no_cargo"] }
+clap = { version = "4.5.30", features = ["derive", "error-context"] }
 
 # logging;
 slog = { version = "2.7.0", features = [
