@@ -12,8 +12,6 @@
 #![allow(dropping_copy_types, clippy::zero_ptr)]
 
 #[macro_use]
-extern crate structopt;
-#[macro_use]
 extern crate serde_derive;
 
 pub mod build_loop;
