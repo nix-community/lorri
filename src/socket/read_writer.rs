@@ -249,22 +249,22 @@ impl<'a, R, W> ReadWriter<'a, R, W> {
 mod timeout {
     extern crate nix;
 
-    use self::nix::libc;
+    use std::os::fd::{AsFd};
     use self::nix::poll;
     use super::{Millis, Timeout};
-    use std::os::unix::io::AsRawFd;
     use std::os::unix::net::UnixStream;
+    use nix::poll::PollTimeout;
 
     /// Wait until `to_fd` receives the poll event from `events`, up to `timeout` length
     /// of time.
     /// Copied from <https://docs.rs/crate/timeout-readwrite/0.2.0/source/src/utils.rs>
     /// written by Jonathan Creekmore and published under Apache-2.0.
-    fn wait_until_ready<R: AsRawFd>(
-        timeout: libc::c_int,
+    fn wait_until_ready<R: AsFd>(
+        timeout: PollTimeout,
         to_fd: &R,
         events: poll::PollFlags,
     ) -> std::io::Result<()> {
-        let mut pfd = poll::PollFd::new(to_fd.as_raw_fd(), events);
+        let mut pfd = poll::PollFd::new(to_fd.as_fd(), events);
         let s = unsafe { std::slice::from_raw_parts_mut(&mut pfd, 1) };
 
         let retval = poll::poll(s, timeout)
@@ -280,16 +280,16 @@ mod timeout {
 
     pub struct TimeoutReadWriter<'a> {
         socket: &'a UnixStream,
-        timeout: libc::c_int,
+        timeout: PollTimeout,
     }
 
     /// Convert timeout to the form that `poll(2)` expects.
-    fn to_poll_2_timeout(t: Timeout) -> libc::c_int {
+    fn to_poll_2_timeout(t: Timeout) -> PollTimeout {
         match t {
             // negative number is infinite timeout
-            Timeout::Infinite => -1,
+            Timeout::Infinite => PollTimeout::NONE,
             // otherwise a duration in milliseconds
-            Timeout::D(Millis(u)) => libc::c_int::from(u),
+            Timeout::D(Millis(u)) => PollTimeout::from(u),
         }
     }
 

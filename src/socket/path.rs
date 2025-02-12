@@ -6,6 +6,7 @@ use std::fmt;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
+use nix::fcntl;
 use thiserror::Error;
 
 /// Small wrapper that makes sure lorri sockets are handled correctly.
@@ -63,9 +64,9 @@ impl SocketPath {
             .create(true)
             .open(self.lockfile())?;
         // we try to get an exclusive lock, nonblocking
-        match nix::fcntl::flock(h.as_raw_fd(), nix::fcntl::FlockArg::LockExclusiveNonblock) {
+        match fcntl::flock(h.as_raw_fd(), nix::fcntl::FlockArg::LockExclusiveNonblock) {
             // if the lock would block, another process is listening
-            Err(nix::Error::Sys(nix::errno::EWOULDBLOCK)) => Err(BindError::OtherProcessListening(
+            Err(nix::Error::EWOULDBLOCK) => Err(BindError::OtherProcessListening(
                 self.lockfile().display().to_string(),
             )),
             other => other.map_err(BindError::Unix),
