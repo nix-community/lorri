@@ -8,6 +8,7 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use notify_debouncer_full::{DebounceEventResult, DebouncedEvent, Debouncer, FileIdMap};
 use slog::{debug, info, warn};
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -269,6 +270,12 @@ impl Filter {
     /// Note: Watch maintains a list of already watched paths, and
     /// will not add duplicates.
     pub fn extend(&mut self, paths: Vec<WatchPathBuf>) -> Result<(), notify::Error> {
+        struct WatchingPaths {
+            parent_paths: Vec<OsString>,
+            paths: Vec<OsString>,
+        }
+        let mut watching_paths = WatchingPaths{parent_paths: vec![], paths: vec![]};
+
         for path in paths {
             // NOTE: notify.watch supports recursively watching directories itself, but we
             // 1) want to canonicalize each path we watch
@@ -279,6 +286,7 @@ impl Filter {
                 WatchPathBuf::Recursive(path) => walk_path_topo(path)?,
                 WatchPathBuf::Normal(path) => vec![path],
             };
+
 
             for p_raw in recursive_paths {
                 let p = p_raw.canonicalize()?;
@@ -292,7 +300,8 @@ impl Filter {
                 } else {
                     let this = &mut *self;
                     if !this.current_watched.contains(&p) {
-                        debug!(this.logger, "watching path"; "path" => p.to_str());
+                        watching_paths.paths.push(p.clone().into_os_string());
+
 
                         this.filesystem_watcher
                             .watcher()
@@ -302,7 +311,7 @@ impl Filter {
 
                     if let Some(parent) = p.parent() {
                         if !this.current_watched.contains(parent) {
-                            debug!(this.logger, "watching parent path"; "parent_path" => parent.to_str());
+                            watching_paths.parent_paths.push(parent.to_owned().into_os_string());
 
                             this.filesystem_watcher
                                 .watcher()
@@ -312,6 +321,9 @@ impl Filter {
                 }
             }
         }
+        debug!(self.logger, "watching paths";
+            "paths" => ?watching_paths.paths,
+            "parent_paths" => ?watching_paths.parent_paths);
         Ok(())
     }
 
