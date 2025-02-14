@@ -225,7 +225,7 @@ impl Filter {
                         info!(self.logger, "identified removal: {:?}", &event.paths);
                     }
                     _ => {
-                        debug!(self.logger, "watch event"; "event" => ?event);
+                        // debug!(self.logger, "watch event"; "event" => ?event);
                     }
                 }
             };
@@ -255,9 +255,9 @@ impl Filter {
             }
         }
         if interesting_paths.is_empty() {
-            debug!(self.logger, "generated no interesting paths");
+            // debug!(self.logger, "generated no interesting paths");
         } else {
-            debug!(self.logger, "generated interesting paths"; "paths" => ?interesting_paths);
+            // debug!(self.logger, "generated interesting paths"; "paths" => ?interesting_paths);
         }
         interesting_paths
             .into_iter()
@@ -343,20 +343,20 @@ impl Filter {
 
         self.current_watched.iter().any(|watched: &PathBuf| {
             if event_path == watched {
-                debug!(
-                self.logger,
-                "event path directly matches watched path";
-                "event_path" => event_path.to_str());
+                // debug!(
+                // self.logger,
+                // "event path directly matches watched path";
+                // "event_path" => event_path.to_str());
 
                 return true;
             }
 
             if let Some(parent) = event_parent {
                 if parent == watched {
-                    debug!(
-                    self.logger,
-                    "event path parent matches watched path";
-                    "event_path" => event_path.to_str(), "parent_path" => parent.to_str());
+                    // debug!(
+                    // self.logger,
+                    // "event path parent matches watched path";
+                    // "event_path" => event_path.to_str(), "parent_path" => parent.to_str());
                     return true;
                 }
             }
