@@ -129,33 +129,7 @@ pub struct BuildLoop<'a> {
     logger: slog::Logger,
 }
 
-enum BuildState {
-    /// No build is currently running.
-    NotRunning,
-    /// A build is running.
-    Running(Async<BuildResult>),
-    /// A build is running and another build is scheduled to run immediately after it finishes.
-    RunningAndScheduled(Async<BuildResult>),
-}
 type BuildResult = Result<builder::RunResult, BuildError>;
-
-impl BuildState {
-    fn result_chan(&self) -> chan::Receiver<BuildResult> {
-        match self {
-            Self::NotRunning => chan::never(),
-            Self::Running(build) => build.chan(),
-            Self::RunningAndScheduled(build) => build.chan(),
-        }
-    }
-
-    fn display_status(&self) -> &str {
-        match self {
-            Self::NotRunning => "not running",
-            Self::Running(_) => "running",
-            Self::RunningAndScheduled(_) => "running and scheduled",
-        }
-    }
-}
 
 impl<'a> BuildLoop<'a> {
     /// Instatiate a new BuildLoop. Uses an internal filesystem
@@ -198,14 +172,33 @@ impl<'a> BuildLoop<'a> {
         tx_events: chan::Sender<LoopHandlerEvent>,
         rx_ping: chan::Receiver<()>,
     ) -> crate::Never {
-        let mut current_build = BuildState::NotRunning;
         let rx_watcher = self.watch.watch_events_rx.clone();
+
+        /// currently running build, if any. This is set/read each recv loop.
+        let mut current_build: Option<Async<BuildResult>> = None;
+        /// Whether we should start another build after finishing the current one.
+        let mut scheduled: Option<()> = None;
+
+        // Helper so we can pull things out of the channel select macro
+        enum Msg {
+            BuildResult(BuildResult),
+            Changed(Vec<PathBuf>),
+            Pinged
+        }
 
         loop {
             debug!(self.logger, "looping build_loop";
-                   "current_build" => current_build.display_status(),
-                   "project" => &self.project.file);
-            let rx_current_build = current_build.result_chan();
+               "current_build" => match (current_build.is_some(), scheduled.is_some()) {
+                 (true, true) => "running and scheduled",
+                 (false, false) => "not running, nothing scheduled",
+                 (false, true) => "not running, scheduled",
+                 (true, false) => "running, nothing scheduled"
+                },
+               "project" => &self.project.file);
+            // drain the current_build field, inside the loop we use has_current_build for checks
+            let has_current_build = current_build.take();
+            let rx_current_build = has_current_build.as_ref().
+                map_or_else(|| chan::never() , |a| a.chan());
 
             let send_event = |msg| {
                 tx_events
@@ -213,82 +206,86 @@ impl<'a> BuildLoop<'a> {
                     .expect("Failed to send an event")
             };
 
-            chan::select! {
-
+            let res = chan::select! {
                 // build finished
                 recv(rx_current_build) -> msg => match msg {
-                    Ok(run_result) => {
-                        self.start_another_build_or_stop(&mut current_build);
-
-                        match self.handle_run_result(run_result) {
-                            Ok(rooted_output_paths) => {
-                                send_event(Event::Completed {
-                                    nix_file: self.project.file.as_nix_file().clone(),
-                                    rooted_output_paths,
-                                });
-                            }
-                            Err(e) => {
-                                if e.is_actionable() {
-                                    send_event(Event::Failure {
-                                        nix_file: self.project.file.as_nix_file().clone(),
-                                        failure: e,
-                                    })
-                                } else {
-                                    panic!("Unrecoverable error:\n{:#?}", e);
-                                }
-                            }
-                        }
-                    },
-                    Err(chan::RecvError) =>
-                        debug!(self.logger, "current build async chan was disconnected"; "project" => &self.project.file)
+                    Ok(run_result) => { Msg::BuildResult(run_result) },
+                    Err(chan::RecvError) => {
+                        debug!(self.logger, "current build async chan was disconnected"; "project" => &self.project.file);
+                        continue;
+                    }
                 },
-
                 // watcher found file change
                 recv(rx_watcher) -> msg => match msg {
-                    Ok(changed) => {
-                            // TODO: this is not a started, this is just a scheduled!
-                            send_event(Event::Started {
-                                nix_file: self.project.file.as_nix_file().clone(),
-                                reason: Reason::FilesChanged(changed)
-                            });
-                            self.start_or_schedule_build(&mut current_build)
-                    },
-                    Err(chan::RecvError) =>
-                        debug!(self.logger, "notify chan was disconnected"; "project" => &self.project.file)
+                    Ok(changed) => Msg::Changed(changed),
+                    Err(chan::RecvError) => {
+                        debug!(self.logger, "notify chan was disconnected"; "project" => &self.project.file);
+                        continue;
+                    }
                 },
 
                 // we were pinged
                 recv(rx_ping) -> msg => match msg {
-                    Ok(()) => {
-                        // TODO: this is not a started, this is just a scheduled!
-                        send_event(Event::Started{
-                            nix_file: self.project.file.as_nix_file().clone(),
-                            reason: Reason::PingReceived
-                        });
-                        self.start_or_schedule_build(&mut current_build)
-                    },
-                    Err(chan::RecvError) =>
-                        debug!(self.logger, "ping chan was disconnected"; "project" => &self.project.file)
+                    Ok(()) => Msg::Pinged,
+                    Err(chan::RecvError) => {
+                        debug!(self.logger, "ping chan was disconnected"; "project" => &self.project.file);
+                        continue;
+                    }
                 }
             };
-        }
-    }
 
-    /// Schedule a build to be run as soon as possible; immediately start the build if we are `NotRunning`.
-    fn start_or_schedule_build(&self, current_build: &mut BuildState) {
-        *current_build = match std::mem::replace(current_build, BuildState::NotRunning) {
-            BuildState::NotRunning => BuildState::Running(self.start_build()),
-            BuildState::Running(build) => BuildState::RunningAndScheduled(build),
-            BuildState::RunningAndScheduled(build) => BuildState::RunningAndScheduled(build),
-        }
-    }
+            match res {
+                Msg::BuildResult(run_result) => {
+                    // if there’s another build scheduled, start it.
+                    if let Some(()) = scheduled.take() {
+                        current_build = Some(self.start_build())
+                    }
 
-    /// If another build was scheduled, start it, else stop building.
-    fn start_another_build_or_stop(&self, current_build: &mut BuildState) {
-        *current_build = match std::mem::replace(current_build, BuildState::NotRunning) {
-            BuildState::NotRunning => BuildState::NotRunning,
-            BuildState::Running(_) => BuildState::NotRunning,
-            BuildState::RunningAndScheduled(_) => BuildState::Running(self.start_build()),
+                    match self.handle_run_result(run_result) {
+                        Ok(rooted_output_paths) => {
+                            send_event(Event::Completed {
+                                nix_file: self.project.file.as_nix_file().clone(),
+                                rooted_output_paths,
+                            });
+                        }
+                        Err(e) => {
+                            if e.is_actionable() {
+                                send_event(Event::Failure {
+                                    nix_file: self.project.file.as_nix_file().clone(),
+                                    failure: e,
+                                })
+                            } else {
+                                panic!("Unrecoverable error:\n{:#?}", e);
+                            }
+                        }
+                    }
+                },
+                Msg::Changed(changed) => {
+                    // TODO: this is not a started, this is just a scheduled!
+                    send_event(Event::Started {
+                        nix_file: self.project.file.as_nix_file().clone(),
+                        reason: Reason::FilesChanged(changed)
+                    });
+                    // start a build, or if one is already running, schedule it.
+                    match &has_current_build {
+                        None => current_build = Some(self.start_build()),
+                        Some(_b) => scheduled = Some(())
+                    }
+
+                },
+                Msg::Pinged => {
+                    // TODO: this is not a started, this is just a scheduled!
+                    send_event(Event::Started {
+                        nix_file: self.project.file.as_nix_file().clone(),
+                        reason: Reason::PingReceived
+                    });
+                    // start a build, or if one is already running, schedule it.
+                    match &has_current_build {
+                        None => current_build = Some(self.start_build()),
+                        Some(_b) => scheduled = Some(())
+                    }
+                }
+            }
         }
     }
 
@@ -300,14 +297,14 @@ impl<'a> BuildLoop<'a> {
                 let cas = self.project.cas.clone();
                 let extra_nix_options = self.extra_nix_options.clone();
                 let logger2 = self.logger.clone();
-                crate::run_async::Async::run(&self.logger, move || {
+                Async::run(&self.logger, move || {
                     builder::run(&nix_file, &cas, &extra_nix_options, &logger2)
                 })
             }
             project::ProjectFile::FlakeNix(i) => {
                 let logger = self.logger.clone();
                 let installable = i.clone();
-                crate::run_async::Async::run(&self.logger, move || {
+                Async::run(&self.logger, move || {
                     builder::flake(&installable, &logger)
                 })
             }
@@ -327,7 +324,6 @@ impl<'a> BuildLoop<'a> {
         &mut self,
         run_result: Result<builder::RunResult, BuildError>,
     ) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
-        debug!(self.logger, "processing run result"; "result" => ?run_result);
         let run_result = run_result?;
         self.register_paths(&run_result.referenced_paths)?;
         self.root_result(run_result.result)
