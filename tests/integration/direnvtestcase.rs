@@ -19,6 +19,7 @@ use std::iter::FromIterator;
 use std::path::PathBuf;
 use std::process::Command;
 use tempfile::{tempdir, TempDir};
+use tokio::task::spawn_blocking;
 
 pub struct DirenvTestCase {
     projectdir: TempDir,
@@ -66,18 +67,26 @@ impl DirenvTestCase {
     }
 
     /// Execute the build loop one time
-    pub fn evaluate(&mut self) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
-        BuildLoop::new(&self.project, NixOptions::empty(), self.logger.clone())
-            .expect("could not set up build loop")
-            .once()
+    pub async fn evaluate(&mut self) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
+        let mut bl = BuildLoop::new(
+            self.project.clone(),
+            NixOptions::empty(),
+            self.logger.clone(),
+        )
+        .expect("could not set up build loop");
+        let res = bl.once().await;
+        spawn_blocking(move || drop(bl)).await.expect("drop failed");
+        res
     }
 
     /// Run `direnv allow` and then `direnv export json`, and return
     /// the environment DirEnv would produce.
-    pub fn get_direnv_variables(&self) -> DirenvEnv {
-        let paths = lorri::ops::get_paths().unwrap();
+    pub async fn get_direnv_variables(&self) -> DirenvEnv {
+        let paths = ops::get_paths().unwrap();
         let envrc = File::create(self.projectdir.path().join(".envrc")).unwrap();
-        ops::op_direnv(self.project.clone(), &paths, envrc, &self.logger).unwrap();
+        ops::op_direnv(self.project.clone(), &paths, envrc, &self.logger)
+            .await
+            .unwrap();
 
         {
             let mut allow = self.direnv_cmd();

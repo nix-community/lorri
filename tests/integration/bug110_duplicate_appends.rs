@@ -1,13 +1,16 @@
 use crate::direnvtestcase::{DirenvTestCase, DirenvValue};
 use std::time::{Duration, Instant};
 
-#[test]
-fn not_so_slow() {
+#[tokio::test]
+async fn not_so_slow() {
     let mut testcase = DirenvTestCase::with_shell("bug110_duplicate_appends");
-    testcase.evaluate().expect("Failed to build the first time");
+    testcase
+        .evaluate()
+        .await
+        .expect("Failed to build the first time");
 
     let start = Instant::now();
-    let env = testcase.get_direnv_variables();
+    let env = testcase.get_direnv_variables().await;
     println!("direnv time: {:?}", start.elapsed());
     assert!(
         start.elapsed() < Duration::from_secs(2),

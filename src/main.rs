@@ -13,7 +13,8 @@ use anyhow::anyhow;
 const TRIVIAL_SHELL_SRC: &str = include_str!("./trivial-shell.nix");
 const DEFAULT_ENVRC: &str = include_str!("./default-envrc");
 
-fn main() {
+#[tokio::main]
+async fn main() {
     install_panic_handler();
 
     let exit_code = {
@@ -32,7 +33,7 @@ fn main() {
         let logger = logging::root(verbosity);
         debug!(logger, "input options"; "options" => ?opts);
 
-        match run_command(&logger, opts) {
+        match run_command(&logger, opts).await {
             Err(err) => {
                 error!(logger, "{}", err.message());
                 err.exitcode()
@@ -86,13 +87,13 @@ fn create_project(paths: &constants::Paths, shell_nix: ProjectFile) -> Result<Pr
 }
 
 /// Run the main function of the relevant command.
-fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> {
-    let paths = lorri::ops::get_paths()?;
+async fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> {
+    let paths = ops::get_paths()?;
 
     match opts.command {
         Command::Info(opts) => {
             let (project, logger) = with_project(logger, &opts.source.try_into()?)?;
-            ops::op_info(&paths, project, &logger)
+            ops::op_info(&paths, project, &logger).await
         }
         Command::Gc(opts) => ops::gc(logger, opts),
         Command::Direnv(opts) => {
@@ -103,6 +104,7 @@ fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> 
                 /* shell_output */ std::io::stdout(),
                 &logger,
             )
+            .await
         }
         Command::Shell(opts) => {
             let (project, logger) = with_project(logger, &opts.source.clone().try_into()?)?;
@@ -111,22 +113,22 @@ fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> 
 
         Command::Watch(opts) => {
             let (project, logger) = with_project(logger, &opts.source.clone().try_into()?)?;
-            ops::op_watch(project, opts, &logger)
+            ops::op_watch(project, opts, &logger).await
         }
         Command::Daemon(opts) => {
             install_signal_handler();
-            ops::op_daemon(opts, logger)
+            ops::op_daemon(opts, logger).await
         }
         Command::Upgrade(opts) => ops::op_upgrade(opts, paths.cas_store(), logger),
         Command::Init => ops::op_init(TRIVIAL_SHELL_SRC, DEFAULT_ENVRC, logger),
 
         Command::Internal { command } => match command {
-            Internal_::Ping_(opts) => ops::op_ping(&paths, opts.source.try_into()?, logger),
+            Internal_::Ping_(opts) => ops::op_ping(&paths, opts.source.try_into()?, logger).await,
             Internal_::StartUserShell_(opts) => {
                 let (project, _logger) = with_project(logger, &opts.source.clone().try_into()?)?;
                 ops::op_start_user_shell(project, opts)
             }
-            Internal_::StreamEvents_(se) => ops::op_stream_events(&paths, se.kind, logger),
+            Internal_::StreamEvents_(se) => ops::op_stream_events(&paths, se.kind, logger).await,
         },
     }
 }
@@ -134,8 +136,8 @@ fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> 
 fn with_project(
     logger: &slog::Logger,
     project_file: &ProjectFile,
-) -> std::result::Result<(Project, slog::Logger), ExitError> {
-    let project = create_project(&lorri::ops::get_paths()?, project_file.clone())?;
+) -> Result<(Project, slog::Logger), ExitError> {
+    let project = create_project(&ops::get_paths()?, project_file.clone())?;
     let logger = logger.new(o!("nix_file" => project.file.clone()));
     Ok((project, logger))
 }

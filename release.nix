@@ -6,6 +6,16 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
+        version = 1055;
+        changes = ''
+          Rewrote the lorri codebase to use the tokio async library in many
+          places.
+
+          This should be a pure invisible change that improves lorri’s
+          longer-term maintainability, but might lead to some bugs.
+        '';
+      }
+      {
         version = 957;
         changes = ''
           Add support for Nix Flakes. Lorri will still prefer a shell.nix by

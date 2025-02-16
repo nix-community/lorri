@@ -1,7 +1,8 @@
 //! Recursively watch paths for changes, in an extensible and
 //! cross-platform way.
 
-use chan::{select, Receiver, Sender};
+use crate::run_async::{Async, StopSignal};
+use chan::{select, Receiver};
 use crossbeam_channel as chan;
 use notify::event::ModifyKind;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -12,8 +13,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
-
-use crate::run_async::{Async, StopSignal};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
 /// Represents if a path to watch should be watched recursively by the watcher or not
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
@@ -59,7 +59,7 @@ impl WatchPathBuf {
 /// It runs a thread, which is stopped once this struct is dropped.
 pub struct Watch {
     /// Receives watch events. When receiving events, run `Watch::process` on them
-    pub watch_events_rx: chan::Receiver<Vec<PathBuf>>,
+    pub watch_events_rx: UnboundedReceiver<Vec<PathBuf>>,
     /// Extend the watch list with an additional list of paths.
     ///
     /// Note: Watch maintains a list of already watched paths, and
@@ -80,7 +80,7 @@ impl Watch {
         logger: &slog::Logger,
         drop_first_event_within: Option<Duration>,
     ) -> Result<Watch, notify::Error> {
-        let (filtered_events_tx, filtered_events_rx) = chan::unbounded();
+        let (filtered_events_tx, filtered_events_rx) = unbounded_channel();
         let (user_requests_tx, user_requests_rx) = chan::unbounded();
 
         let mut filter = Mutex::new(Filter::new(
@@ -116,7 +116,7 @@ struct Filter {
     /// User requests to add more paths to our watcher
     user_requests_rx: Receiver<Vec<WatchPathBuf>>,
     /// Channel we send filtered messages to
-    filtered_events_tx: Sender<Vec<PathBuf>>,
+    filtered_events_tx: tokio::sync::mpsc::UnboundedSender<Vec<PathBuf>>,
     /// Set of currently watched paths
     current_watched: HashSet<PathBuf>,
     // Whether to drop the first event if it arrives faster than the given duration (hack for macos tests)
@@ -127,7 +127,7 @@ struct Filter {
 impl Filter {
     fn new(
         user_requests_rx: Receiver<Vec<WatchPathBuf>>,
-        filtered_events_tx: Sender<Vec<PathBuf>>,
+        filtered_events_tx: tokio::sync::mpsc::UnboundedSender<Vec<PathBuf>>,
         drop_first_event_within: Option<Duration>,
         logger: &slog::Logger,
     ) -> notify::Result<Self> {
@@ -274,7 +274,10 @@ impl Filter {
             parent_paths: Vec<OsString>,
             paths: Vec<OsString>,
         }
-        let mut watching_paths = WatchingPaths{parent_paths: vec![], paths: vec![]};
+        let mut watching_paths = WatchingPaths {
+            parent_paths: vec![],
+            paths: vec![],
+        };
 
         for path in paths {
             // NOTE: notify.watch supports recursively watching directories itself, but we
@@ -286,7 +289,6 @@ impl Filter {
                 WatchPathBuf::Recursive(path) => walk_path_topo(path)?,
                 WatchPathBuf::Normal(path) => vec![path],
             };
-
 
             for p_raw in recursive_paths {
                 let p = p_raw.canonicalize()?;
@@ -302,7 +304,6 @@ impl Filter {
                     if !this.current_watched.contains(&p) {
                         watching_paths.paths.push(p.clone().into_os_string());
 
-
                         this.filesystem_watcher
                             .watcher()
                             .watch(&p, RecursiveMode::NonRecursive)?;
@@ -311,7 +312,9 @@ impl Filter {
 
                     if let Some(parent) = p.parent() {
                         if !this.current_watched.contains(parent) {
-                            watching_paths.parent_paths.push(parent.to_owned().into_os_string());
+                            watching_paths
+                                .parent_paths
+                                .push(parent.to_owned().into_os_string());
 
                             this.filesystem_watcher
                                 .watcher()
@@ -425,8 +428,8 @@ mod tests {
     use super::{Watch, WatchPathBuf};
     use slog::{debug, info};
     use std::ffi::OsStr;
+    use std::future::Future;
     use std::path::PathBuf;
-    use std::thread::sleep;
     use std::time::{self, Duration};
     use tempfile::{tempdir, TempDir};
 
@@ -487,8 +490,8 @@ mod tests {
     const WATCHER_TIMEOUT: Duration = Duration::from_millis(2000);
 
     /// Watch for events, and return the first for which `pred` returns `Some()`. But only wait at most until timeout runs out.
-    fn assert_one_within<F>(
-        watch: &Watch,
+    async fn assert_one_within<F>(
+        watch: &mut Watch,
         timeout: Duration,
         pred: F,
     ) -> (Vec<PathBuf>, Option<PathBuf>)
@@ -502,10 +505,10 @@ mod tests {
         loop {
             println!("loop {} rest: {}ms, seen: {:?}", i, rest.as_millis(), seen);
             i += 1;
-            let files = watch
-                .watch_events_rx
-                .recv_timeout(rest)
-                .expect("working notify in tests");
+            let files = tokio::time::timeout(rest, watch.watch_events_rx.recv())
+                .await
+                .expect("working notify in tests")
+                .expect("watch event rx closed");
             println!("files: {:#?}", files);
             seen.extend(files.clone());
             for f in files {
@@ -525,19 +528,23 @@ mod tests {
     /// Assert no watcher event happens until the timeout
     ///
     /// If file_suffixes_opt is given, only these files will be checked for.
-    fn assert_none_within(
-        watch: &Watch,
+    async fn assert_none_within(
+        watch: &mut Watch,
         timeout: Duration,
         file_suffixes_opt: Option<&[&str]>,
         logger: &slog::Logger,
     ) {
-        let res = watch.watch_events_rx.recv_timeout(timeout);
+        let res = tokio::time::timeout(timeout, async {
+            watch.watch_events_rx.recv().await.unwrap()
+        })
+        .await;
         match res {
             Err(_) => (),
             Ok(watch_result) => {
                 if let Some(file_suffixes) = file_suffixes_opt {
                     if !watch_result
-                        .iter()
+                        .clone()
+                        .into_iter()
                         .any(|res| file_suffixes.into_iter().any(|suff| res.ends_with(suff)))
                     {
                         debug!(logger, "ignoring event not part of ignore filter"; "watch_result" => ?watch_result, "file_suffixes" => ?file_suffixes);
@@ -553,19 +560,20 @@ mod tests {
     }
 
     /// Returns true iff the given file has changed
-    fn file_changed_within(
-        watch: &Watch,
+    async fn file_changed_within(
+        watch: &mut Watch,
         file_name: &str,
         timeout: Duration,
     ) -> (bool, Vec<PathBuf>) {
         let (seen, found) = assert_one_within(watch, timeout, |file| {
             file.file_name() == Some(OsStr::new(file_name))
-        });
+        })
+        .await;
         (found.is_some(), seen)
     }
 
-    fn assert_file_changed_within(watch: &Watch, file_name: &str, timeout: Duration) {
-        let (file_changed, changed) = file_changed_within(watch, file_name, timeout);
+    async fn assert_file_changed_within(watch: &mut Watch, file_name: &str, timeout: Duration) {
+        let (file_changed, changed) = file_changed_within(watch, file_name, timeout).await;
         assert!(
             file_changed,
             "no file change notification for '{}'; these files changed instead: {:?}",
@@ -574,14 +582,15 @@ mod tests {
     }
 
     /// Create a tempdir for our test and drop it after the function runs.
-    fn with_test_tempdir<F>(test_name: &str, f: F)
+    async fn with_test_tempdir<F, Fut>(test_name: &str, f: F)
     where
-        F: FnOnce(&std::path::Path),
+        F: FnOnce(PathBuf) -> Fut,
+        Fut: Future<Output = ()>,
     {
         let temp: TempDir = tempdir().unwrap();
 
         // TODO: We use a subdirectory for our tests, because the watcher (for whatever reason) also watches the parent directory, which means we start watching `/tmp` in our tests …
-        f(&temp.path().join("testdir_of_".to_string() + test_name));
+        f(temp.path().join("testdir_of_".to_string() + test_name)).await;
         drop(temp);
     }
 
@@ -604,11 +613,12 @@ mod tests {
         .expect("failed creating watch")
     }
 
-    #[test]
-    fn trivial_watch_whole_directory() {
+    #[tokio::test]
+    async fn trivial_watch_whole_directory() {
         let logger = crate::logging::test_logger("trivial_watch_whole_directory");
-        let watcher = mk_test_watch(&logger);
-        with_test_tempdir("trivial_watch_whole_directory", |t| {
+        let mut watcher = mk_test_watch(&logger);
+        with_test_tempdir("trivial_watch_whole_directory", |t2| async move {
+            let t = &t2;
             expect_bash(r#"mkdir -p "$1"/foo"#, [t]);
             expect_bash(r#"touch "$1"/foo/bar"#, [t]);
             watcher
@@ -617,89 +627,93 @@ mod tests {
                 .unwrap();
 
             expect_bash(r#"echo 1 > "$1/baz""#, [t]);
-            assert_file_changed_within(&watcher, "baz", WATCHER_TIMEOUT);
+            assert_file_changed_within(&mut watcher, "baz", WATCHER_TIMEOUT).await;
 
             expect_bash(r#"echo 1 > "$1/foo/bar""#, [t]);
-            assert_file_changed_within(&watcher, "bar", WATCHER_TIMEOUT);
+            assert_file_changed_within(&mut watcher, "bar", WATCHER_TIMEOUT).await;
         })
+        .await
     }
 
-    #[test]
-    fn trivial_watch_directory_not_recursively() {
+    #[tokio::test]
+    async fn trivial_watch_directory_not_recursively() {
         let logger = crate::logging::test_logger("trivial_watch_directory_not_recursively");
-        let watcher = mk_test_watch(&logger);
-        with_test_tempdir("trivial_watch_directory_not_recursively", |t| {
-            expect_bash(r#"mkdir -p "$1"/foo"#, [t]);
-            expect_bash(r#"touch "$1"/foo/bar"#, [t]);
+        let mut watcher = mk_test_watch(&logger);
+        with_test_tempdir("trivial_watch_directory_not_recursively", |t| async move {
+            expect_bash(r#"mkdir -p "$1"/foo"#, [&t]);
+            expect_bash(r#"touch "$1"/foo/bar"#, [&t]);
             watcher
                 .add_to_watch_tx
-                .send(vec![WatchPathBuf::Normal(t.to_path_buf())])
+                .send(vec![WatchPathBuf::Normal((&t).to_path_buf())])
                 .unwrap();
 
-            expect_bash(r#"touch "$1/baz""#, [t]);
-            assert_file_changed_within(&watcher, "baz", WATCHER_TIMEOUT);
+            expect_bash(r#"touch "$1/baz""#, [&t]);
+            assert_file_changed_within(&mut watcher, "baz", WATCHER_TIMEOUT).await;
 
-            expect_bash(r#"echo 1 > "$1/foo/bar""#, [t]);
-            assert_none_within(&watcher, WATCHER_TIMEOUT, None, &logger);
+            expect_bash(r#"echo 1 > "$1/foo/bar""#, [&t]);
+            assert_none_within(&mut watcher, WATCHER_TIMEOUT, None, &logger).await;
         })
+        .await
     }
-    #[test]
-    fn trivial_watch_specific_file() {
+    #[tokio::test]
+    async fn trivial_watch_specific_file() {
         let logger = crate::logging::test_logger("trivial_watch_specific_file");
-        let watcher = mk_test_watch(&logger);
+        let mut watcher = mk_test_watch(&logger);
 
-        with_test_tempdir("trivial_watch_specific_file", |t| {
-            expect_bash(r#"mkdir -p "$1""#, [t]);
-            expect_bash(r#"touch "$1/foo""#, [t]);
+        with_test_tempdir("trivial_watch_specific_file", |t| async move {
+            expect_bash(r#"mkdir -p "$1""#, [&t]);
+            expect_bash(r#"touch "$1/foo""#, [&t]);
             watcher
                 .add_to_watch_tx
-                .send(vec![WatchPathBuf::Recursive(t.join("foo"))])
+                .send(vec![WatchPathBuf::Recursive((&t).join("foo"))])
                 .unwrap();
 
-            expect_bash(r#"echo 1 > "$1/foo""#, [t]);
-            sleep(WATCHER_TIMEOUT);
-            assert_file_changed_within(&watcher, "foo", WATCHER_TIMEOUT);
+            expect_bash(r#"echo 1 > "$1/foo""#, [&t]);
+            tokio::time::sleep(WATCHER_TIMEOUT).await;
+            assert_file_changed_within(&mut watcher, "foo", WATCHER_TIMEOUT).await;
         })
+        .await
     }
 
     // TODO: this test is bugged, but in order to figure out what is wrong,
     // we should add some sort of provenance to our watcher filter functions first.
-    #[test]
+    #[tokio::test]
     #[cfg(not(target_os = "macos"))]
-    fn rename_over_vim() {
+    async fn rename_over_vim() {
         // Vim renames files in to place for atomic writes
         let logger = crate::logging::test_logger("rename_over_vim");
-        let watcher = mk_test_watch(&logger);
+        let mut watcher = mk_test_watch(&logger);
 
-        with_test_tempdir("rename_over_vim", |t| {
-            expect_bash(r#"mkdir -p "$1""#, [t]);
-            expect_bash(r#"touch "$1/foo""#, [t]);
+        with_test_tempdir("rename_over_vim", |t| async move {
+            expect_bash(r#"mkdir -p "$1""#, [&t]);
+            expect_bash(r#"touch "$1/foo""#, [&t]);
             watcher
                 .add_to_watch_tx
-                .send(vec![WatchPathBuf::Recursive(t.join("foo"))])
+                .send(vec![WatchPathBuf::Recursive((&t).join("foo"))])
                 .unwrap();
 
             info!(&logger, "bar is not watched, expect error");
-            expect_bash(r#"echo 1 > "$1/bar""#, [t]);
-            assert_none_within(&watcher, WATCHER_TIMEOUT, Some(&vec!["/bar"]), &logger);
+            expect_bash(r#"echo 1 > "$1/bar""#, [&t]);
+            assert_none_within(&mut watcher, WATCHER_TIMEOUT, Some(&vec!["/bar"]), &logger).await;
 
             info!(&logger, "Rename bar to foo, expect a notification");
-            expect_bash(r#"mv "$1/bar" "$1/foo""#, [t]);
-            assert_file_changed_within(&watcher, "foo", WATCHER_TIMEOUT);
+            expect_bash(r#"mv "$1/bar" "$1/foo""#, [&t]);
+            assert_file_changed_within(&mut watcher, "foo", WATCHER_TIMEOUT).await;
 
             info!(&logger, "Do it a second time");
-            expect_bash(r#"echo 1 > "$1/bar""#, [t]);
-            assert_none_within(&watcher, WATCHER_TIMEOUT, None, &logger);
+            expect_bash(r#"echo 1 > "$1/bar""#, [&t]);
+            assert_none_within(&mut watcher, WATCHER_TIMEOUT, None, &logger).await;
 
             info!(&logger, "Rename bar to foo, expect a notification");
-            expect_bash(r#"mv "$1/bar" "$1/foo""#, [t]);
-            assert_file_changed_within(&watcher, "foo", WATCHER_TIMEOUT);
+            expect_bash(r#"mv "$1/bar" "$1/foo""#, [&t]);
+            assert_file_changed_within(&mut watcher, "foo", WATCHER_TIMEOUT).await;
         })
+        .await;
     }
 
-    #[test]
-    fn walk_path_topo_filetree() {
-        with_test_tempdir("walk_path_topo_filetree", |t| {
+    #[tokio::test]
+    async fn walk_path_topo_filetree() {
+        with_test_tempdir("walk_path_topo_filetree", |t| async move {
             let files = vec![("a", "b"), ("a", "c"), ("a/d", "e"), ("x/y", "z")];
             for (dir, file) in files {
                 std::fs::create_dir_all(t.join(dir)).unwrap();
@@ -735,6 +749,6 @@ mod tests {
             .collect::<Vec<_>>();
             all_paths.sort();
             assert_eq!(res2, all_paths);
-        })
+        }).await
     }
 }
