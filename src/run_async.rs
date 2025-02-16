@@ -1,6 +1,7 @@
 //! Run a function asynchronously.
 use crate::thread::Pool;
 use crossbeam_channel as chan;
+use slog::warn;
 
 /// Asynchronously execute an action, by executing it in a thread.
 ///
@@ -24,9 +25,15 @@ impl<Res> Drop for Async<Res> {
     fn drop(&mut self) {
         // send the thread the stop signal if it requested it
         if let Some(stop_signal) = self.stop_signal_tx.as_ref() {
-            stop_signal
-                .send(StopSignal())
-                .expect("The async thread was not ready to receive the stop message it requested")
+            // ignore warning that the stop_signal is not set up, that usually just means
+            // we raced the thread into not being at the point where the channel is being listened on.
+            // That didn’t happen before, but now that we use tokio it might happen.
+            if let Err(send_error) = stop_signal.send(StopSignal()) {
+                eprintln!(
+                    "The async thread was not ready to receive the stop message it requested: {}",
+                    send_error
+                );
+            }
         }
         // when the Async should not linger, we have to wait for it to finish here.
         if !self.linger {

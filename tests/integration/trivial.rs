@@ -1,9 +1,12 @@
 use crate::direnvtestcase::{DirenvTestCase, DirenvValue};
 
-#[test]
-fn trivial() -> std::io::Result<()> {
+#[tokio::test]
+async fn trivial() -> std::io::Result<()> {
     let mut testcase = DirenvTestCase::with_shell("basic");
-    let res = testcase.evaluate().expect("Failed to build the first time");
+    let res = testcase
+        .evaluate()
+        .await
+        .expect("Failed to build the first time");
 
     assert!(
         res.all_exist(),
@@ -21,14 +24,17 @@ fn trivial() -> std::io::Result<()> {
     );
 
     let env = testcase.get_direnv_variables();
-    assert_eq!(env.get_env("MARKER"), DirenvValue::Value("present"));
+    assert_eq!(env.await.get_env("MARKER"), DirenvValue::Value("present"));
     Ok(())
 }
 
-#[test]
-fn flake() -> std::io::Result<()> {
+#[tokio::test]
+async fn flake() -> std::io::Result<()> {
     let mut testcase = DirenvTestCase::with_flake("basic-flake");
-    let res = testcase.evaluate().expect("Failed to build the first time");
+    let res = testcase
+        .evaluate()
+        .await
+        .expect("Failed to build the first time");
 
     assert!(
         res.all_exist(),
@@ -46,6 +52,6 @@ fn flake() -> std::io::Result<()> {
     );
 
     let env = testcase.get_direnv_variables();
-    assert_eq!(env.get_env("MARKER"), DirenvValue::Value("present"));
+    assert_eq!(env.await.get_env("MARKER"), DirenvValue::Value("present"));
     Ok(())
 }

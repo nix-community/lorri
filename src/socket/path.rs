@@ -2,12 +2,12 @@
 
 use crate::ops::error::{ExitAs, ExitErrorType};
 use crate::AbsPathBuf;
+use nix::fcntl;
 use std::fmt;
 use std::os::unix::io::AsRawFd;
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
-use nix::fcntl;
 use thiserror::Error;
+use tokio::net::{UnixListener, UnixStream};
 
 /// Small wrapper that makes sure lorri sockets are handled correctly.
 #[derive(Clone, Debug)]
@@ -83,7 +83,7 @@ impl SocketPath {
     ///
     /// Uses the `flock(2)` trick decribed in
     /// <https://gavv.github.io/articles/unix-socket-reuse/>
-    pub fn bind(&self) -> Result<(UnixListener, BindLock), BindError> {
+    pub async fn bind(&self) -> Result<(UnixListener, BindLock), BindError> {
         // - try to lock lockfile (open and flock exclusive nonblocking)
         let lock = self.lock()?;
         // - remove socket file if it exists
@@ -97,8 +97,8 @@ impl SocketPath {
     }
 
     /// `connect(2)` to this socket path.
-    pub fn connect(&self) -> std::io::Result<UnixStream> {
-        UnixStream::connect(self.as_absolute_path())
+    pub async fn connect(&self) -> std::io::Result<UnixStream> {
+        UnixStream::connect(self.as_absolute_path()).await
     }
 
     /// The absolute path of the socket.

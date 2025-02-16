@@ -43,10 +43,11 @@ use std::{env, fs, io, thread};
 use std::{fmt::Debug, fs::remove_dir_all};
 
 use anyhow::Context;
-use crossbeam_channel as chan;
 
 use slog::{debug, info, warn};
 use thiserror::Error;
+use tokio::io::AsyncWriteExt;
+use tokio::sync::mpsc::{channel, unbounded_channel};
 
 /// Set up necessary directories or fail.
 pub fn get_paths() -> Result<crate::constants::Paths, error::ExitError> {
@@ -61,7 +62,10 @@ pub fn get_paths() -> Result<crate::constants::Paths, error::ExitError> {
 /// Can be used together with `direnv`.
 
 /// See the documentation for lorri::cli::Command::Daemon for details.
-pub fn op_daemon(opts: crate::cli::DaemonOptions, logger: &slog::Logger) -> Result<(), ExitError> {
+pub async fn op_daemon(
+    opts: crate::cli::DaemonOptions,
+    logger: &slog::Logger,
+) -> Result<(), ExitError> {
     let extra_nix_options = match opts.extra_nix_options {
         None => NixOptions::empty(),
         Some(v) => NixOptions {
@@ -70,25 +74,28 @@ pub fn op_daemon(opts: crate::cli::DaemonOptions, logger: &slog::Logger) -> Resu
         },
     };
 
-    let (mut daemon, build_rx) = Daemon::new(extra_nix_options);
+    let (daemon, mut build_rx) = Daemon::new(extra_nix_options);
     let logger2 = logger.clone();
-    let build_handle = std::thread::spawn(move || {
-        for msg in build_rx {
-            info!(logger2, "build status"; "message" => ?msg);
+    let build_handle = tokio::task::spawn(async move {
+        loop {
+            match build_rx.recv().await {
+                None => break,
+                Some(msg) => info!(logger2, "build status"; "message" => ?msg),
+            }
         }
     });
     info!(logger, "ready");
 
     let paths = crate::ops::get_paths()?;
-    daemon.serve(
-        &SocketPath::from(paths.daemon_socket_file().clone()),
-        paths.gc_root_dir(),
-        paths.cas_store().clone(),
-        logger,
-    )?;
-    build_handle
-        .join()
-        .expect("failed to join build status thread");
+    daemon
+        .serve(
+            &SocketPath::from(paths.daemon_socket_file().clone()),
+            paths.gc_root_dir(),
+            paths.cas_store().clone(),
+            logger,
+        )
+        .await?;
+    build_handle.await.expect("build_handle join failed");
     Ok(())
 }
 
@@ -96,7 +103,7 @@ pub fn op_daemon(opts: crate::cli::DaemonOptions, logger: &slog::Logger) -> Resu
 ///
 /// See the documentation for lorri::cli::Command::Direnv for more
 /// details.
-pub fn op_direnv<W: std::io::Write>(
+pub async fn op_direnv<W: std::io::Write>(
     project: Project,
     paths: &Paths,
     mut shell_output: W,
@@ -110,17 +117,16 @@ pub fn op_direnv<W: std::io::Write>(
     let ping_sent = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
         debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
-        client::create::<client::Ping>(paths, client::Timeout::from_millis(500), logger)
-            .map_err(ExitError::from)
-            .and_then(|c| {
-                c.write(&client::Ping {
-                    project_file: project.file.clone(),
-                    rebuild: client::Rebuild::OnlyIfNotYetWatching,
-                })?;
-                Ok(())
-            })
-            // TODO: maybe ping should indeed return something so we can at least check whether it parses the message and the version is right. Right now this collapses all of that into a bool …
-            .is_ok()
+        let mut c =
+            client::create::<client::Ping>(paths, client::Timeout::from_millis(500), logger)
+                .await
+                .map_err(ExitError::from)?;
+        c.write(&client::Ping {
+            project_file: project.file.clone(),
+            rebuild: client::Rebuild::OnlyIfNotYetWatching,
+        })
+        .await
+        .is_ok()
     };
 
     match (ping_sent, paths_are_cached) {
@@ -227,15 +233,20 @@ where
 ///
 /// See the documentation for lorri::cli::Command::Info for more
 /// details.
-pub fn op_info(paths: &Paths, project: Project, logger: &slog::Logger) -> Result<(), ExitError> {
+pub async fn op_info(
+    paths: &Paths,
+    project: Project,
+    logger: &slog::Logger,
+) -> Result<(), ExitError> {
     let root_paths = project.root_paths();
     let OutputPath { shell_gc_root } = &root_paths;
     let daemon_status =
         match client::create::<client::DaemonInfo>(paths, client::Timeout::from_millis(50), logger)
+            .await
         {
             Err(init_error) => format!("`lorri daemon` is not up: {}", init_error),
-            Ok(client) => match client.comunicate(&DaemonInfo {}) {
-                Ok(()) => "`lorri daemon` is running".to_string(),
+            Ok(mut client) => match client.communicate(&DaemonInfo {}).await {
+                Ok(_) => "`lorri daemon` is running".to_string(),
                 Err(err) => format!("Problem connecting to the `lorri daemon`: {}", err),
             },
         };
@@ -316,15 +327,18 @@ fn create_if_missing(
 ///
 /// Can be used together with `direnv`.
 /// See the documentation for lorri::cli::Command::Ping_ for details.
-pub fn op_ping(
+pub async fn op_ping(
     paths: &Paths,
     project_file: ProjectFile,
     logger: &slog::Logger,
 ) -> Result<(), ExitError> {
-    client::create(paths, client::Timeout::from_millis(500), logger)?.write(&client::Ping {
-        project_file,
-        rebuild: client::Rebuild::Always,
-    })?;
+    client::create(paths, client::Timeout::from_millis(500), logger)
+        .await?
+        .write(&client::Ping {
+            project_file,
+            rebuild: client::Rebuild::Always,
+        })
+        .await?;
     Ok(())
 }
 
@@ -666,83 +680,73 @@ struct StreamBuildError {
 ///
 /// See the documentation for lorri::cli::Command::StreamEvents_ for more
 /// details.
-pub fn op_stream_events(
+pub async fn op_stream_events(
     paths: &Paths,
     kind: EventKind,
     logger: &slog::Logger,
 ) -> Result<(), ExitError> {
-    let (tx_event, rx_event) = chan::unbounded::<Event>();
-
-    let thread = {
+    {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
         debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
         let logger2 = logger.clone();
         let paths2 = (*paths).clone();
         // This async will not block when it is dropped,
         // since it only reads messages and don’t want to block exit in the Snapshot case.
-        Async::<Result<(), ExitError>>::run_and_linger(logger, move || {
-            let client = client::create::<client::StreamEvents>(
-                &paths2,
-                // infinite timeout because we are listening indefinitely
-                client::Timeout::Infinite,
-                &logger2,
-            )?;
+        let mut client = client::create::<client::StreamEvents>(
+            &paths2,
+            // infinite timeout because we are listening indefinitely
+            client::Timeout::Infinite,
+            &logger2,
+        )
+        .await?;
 
-            client.write(&client::StreamEvents {})?;
-            loop {
-                let res = client.read();
-                tx_event
-                    .send(
-                        // TODO: error
-                        res.map_err(|err| ExitError::temporary(anyhow::Error::new(err)))?,
-                    )
-                    .expect("tx_event hung up!");
-            }
-        })
-    };
+        client.write(&client::StreamEvents {}).await?;
+        let mut snapshot_done = false;
+        loop {
+            let res = client.read().await?;
 
-    let mut snapshot_done = false;
-    loop {
-        chan::select! {
-            recv(rx_event) -> event => match event.expect("rx_event hung up!") {
+            match res {
                 Event::SectionEnd => {
                     debug!(logger, "SectionEnd");
                     match kind {
                         // If we only want the snapshot, quit the program
                         EventKind::Snapshot => break Ok(()),
                         // Else we now start sending the incremental data
-                        _ => { snapshot_done = true; },
+                        _ => {
+                            snapshot_done = true;
+                        }
                     }
                 }
                 ev => match (snapshot_done, &kind) {
-                    (_, EventKind::All) | (false, EventKind::Snapshot) | (true, EventKind::Live) => {
+                    (_, EventKind::All)
+                    | (false, EventKind::Snapshot)
+                    | (true, EventKind::Live) => {
                         fn nix_file_string(nix_file: NixFile) -> String {
                             nix_file.display().to_string()
                         }
-                        serde_json::to_writer(
-                            std::io::stdout(),
-                            &StreamEvent(ev.map(
-                                |nix_file| StreamNixFile(nix_file_string(nix_file)),
-                                |reason| StreamReason(reason.map(nix_file_string)),
-                                |output_path| {
-                                    StreamOutputPath(output_path.map(|o| o.display().to_string()))
-                                },
-                                |build_error| StreamBuildError {
-                                    message: format!("{}", build_error),
-                                },
-                            )),
-                        )
-                            .expect("couldn't serialize event");
-                        writeln!(std::io::stdout()).expect("couldn't serialize event");
-                        std::io::stdout().flush().expect("couldn't flush serialized event");
+                        let mut vec = serde_json::to_vec(&StreamEvent(ev.map(
+                            |nix_file| StreamNixFile(nix_file_string(nix_file)),
+                            |reason| StreamReason(reason.map(nix_file_string)),
+                            |output_path| {
+                                StreamOutputPath(output_path.map(|o| o.display().to_string()))
+                            },
+                            |build_error| StreamBuildError {
+                                message: format!("{}", build_error),
+                            },
+                        )))
+                        .expect("couldn’t serialize event");
+                        vec.extend_from_slice("\n".as_bytes());
+                        tokio::io::stdout()
+                            .write_all(&vec)
+                            .await
+                            .expect("couldn’t write serialized event");
+                        tokio::io::stdout()
+                            .flush()
+                            .await
+                            .expect("couldn’t flush serialized event");
                     }
                     _ => (),
                 },
-            },
-            recv(thread.chan()) -> finished => match finished.expect("send-events hung up!") {
-                Ok(()) => panic!("send-events should never finish!"),
-                // error in the async, time to quit
-                err => err?
             }
         }
     }
@@ -912,23 +916,23 @@ pub fn op_upgrade(
 ///
 /// See the documentation for lorri::cli::Command::Shell for more
 /// details.
-pub fn op_watch(
+pub async fn op_watch(
     project: Project,
     opts: WatchOptions,
     logger: &slog::Logger,
 ) -> Result<(), ExitError> {
     if opts.once {
-        main_run_once(project, logger)
+        main_run_once(project, logger).await
     } else {
-        main_run_forever(project, logger)
+        main_run_forever(project, logger).await
     }
 }
 
-fn main_run_once(project: Project, logger: &slog::Logger) -> Result<(), ExitError> {
+async fn main_run_once(project: Project, logger: &slog::Logger) -> Result<(), ExitError> {
     // TODO: add the ability to pass extra_nix_options to watch
-    let mut build_loop = BuildLoop::new(&project, NixOptions::empty(), logger.clone())
+    let mut build_loop = BuildLoop::new(project, NixOptions::empty(), logger.clone())
         .map_err(ExitError::temporary)?;
-    match build_loop.once() {
+    match build_loop.once().await {
         Ok(msg) => {
             info!(logger, "build message"; "message" => ?msg);
             Ok(())
@@ -1110,26 +1114,36 @@ pub fn gc(logger: &slog::Logger, opts: crate::cli::GcOptions) -> Result<(), Exit
     Ok(())
 }
 
-fn main_run_forever(project: Project, logger: &slog::Logger) -> Result<(), ExitError> {
-    let (tx_build_results, rx_build_results) = chan::unbounded();
-    let (tx_ping, rx_ping) = chan::unbounded();
+async fn main_run_forever(project: Project, logger: &slog::Logger) -> Result<(), ExitError> {
+    let (tx_build_results, mut rx_build_results) = unbounded_channel();
+    let (tx_ping, rx_ping) = channel(10);
     let logger2 = logger.clone();
     // TODO: add the ability to pass extra_nix_options to watch
-    let build_thread = {
-        Async::run(logger, move || {
-            match BuildLoop::new(&project, NixOptions::empty(), logger2) {
-                Ok(mut bl) => bl.forever(tx_build_results, rx_ping).never(),
-                Err(e) => Err(ExitError::temporary(e)),
-            }
-        })
-    };
+    let build_loop = tokio::task::spawn(async move {
+        match BuildLoop::new(project, NixOptions::empty(), logger2) {
+            Ok(mut bl) => bl.forever(tx_build_results, rx_ping).await.never(),
+            Err(e) => Err(ExitError::temporary(e)),
+        }
+    });
 
     // We ping the build loop once, to make it run the first build immediately
-    tx_ping.send(()).expect("could not send ping to build_loop");
+    tx_ping
+        .send(())
+        .await
+        .expect("could not send ping to build_loop");
 
-    for msg in rx_build_results {
-        info!(logger, "build message"; "message" => ?msg);
-    }
+    let logger2 = logger.clone();
+    let print_build_message = tokio::task::spawn(async move {
+        loop {
+            let Some(msg) = rx_build_results.recv().await else {
+                break;
+            };
+            info!(logger2, "build message"; "message" => ?msg);
+        }
+    })
+    .abort_handle();
 
-    build_thread.block()
+    let res = build_loop.await.expect("unable to join");
+    print_build_message.abort();
+    res
 }
