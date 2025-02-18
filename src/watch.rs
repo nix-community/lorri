@@ -3,7 +3,7 @@
 
 use crate::watch::EventHandlerKind::{FirstEvent, FollowingEvent};
 use notify::event::ModifyKind;
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{DebounceEventResult, DebouncedEvent, Debouncer, FileIdMap};
 use slog::{debug, info, warn};
 use std::collections::HashSet;
@@ -115,7 +115,7 @@ impl Filter {
         let current_watched = Arc::new(Mutex::new(HashSet::new()));
 
         Ok(Filter {
-            filesystem_watcher: notify_debouncer_full::new_debouncer(
+            filesystem_watcher: notify_debouncer_full::new_debouncer_opt(
                 Duration::from_millis(200),
                 None,
                 EventHandler {
@@ -127,6 +127,10 @@ impl Filter {
                     filtered_events_tx,
                     current_watched: current_watched.clone(),
                 },
+                FileIdMap::new(),
+                Config::default()
+                    .with_follow_symlinks(true)
+                    .with_poll_interval(Duration::from_secs(5)),
             )?,
             current_watched,
             logger: logger.clone(),
@@ -184,7 +188,6 @@ impl Filter {
                         watching_paths.paths.push(p.clone().into_os_string());
 
                         this.filesystem_watcher
-                            .watcher()
                             .watch(&p, RecursiveMode::NonRecursive)?;
                         {
                             this.current_watched.lock()?.insert(p.clone())
@@ -198,7 +201,6 @@ impl Filter {
                                 .push(parent.to_owned().into_os_string());
 
                             this.filesystem_watcher
-                                .watcher()
                                 .watch(parent, RecursiveMode::NonRecursive)?;
                         }
                     }
@@ -280,7 +282,9 @@ impl EventHandler {
                 match event.kind {
                     EventKind::Remove(_) if !event.paths.is_empty() => {
                         info!(self.logger, "identified removal: {:?}", &event.paths);
-                    }
+                    },
+                    // we only want to pick up changes to files, not access
+                    EventKind::Access(_) => continue,
                     _ => {
                         // debug!(self.logger, "watch event"; "event" => ?event);
                     }
