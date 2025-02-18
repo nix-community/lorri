@@ -42,6 +42,37 @@ let
   };
 
   builds = {
+    simple-checks = { runs-on }: {
+      name = "simple-checks";
+      value = {
+        name = "Simple Checks";
+        inherit runs-on;
+        steps = [
+          (checkout {})
+          setup-nix
+          setup-cachix
+          add-rustc-to-path
+          print-path
+          {
+            name = "Build simple checks";
+            run = ''
+              nix-build \
+                --out-link ./simple-tests \
+                --arg isDevelopmentShell false \
+                -A ci.testsuite-simple-checks \
+                shell.nix
+            '';
+          }
+          {
+            name = "Run simple checks";
+            run = ''
+              ./simple-tests
+            '';
+          }
+        ];
+      };
+    };
+
     rust = { runs-on }: {
       name = "rust-${runs-on}";
       value = {
@@ -124,6 +155,7 @@ let
 
     jobs = builtins.listToAttrs
     [
+      (builds.simple-checks { runs-on = githubRunners.ubuntu; })
       (builds.rust { runs-on = githubRunners.ubuntu; })
       (builds.rust { runs-on = githubRunners.macos; })
       (builds.stable { runs-on = githubRunners.ubuntu; })
