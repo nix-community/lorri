@@ -226,7 +226,7 @@ impl Daemon {
                     let project_file = project.file.as_nix_file();
 
                     match BuildLoop::new(project, extra_nix_options, logger) {
-                        Ok(mut build_loop) => {
+                        Ok(build_loop) => {
                             let _ = join_set.spawn(async move {
                                 build_loop.forever(tx_build_events, rx_ping).await.never()
                             });

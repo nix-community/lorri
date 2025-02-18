@@ -3,11 +3,9 @@ use crate::daemon::{IndicateActivity, LoopHandlerEvent};
 use crate::socket::communicate::listener::{handlers, Connection, Listener};
 use crate::socket::communicate::{self};
 use crate::socket::communicate::{CommunicationType, Ping, StreamEvents};
-use crate::socket::path::{BindError, SocketPath};
 use communicate::DaemonInfo;
 use slog::{debug, info};
 use tokio::sync::mpsc::{channel, Sender, UnboundedSender};
-use tokio::task::JoinSet;
 
 /// Native backend Server
 #[derive(Clone)]

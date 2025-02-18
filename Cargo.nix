@@ -1393,6 +1393,7 @@ rec {
           {
             name = "notify-debouncer-full";
             packageId = "notify-debouncer-full";
+            usesDefaultFeatures = false;
           }
           {
             name = "regex";
@@ -1765,11 +1766,6 @@ rec {
         ];
         dependencies = [
           {
-            name = "crossbeam-channel";
-            packageId = "crossbeam-channel";
-            optional = true;
-          }
-          {
             name = "file-id";
             packageId = "file-id";
           }
@@ -1795,7 +1791,6 @@ rec {
           "crossbeam-channel" = [ "dep:crossbeam-channel" ];
           "default" = [ "crossbeam" ];
         };
-        resolvedDefaultFeatures = [ "crossbeam" "crossbeam-channel" "default" ];
       };
       "num-conv" = rec {
         crateName = "num-conv";

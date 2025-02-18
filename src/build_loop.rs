@@ -8,7 +8,7 @@ use crate::pathreduction::reduce_paths;
 use crate::project::{self, Project};
 use crate::watch::{Watch, WatchPathBuf};
 use crate::NixFile;
-use anyhow::{anyhow, Context};
+use anyhow::anyhow;
 use slog::debug;
 use std::future::pending;
 use std::path::PathBuf;
@@ -149,18 +149,10 @@ impl BuildLoop {
         extra_nix_options: NixOptions,
         logger: slog::Logger,
     ) -> anyhow::Result<BuildLoop> {
-        let watch = Watch::try_new(&logger).map_err(|err| anyhow!(err))?;
-        watch
-            .add_to_watch_tx
-            .send(vec![WatchPathBuf::Normal(
-                project.file.as_absolute_path().to_owned(),
-            )])
-            .with_context(|| {
-                format!(
-                    "Failed to add nix path to watcher for nix file {}",
-                    project.file.as_nix_file().display()
-                )
-            })?;
+        let mut watch = Watch::try_new(&logger).map_err(|err| anyhow!(err))?;
+        watch.filter.add_to_watch(vec![WatchPathBuf::Normal(
+            project.file.as_absolute_path().to_owned(),
+        )]);
 
         Ok(BuildLoop {
             dat: BuildLoopDat {
@@ -177,7 +169,7 @@ impl BuildLoop {
     /// When new filesystem changes are detected while a build is
     /// still running, it is finished first before starting a new build.
     pub async fn forever(
-        &mut self,
+        mut self,
         tx_events: UnboundedSender<LoopHandlerEvent>,
         mut rx_ping: Receiver<()>,
     ) -> crate::Never {
@@ -320,11 +312,13 @@ impl BuildLoop {
     ///
     /// This will create GC roots and expand the file watch list for
     /// the evaluation.
-    pub async fn once(&mut self) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
+    pub async fn once(mut self) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
         let run_result = BuildLoop::start_build(self.dat.clone())
             .await
             .expect("build panicked");
-        self.handle_run_result(run_result)
+        let res = self.handle_run_result(run_result);
+        self.watch.stop_nonblocking();
+        res
     }
 
     fn handle_run_result(
@@ -343,8 +337,8 @@ impl BuildLoop {
 
         // add all new (reduced) nix sources to the input source watchlist
         self.watch
-            .add_to_watch_tx
-            .send(paths.into_iter().collect::<Vec<_>>())?;
+            .filter
+            .add_to_watch(paths.into_iter().collect::<Vec<_>>());
 
         Ok(())
     }

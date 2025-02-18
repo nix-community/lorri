@@ -43,7 +43,7 @@ md5 = "0.7.0"
 vec1 = "1.12.1"
 tokio = { features = ["rt", "rt-multi-thread", "macros", "net", "time", "io-util", "io-std", "sync"], version = "1.43.0" }
 human-panic = { path = "vendor/human-panic" }
-notify-debouncer-full = "0.3.1"
+notify-debouncer-full = { version = "0.3.1", default-features = false }
 
 [dev-dependencies]
 # 1.0.0 requires at least rust 1.50

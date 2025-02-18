@@ -19,7 +19,6 @@ use std::iter::FromIterator;
 use std::path::PathBuf;
 use std::process::Command;
 use tempfile::{tempdir, TempDir};
-use tokio::task::spawn_blocking;
 
 pub struct DirenvTestCase {
     projectdir: TempDir,
@@ -68,14 +67,13 @@ impl DirenvTestCase {
 
     /// Execute the build loop one time
     pub async fn evaluate(&mut self) -> Result<builder::OutputPath<project::RootPath>, BuildError> {
-        let mut bl = BuildLoop::new(
+        let bl = BuildLoop::new(
             self.project.clone(),
             NixOptions::empty(),
             self.logger.clone(),
         )
         .expect("could not set up build loop");
         let res = bl.once().await;
-        spawn_blocking(move || drop(bl)).await.expect("drop failed");
         res
     }
 
