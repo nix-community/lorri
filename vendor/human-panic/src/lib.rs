@@ -47,7 +47,7 @@ use report::{Method, Report};
 
 use std::borrow::Cow;
 use std::io::{Result as IoResult, Write};
-use std::panic::PanicInfo;
+use std::panic::PanicHookInfo;
 use std::path::{Path, PathBuf};
 
 /// A convenient metadata struct that describes a crate
@@ -174,7 +174,10 @@ pub fn print_msg<P: AsRef<Path>>(
 }
 
 /// Utility function which will handle dumping information to disk
-pub fn handle_dump(meta: &Metadata, panic_info: &PanicInfo) -> Option<PathBuf> {
+pub fn handle_dump(
+  meta: &Metadata,
+  panic_info: &PanicHookInfo,
+) -> Option<PathBuf> {
   let mut expl = String::new();
 
   #[cfg(feature = "nightly")]
@@ -190,10 +193,7 @@ pub fn handle_dump(meta: &Metadata, panic_info: &PanicInfo) -> Option<PathBuf> {
     (None, None) => None,
   };
 
-  let cause = match message {
-    Some(m) => m,
-    None => "Unknown".into(),
-  };
+  let cause = message.unwrap_or_else(|| "Unknown".into());
 
   match panic_info.location() {
     Some(location) => expl.push_str(&format!(
