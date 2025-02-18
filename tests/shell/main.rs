@@ -1,25 +1,23 @@
-use lorri::project::ProjectFile;
-use lorri::{
-    builder, cas::ContentAddressable, nix::options::NixOptions, ops, project::Project, AbsPathBuf,
-    NixFile,
-};
-use std::env;
-use std::iter::FromIterator;
-use std::path::PathBuf;
-use tokio::process::Command;
+// use lorri::project::ProjectFile;
+// use lorri::{
+//     builder, cas::ContentAddressable, nix::options::NixOptions, ops, project::Project, AbsPathBuf,
+//     NixFile,
+// };
+// use std::env;
+// use std::path::PathBuf;
 
-fn cargo_bin(name: &str) -> PathBuf {
-    env::current_exe()
-        .ok()
-        .map(|mut path| {
-            path.pop();
-            if path.ends_with("deps") {
-                path.pop();
-            }
-            path.join(name)
-        })
-        .unwrap()
-}
+// fn cargo_bin(name: &str) -> PathBuf {
+//     env::current_exe()
+//         .ok()
+//         .map(|mut path| {
+//             path.pop();
+//             if path.ends_with("deps") {
+//                 path.pop();
+//             }
+//             path.join(name)
+//         })
+//         .unwrap()
+// }
 
 // This test fails because Command does not provide an interactive TTY, so `lorri shell`
 // can’t be run. I’d argue it’s because this test is crap.
@@ -66,45 +64,45 @@ fn cargo_bin(name: &str) -> PathBuf {
 //         "my_env_value\n"
 //     );
 // }
+//
+// async fn project(name: &str, cache_dir: &AbsPathBuf) -> Project {
+//     let test_root = AbsPathBuf::new(PathBuf::from_iter(&[
+//         env!("CARGO_MANIFEST_DIR"),
+//         "tests",
+//         "shell",
+//         name,
+//     ]))
+//     .expect("CARGO_MANIFEST_DIR was not absolute");
+//     let cas_dir = cache_dir.join("cas").to_owned();
+//     tokio::fs::create_dir_all(&cas_dir)
+//         .await
+//         .expect("failed to create CAS directory");
+//     let nixfile = NixFile::from(test_root.join("shell.nix"));
+//     let project_file = ProjectFile::ShellNix(nixfile);
+//     Project::new(
+//         project_file,
+//         &cache_dir.join("gc_roots"),
+//         ContentAddressable::new(cas_dir).unwrap(),
+//     )
+//     .unwrap()
+// }
 
-async fn project(name: &str, cache_dir: &AbsPathBuf) -> Project {
-    let test_root = AbsPathBuf::new(PathBuf::from_iter(&[
-        env!("CARGO_MANIFEST_DIR"),
-        "tests",
-        "shell",
-        name,
-    ]))
-    .expect("CARGO_MANIFEST_DIR was not absolute");
-    let cas_dir = cache_dir.join("cas").to_owned();
-    tokio::fs::create_dir_all(&cas_dir)
-        .await
-        .expect("failed to create CAS directory");
-    let nixfile = NixFile::from(test_root.join("shell.nix"));
-    let project_file = ProjectFile::ShellNix(nixfile);
-    Project::new(
-        project_file,
-        &cache_dir.join("gc_roots"),
-        ContentAddressable::new(cas_dir).unwrap(),
-    )
-    .unwrap()
-}
-
-async fn build(project: &Project, logger: &slog::Logger) -> PathBuf {
-    project
-        .create_roots(
-            builder::run(
-                &project.file.as_nix_file(),
-                &project.cas,
-                &NixOptions::empty(),
-                logger,
-            )
-            .await
-            .unwrap()
-            .result,
-        )
-        .unwrap()
-        .shell_gc_root
-        .0
-        .as_path()
-        .to_owned()
-}
+// async fn build(project: &Project, logger: &slog::Logger) -> PathBuf {
+//     project
+//         .create_roots(
+//             builder::run(
+//                 &project.file.as_nix_file(),
+//                 &project.cas,
+//                 &NixOptions::empty(),
+//                 logger,
+//             )
+//             .await
+//             .unwrap()
+//             .result,
+//         )
+//         .unwrap()
+//         .shell_gc_root
+//         .0
+//         .as_path()
+//         .to_owned()
+// }
