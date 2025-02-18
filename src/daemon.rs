@@ -10,7 +10,6 @@ use crate::project::ProjectFile;
 use crate::socket::communicate;
 use crate::socket::communicate::listener::Listener;
 use crate::socket::path::SocketPath;
-use crate::thread::Pool;
 use crate::{AbsPathBuf, NixFile};
 use slog::debug;
 use std::collections::HashMap;
@@ -82,8 +81,6 @@ impl Daemon {
         let (tx_activity, rx_activity): (Sender<IndicateActivity>, Receiver<IndicateActivity>) =
             channel(10);
 
-        let mut pool: Pool<std::io::Error> = Pool::new(logger.clone());
-
         let socket_path = socket_path.clone();
         let logger = logger.clone();
         let logger2 = logger.clone();
@@ -109,10 +106,6 @@ impl Daemon {
             &logger3,
         )
         .await;
-
-        tokio::task::spawn_blocking(move || pool.join_all_or_panic())
-            .await
-            .expect("join error")?;
 
         join_set.join_all().await;
         build_loop_hdl.await.expect("build loop error");
