@@ -45,6 +45,7 @@ async fn main() {
     std::process::exit(exit_code);
 }
 
+#[allow(deprecated)]
 fn install_panic_handler() {
     if let Err(env::VarError::NotPresent) = env::var("LORRI_NO_INSTALL_PANIC_HANDLER") {
         // This returns 101 on panics, see also `ExitError::panic`.
