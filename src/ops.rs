@@ -111,16 +111,20 @@ pub async fn op_direnv<W: std::io::Write>(
     let ping_sent = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
         debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
-        let mut c =
-            client::create::<client::Ping>(paths, client::Timeout::from_millis(500), logger)
+        let c = client::create::<client::Ping>(paths, client::Timeout::from_millis(500), logger)
+            .await
+            .map_err(ExitError::from);
+        // TODO: maybe ping should indeed return something so we can at least check whether it parses the message and the version is right. Right now this collapses all of that into a bool …
+        match c {
+            Err(_) => false,
+            Ok(mut c) => c
+                .write(&client::Ping {
+                    project_file: project.file.clone(),
+                    rebuild: client::Rebuild::OnlyIfNotYetWatching,
+                })
                 .await
-                .map_err(ExitError::from)?;
-        c.write(&client::Ping {
-            project_file: project.file.clone(),
-            rebuild: client::Rebuild::OnlyIfNotYetWatching,
-        })
-        .await
-        .is_ok()
+                .is_ok(),
+        }
     };
 
     match (ping_sent, paths_are_cached) {
