@@ -165,8 +165,6 @@ impl Daemon {
     }
 
     async fn build_instruction_handler(
-        // TODO: use the pool here
-        // pool: &mut crate::thread::Pool,
         tx_build_events: UnboundedSender<LoopHandlerEvent>,
         extra_nix_options: NixOptions,
         mut rx_activity: Receiver<IndicateActivity>,

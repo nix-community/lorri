@@ -109,7 +109,7 @@ async fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitE
         }
         Command::Shell(opts) => {
             let (project, logger) = with_project(logger, &opts.source.clone().try_into()?)?;
-            ops::op_shell(project, opts, &logger)
+            ops::op_shell(project, opts, &logger).await
         }
 
         Command::Watch(opts) => {
@@ -120,7 +120,7 @@ async fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitE
             install_signal_handler();
             ops::op_daemon(opts, logger).await
         }
-        Command::Upgrade(opts) => ops::op_upgrade(opts, paths.cas_store(), logger),
+        Command::Upgrade(opts) => ops::op_upgrade(opts, paths.cas_store(), logger).await,
         Command::Init => ops::op_init(TRIVIAL_SHELL_SRC, DEFAULT_ENVRC, logger),
 
         Command::Internal { command } => match command {

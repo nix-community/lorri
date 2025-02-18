@@ -296,14 +296,14 @@ impl BuildLoop {
                 let cas = dat.project.cas.clone();
                 let extra_nix_options = dat.extra_nix_options.clone();
                 let logger2 = dat.logger.clone();
-                tokio::task::spawn_blocking(move || {
-                    builder::run(&nix_file, &cas, &extra_nix_options, &logger2)
+                tokio::task::spawn(async move {
+                    builder::run(&nix_file, &cas, &extra_nix_options, &logger2).await
                 })
             }
             project::ProjectFile::FlakeNix(i) => {
                 let logger = dat.logger.clone();
                 let installable = i.clone();
-                tokio::task::spawn_blocking(move || builder::flake(&installable, &logger))
+                tokio::task::spawn(async move { builder::flake(&installable, &logger).await })
             }
         }
     }
