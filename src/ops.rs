@@ -22,7 +22,6 @@ use crate::nix::CallOpts;
 use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
 use crate::ops::error::{ExitAs, ExitError, ExitErrorType};
 use crate::project::{Project, ProjectFile};
-use crate::run_async::Async;
 use crate::socket::path::SocketPath;
 use crate::NixFile;
 use crate::VERSION_BUILD_REV;
@@ -421,7 +420,7 @@ fn build_root(
     let building = Arc::new(AtomicBool::new(true));
     let building_clone = building.clone();
     let logger2 = logger.clone();
-    let progress_thread = Async::run(logger, move || {
+    let progress_thread = std::thread::spawn(move || {
         // Keep track of the start time to display a hint to the user that they can use `--cached`,
         // but only if a cached version of the environment exists
         let mut start = if cached { Some(Instant::now()) } else { None };
@@ -458,7 +457,7 @@ fn build_root(
         ProjectFile::FlakeNix(installable) => builder::flake(installable, &logger2),
     };
     building.store(false, Ordering::SeqCst);
-    progress_thread.block();
+    progress_thread.join().expect("cannot join progress_thread");
 
     let run_result = run_result
         .map_err(|e| {
