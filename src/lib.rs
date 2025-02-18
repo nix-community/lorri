@@ -225,17 +225,6 @@ impl From<PathBuf> for DrvFile {
     }
 }
 
-/// Struct that will never be constructed (no elements).
-/// In newer rustc, this corresponds to the (compiler supported) `!` type.
-pub struct Never {}
-
-impl Never {
-    /// This will never be called, so we can return anything.
-    pub fn never<T>(&self) -> T {
-        panic!("can never be called");
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

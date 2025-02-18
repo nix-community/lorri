@@ -172,7 +172,7 @@ impl BuildLoop {
         mut self,
         tx_events: UnboundedSender<LoopHandlerEvent>,
         mut rx_ping: Receiver<()>,
-    ) -> crate::Never {
+    ) -> ! {
         struct BuildFuture {
             is_building: bool,
             join_hdl: JoinHandle<BuildResult>,

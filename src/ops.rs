@@ -1121,7 +1121,7 @@ async fn main_run_forever(project: Project, logger: &slog::Logger) -> Result<(),
     // TODO: add the ability to pass extra_nix_options to watch
     let build_loop = tokio::task::spawn(async move {
         match BuildLoop::new(project, NixOptions::empty(), logger2) {
-            Ok(bl) => bl.forever(tx_build_results, rx_ping).await.never(),
+            Ok(bl) => bl.forever(tx_build_results, rx_ping).await,
             Err(e) => Err(ExitError::temporary(e)),
         }
     });
