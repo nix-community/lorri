@@ -228,7 +228,7 @@ impl Daemon {
                     match BuildLoop::new(project, extra_nix_options, logger) {
                         Ok(build_loop) => {
                             let _ = join_set.spawn(async move {
-                                build_loop.forever(tx_build_events, rx_ping).await.never()
+                                build_loop.forever(tx_build_events, rx_ping).await
                             });
                         }
                         Err(err) =>
