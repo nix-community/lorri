@@ -129,6 +129,36 @@ jobs:
       - name: Run CI tests
         run: |
           ./ci-tests
+  simple-checks:
+    name: Simple Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Nix
+        uses: cachix/install-nix-action@v26
+      - name: Cachix
+        uses: cachix/cachix-action@v14
+        with:
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          name: nix-community
+      - name: Add rustc to PATH
+        run: |
+          set -euo pipefail
+          rustc_path="$(nix-build -A rustc nix/nixpkgs-stable.nix)/bin"
+          echo "$rustc_path" >> "$GITHUB_PATH"
+      - name: print PATH
+        run: printenv PATH
+      - name: Build simple checks
+        run: |
+          nix-build \
+            --out-link ./simple-tests \
+            --arg isDevelopmentShell false \
+            -A ci.testsuite-simple-checks \
+            shell.nix
+      - name: Run simple checks
+        run: |
+          ./simple-tests
 name: CI
 "on":
   pull_request:
