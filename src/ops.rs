@@ -930,7 +930,7 @@ pub async fn op_watch(
 
 async fn main_run_once(project: Project, logger: &slog::Logger) -> Result<(), ExitError> {
     // TODO: add the ability to pass extra_nix_options to watch
-    let mut build_loop = BuildLoop::new(project, NixOptions::empty(), logger.clone())
+    let build_loop = BuildLoop::new(project, NixOptions::empty(), logger.clone())
         .map_err(ExitError::temporary)?;
     match build_loop.once().await {
         Ok(msg) => {
@@ -1121,7 +1121,7 @@ async fn main_run_forever(project: Project, logger: &slog::Logger) -> Result<(),
     // TODO: add the ability to pass extra_nix_options to watch
     let build_loop = tokio::task::spawn(async move {
         match BuildLoop::new(project, NixOptions::empty(), logger2) {
-            Ok(mut bl) => bl.forever(tx_build_results, rx_ping).await.never(),
+            Ok(bl) => bl.forever(tx_build_results, rx_ping).await.never(),
             Err(e) => Err(ExitError::temporary(e)),
         }
     });

@@ -1,7 +1,6 @@
 //! Run a function asynchronously.
 use crate::thread::Pool;
 use crossbeam_channel as chan;
-use slog::warn;
 
 /// Asynchronously execute an action, by executing it in a thread.
 ///
