@@ -3,11 +3,7 @@ use std::time::{Duration, Instant};
 
 #[tokio::test]
 async fn not_so_slow() {
-    let mut testcase = DirenvTestCase::with_shell("bug110_duplicate_appends");
-    testcase
-        .evaluate()
-        .await
-        .expect("Failed to build the first time");
+    let (testcase, _build) = DirenvTestCase::with_shell_eval("bug110_duplicate_appends").await;
 
     let start = Instant::now();
     let env = testcase.get_direnv_variables().await;

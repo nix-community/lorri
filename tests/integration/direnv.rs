@@ -5,11 +5,7 @@ use crate::direnvtestcase::{DirenvTestCase, DirenvValue};
 
 #[tokio::test]
 async fn in_lorri_shell() {
-    let mut testcase = DirenvTestCase::with_shell("basic");
-    testcase
-        .evaluate()
-        .await
-        .expect("Failed to build the first time");
+    let (testcase, _build) = DirenvTestCase::with_shell_eval("basic").await;
 
     let env = testcase.get_direnv_variables();
     let shell = PathBuf::from_iter(&[env!("CARGO_MANIFEST_DIR"), "tests", "integration", "basic"])

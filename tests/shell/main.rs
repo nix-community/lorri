@@ -55,7 +55,7 @@
 //         .unwrap()
 //         .args(["-c", "echo $MY_ENV_VAR"])
 //         .output()
-//         .expect("failed to run shell");
+//         .expect(" run shell");
 //
 //     assert_eq!(
 //         // The string conversion means we get a nice assertion failure message in case stdout does
