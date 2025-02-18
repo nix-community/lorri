@@ -13,9 +13,9 @@ edition = "2021"
 # before updating dependencies: we want to keep the rustc compatible with 1.41.0 for now (start of 2020).
 [dependencies]
 # central features
-notify = "6.1.1"
+notify = { version = "6.1.1", default-features = false, features = ["macos_fsevent"] }
+notify-debouncer-full = { version = "0.3.1", default-features = false }
 atomicwrites = "0.4.4"
-crossbeam-channel = "0.5.14"
 nix = {  version = "0.29.0", features = ["poll", "fs"], default-features = true }
 regex = "1.11.1"
 tempfile = "3.16.0"
@@ -41,19 +41,5 @@ directories = "6.0.0"
 lazy_static = "1.5.0"
 md5 = "0.7.0"
 vec1 = "1.12.1"
-tokio = { features = ["rt", "rt-multi-thread", "macros", "net", "time", "io-util", "io-std", "sync"], version = "1.43.0" }
+tokio = { features = ["rt", "rt-multi-thread", "macros", "net", "time", "io-util", "io-std", "sync", "process", "fs"], version = "1.43.0" }
 human-panic = { path = "vendor/human-panic" }
-notify-debouncer-full = { version = "0.3.1", default-features = false }
-
-[dev-dependencies]
-# 1.0.0 requires at least rust 1.50
-proptest.version = "0.10.1"
-# 1.0.0 requires at least rust 1.50
-proptest.default-features = false
-# 1.0.0 requires at least rust 1.50
-proptest.features = [
-  "std",
-  # reenable if proptest kills the test runner
-  # "fork",
-  # "timeout"
-]

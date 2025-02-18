@@ -16,7 +16,6 @@ use crate::cli::WatchOptions;
 use crate::constants::Paths;
 use crate::daemon::client::{self, DaemonInfo};
 use crate::daemon::Daemon;
-use crate::nix;
 use crate::nix::options::NixOptions;
 use crate::nix::CallOpts;
 use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
@@ -27,7 +26,7 @@ use crate::NixFile;
 use crate::VERSION_BUILD_REV;
 
 use std::ffi::OsStr;
-use std::io::Write;
+use std::io::{Error, Write};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::path::PathBuf;
@@ -37,8 +36,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
-use std::{collections::HashSet, fs::File, time::SystemTime};
-use std::{env, fs, io, thread};
+use std::{collections::HashSet, env, fs::File, time::SystemTime};
 use std::{fmt::Debug, fs::remove_dir_all};
 
 use anyhow::Context;
@@ -310,7 +308,7 @@ fn create_if_missing(
     contents: &str,
     msg: &str,
     logger: &slog::Logger,
-) -> Result<(), io::Error> {
+) -> Result<(), Error> {
     if path.exists() {
         info!(logger, "file already exists, skipping"; "path" => path.to_str(), "message" => msg);
         Ok(())
@@ -363,7 +361,7 @@ pub async fn op_ping(
 /// This setup allows lorri to support almost any shell with minimal additional work. Only the step
 /// marked (*) must be adjusted, and only in case we want to customize the shell, e.g. changing the
 /// way the prompt looks.
-pub fn op_shell(
+pub async fn op_shell(
     project: Project,
     opts: ShellOptions,
     logger: &slog::Logger,
@@ -381,11 +379,12 @@ pub fn op_shell(
         if opts.cached {
             cached?
         } else {
-            build_root(&project, cached.is_ok(), logger)?
+            build_root(&project, cached.is_ok(), logger).await?
         },
         &project.cas,
         logger,
-    )?;
+    )
+    .await?;
 
     debug!(logger, "bash_cmd : {:?}", bash_cmd);
     let status = bash_cmd
@@ -412,7 +411,7 @@ pub fn op_shell(
     }
 }
 
-fn build_root(
+async fn build_root(
     project: &Project,
     cached: bool,
     logger: &slog::Logger,
@@ -420,7 +419,7 @@ fn build_root(
     let building = Arc::new(AtomicBool::new(true));
     let building_clone = building.clone();
     let logger2 = logger.clone();
-    let progress_thread = std::thread::spawn(move || {
+    let progress_thread = tokio::spawn(async move {
         // Keep track of the start time to display a hint to the user that they can use `--cached`,
         // but only if a cached version of the environment exists
         let mut start = if cached { Some(Instant::now()) } else { None };
@@ -437,27 +436,24 @@ fn build_root(
                     start = None; // Don't show the hint again
                 }
             }
-            thread::sleep(Duration::from_millis(500));
+            tokio::time::sleep(Duration::from_millis(500)).await;
 
             // Indicate progress
             eprint!(".");
-            io::stderr().flush().expect("couldn’t flush‽");
+            tokio::io::stderr().flush().await.expect("couldn’t flush‽");
         }
         eprintln!(". done");
     });
 
     // TODO: add the ability to pass extra_nix_options to shell
     let run_result = match &project.file {
-        ProjectFile::ShellNix(nix_file) => builder::run(
-            nix_file,
-            &project.cas,
-            &crate::nix::options::NixOptions::empty(),
-            &logger2,
-        ),
-        ProjectFile::FlakeNix(installable) => builder::flake(installable, &logger2),
+        ProjectFile::ShellNix(nix_file) => {
+            builder::run(nix_file, &project.cas, &NixOptions::empty(), &logger2).await
+        }
+        ProjectFile::FlakeNix(installable) => builder::flake(installable, &logger2).await,
     };
     building.store(false, Ordering::SeqCst);
-    progress_thread.join().expect("cannot join progress_thread");
+    progress_thread.await.expect("cannot join progress_thread");
 
     let run_result = run_result
         .map_err(|e| {
@@ -501,7 +497,7 @@ fn cached_root(project: &Project) -> Result<PathBuf, ExitError> {
 }
 
 /// Instantiates a `Command` to start bash.
-pub fn bash_cmd(
+pub async fn bash_cmd(
     project_root: PathBuf,
     cas: &ContentAddressable,
     logger: &slog::Logger,
@@ -520,6 +516,7 @@ EVALUATION_ROOT="{}"
     debug!(logger,"building bash via runtime closure"; "closure" => crate::RUN_TIME_CLOSURE);
     let bash_path = CallOpts::expression(&format!("(import {}).path", crate::RUN_TIME_CLOSURE))
         .value::<PathBuf>()
+        .await
         .expect("failed to get runtime closure path");
 
     let mut cmd = Command::new(bash_path.join("bash"));
@@ -586,7 +583,7 @@ PS1="(lorri) $PS1"
             // Zsh does not support anything like bash's --rcfile. However, zsh sources init
             // scripts from $ZDOTDIR by default. So we set $ZDOTDIR to a directory under lorri's
             // control, follow the default sourcing procedure, and then set the PS1.
-            fs::write(
+            std::fs::write(
                 tempdir.join(".zshrc"),
                 // See "STARTUP/SHUTDOWN FILES" section of the zshall man page as well as
                 // https://superuser.com/a/591440/318156.
@@ -685,7 +682,7 @@ pub async fn op_stream_events(
     logger: &slog::Logger,
 ) -> Result<(), ExitError> {
     {
-        let address = crate::ops::get_paths()?.daemon_socket_file().clone();
+        let address = get_paths()?.daemon_socket_file().clone();
         debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
         let logger2 = logger.clone();
         let paths2 = (*paths).clone();
@@ -829,7 +826,7 @@ impl UpgradeSource {
 ///
 /// Originally it was used as pre-release, that’s why there is support
 /// for updating to a special rolling-release branch.
-pub fn op_upgrade(
+pub async fn op_upgrade(
     upgrade_target: cli::UpgradeTo,
     cas: &ContentAddressable,
     logger: &slog::Logger,
@@ -852,7 +849,7 @@ pub fn op_upgrade(
             UpgradeSource::Local(ref p) => println!("Upgrading from local path: {}", p.display()),
         }
 
-        let mut expr = nix::CallOpts::file(upgrade_expr.as_path());
+        let mut expr = CallOpts::file(upgrade_expr.as_path());
 
         match src {
             UpgradeSource::Branch(b) => {
@@ -870,7 +867,7 @@ pub fn op_upgrade(
         expr
     };
 
-    let changelog: changelog::Log = expr.clone().attribute("changelog").value().unwrap();
+    let changelog: changelog::Log = expr.clone().attribute("changelog").value().await.unwrap();
 
     println!("Changelog when upgrading from {}:", VERSION_BUILD_REV);
     for entry in changelog.entries.iter().rev() {
@@ -884,7 +881,7 @@ pub fn op_upgrade(
     }
 
     println!("Building ...");
-    match expr.clone().attribute("package").path(logger) {
+    match expr.clone().attribute("package").path(logger).await {
         Ok((build_result, gc_root)) => {
             let status = Command::new("nix-env")
                 .arg("--install")
@@ -963,7 +960,7 @@ struct GcRootInfo {
 
 /// Returns a list of existing gc roots along with some metadata
 fn list_roots(logger: &slog::Logger) -> Result<Vec<GcRootInfo>, ExitError> {
-    let paths = crate::ops::get_paths()?;
+    let paths = get_paths()?;
     let mut res = Vec::new();
     let gc_root_dir = paths.gc_root_dir();
     for entry in std::fs::read_dir(gc_root_dir)? {
@@ -1023,7 +1020,7 @@ struct RemovalStatus {
 }
 
 /// Print or remove gc roots depending on cli options.
-pub fn gc(logger: &slog::Logger, opts: crate::cli::GcOptions) -> Result<(), ExitError> {
+pub fn gc(logger: &slog::Logger, opts: cli::GcOptions) -> Result<(), ExitError> {
     let infos = list_roots(logger)?;
     match opts.action {
         cli::GcSubcommand::Info => {

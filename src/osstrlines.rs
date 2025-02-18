@@ -4,8 +4,9 @@
 //! the reference implementation.
 
 use std::ffi::OsString;
-use std::io::{BufRead, Result};
+use std::io::Result;
 use std::os::unix::ffi::OsStringExt;
+use tokio::io::{AsyncBufRead, AsyncBufReadExt};
 
 /// An iterator over the OsString lines of an instance of `BufRead`.
 #[derive(Debug)]
@@ -13,35 +14,13 @@ pub struct Lines<B> {
     buf: B,
 }
 
-impl<B: BufRead> Lines<B> {
+impl<B: AsyncBufRead> Lines<B> {
     /// Returns an iterator over the lines of this reader.
     ///
     /// The iterator returned from this function will yield instances of
     /// `io::Result<OsString>`. Each string returned will
     /// *not* have a newline byte (the 0xA byte) or CRLF (0xD, 0xA bytes)
     /// at the end.
-    ///
-    /// # Examples
-    ///
-    /// `std::io::Cursor` is a type that implements `BufRead`. In
-    /// this example, we use `Cursor` to iterate over all the lines in a byte
-    /// slice.
-    ///
-    /// ```
-    /// use std::io::{self, BufRead};
-    /// use std::ffi::{OsStr, OsString};
-    /// use std::os::unix::ffi::OsStrExt;
-    /// use lorri::osstrlines::Lines;
-    ///
-    /// let cursor = io::Cursor::new(b"lorem\nipsum\r\ndolor\n\xab\xbc\xcd\xde\xde\xef");
-    ///
-    /// let mut lines_iter = Lines::from(cursor).map(|l| l.unwrap());
-    /// assert_eq!(lines_iter.next(), Some(OsString::from("lorem")));
-    /// assert_eq!(lines_iter.next(), Some(OsString::from("ipsum")));
-    /// assert_eq!(lines_iter.next(), Some(OsString::from("dolor")));
-    /// assert_eq!(lines_iter.next(), Some(OsStr::from_bytes(b"\xab\xbc\xcd\xde\xde\xef").to_owned()));
-    /// assert_eq!(lines_iter.next(), None);
-    /// ```
     ///
     /// # Errors
     ///
@@ -51,12 +30,11 @@ impl<B: BufRead> Lines<B> {
     }
 }
 
-impl<B: BufRead> Iterator for Lines<B> {
-    type Item = Result<OsString>;
-
-    fn next(&mut self) -> Option<Result<OsString>> {
+impl<B: AsyncBufRead + Unpin> Lines<B> {
+    /// next line
+    pub async fn next(&mut self) -> Option<Result<OsString>> {
         let mut buf = vec![];
-        match self.buf.read_until(b'\n', &mut buf) {
+        match self.buf.read_until(b'\n', &mut buf).await {
             Ok(0) => None,
             Ok(_n) => {
                 if buf.ends_with(&[b'\n']) {
@@ -65,7 +43,7 @@ impl<B: BufRead> Iterator for Lines<B> {
                         buf.pop();
                     }
                 }
-                Some(Ok(std::ffi::OsString::from_vec(buf)))
+                Some(Ok(OsString::from_vec(buf)))
             }
             Err(e) => Some(Err(e)),
         }
