@@ -14,7 +14,7 @@ use thiserror::Error;
 use crate::build_loop;
 use crate::ops::error::{ExitAs, ExitErrorType};
 use crate::project::ProjectFile;
-use crate::socket::path::{BindError, BindLock, SocketPath};
+use crate::socket::path::{BindError, SocketPath};
 use crate::socket::read_writer::{ReadWriteError, ReadWriter, Timeout};
 
 /// We declare 1s as the time readers should wait
@@ -106,6 +106,8 @@ impl Handler for StreamEvents {
 /// `Listener` and possible errors.
 pub mod listener {
     use super::*;
+    use nix::fcntl::Flock;
+    use std::fs::File;
     use tokio::net::{UnixListener, UnixStream};
 
     /// If a connection on the socket is attempted and the first
@@ -126,7 +128,7 @@ pub mod listener {
         // it is released when `Listener`’s lifetime ends.
         // We can ignore the “dead code” warning.
         #[allow(dead_code)]
-        bind_lock: BindLock,
+        bind_lock: Flock<File>,
         /// How long to wait for the client to send its
         /// first message after opening the connection.
         accept_timeout: Timeout,
