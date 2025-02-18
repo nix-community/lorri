@@ -66,10 +66,6 @@ pub enum Command {
     #[structopt(name = "daemon")]
     Daemon(DaemonOptions),
 
-    /// Upgrade Lorri
-    #[structopt(name = "self-upgrade", alias = "self-update")]
-    Upgrade(UpgradeTo),
-
     /// Write bootstrap files to current directory to create a new lorri project
     #[structopt(name = "init")]
     Init,

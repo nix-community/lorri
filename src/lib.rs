@@ -19,7 +19,6 @@ extern crate serde_derive;
 pub mod build_loop;
 pub mod builder;
 pub mod cas;
-pub mod changelog;
 pub mod cli;
 pub mod constants;
 pub mod daemon;

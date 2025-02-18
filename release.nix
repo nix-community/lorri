@@ -6,6 +6,17 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
+        version = 1062;
+        changes = ''
+          Removed the `self-upgrade` subcommand.
+          Please use official distributions like nixos to install lorri.
+
+          If you need to test out lorri locally, you can run
+          `nix-build && nix-env -i ./result` from within the lorri project directory,
+          which installs it into your local nix profile.
+        '';
+      }
+      {
         version = 1055;
         changes = ''
           Rewrote the lorri codebase to use the tokio async library in many

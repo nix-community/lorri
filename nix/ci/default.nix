@@ -1,4 +1,4 @@
-{ pkgs, LORRI_ROOT, BUILD_REV_COUNT, RUN_TIME_CLOSURE }:
+{ pkgs, LORRI_ROOT, RUN_TIME_CLOSURE }:
 let
 
   lib = pkgs.lib;
@@ -104,7 +104,6 @@ let
     ])
     ++ [
       "export" "RUST_BACKTRACE" "full"
-      "export" "BUILD_REV_COUNT" (toString BUILD_REV_COUNT)
       "export" "RUN_TIME_CLOSURE" RUN_TIME_CLOSURE
     ];
 

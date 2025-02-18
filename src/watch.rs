@@ -282,7 +282,7 @@ impl EventHandler {
                 match event.kind {
                     EventKind::Remove(_) if !event.paths.is_empty() => {
                         info!(self.logger, "identified removal: {:?}", &event.paths);
-                    },
+                    }
                     // we only want to pick up changes to files, not access
                     EventKind::Access(_) => continue,
                     _ => {

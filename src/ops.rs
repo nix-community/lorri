@@ -8,7 +8,6 @@ use crate::build_loop::{Event, EventI, ReasonI};
 use crate::builder;
 use crate::builder::OutputPath;
 use crate::cas::ContentAddressable;
-use crate::changelog;
 use crate::cli;
 use crate::cli::ShellOptions;
 use crate::cli::StartUserShellOptions_;
@@ -19,11 +18,10 @@ use crate::daemon::Daemon;
 use crate::nix::options::NixOptions;
 use crate::nix::CallOpts;
 use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
-use crate::ops::error::{ExitAs, ExitError, ExitErrorType};
+use crate::ops::error::ExitError;
 use crate::project::{Project, ProjectFile};
 use crate::socket::path::SocketPath;
 use crate::NixFile;
-use crate::VERSION_BUILD_REV;
 
 use std::ffi::OsStr;
 use std::io::{Error, Write};
@@ -42,7 +40,6 @@ use std::{fmt::Debug, fs::remove_dir_all};
 use anyhow::Context;
 
 use slog::{debug, info, warn};
-use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{channel, unbounded_channel};
 
@@ -745,165 +742,6 @@ pub async fn op_stream_events(
                 },
             }
         }
-    }
-}
-
-/// The source to upgrade to.
-enum UpgradeSource {
-    /// A branch in the upstream git repo
-    Branch(String),
-    /// A local path
-    Local(PathBuf),
-}
-
-#[derive(Error, Debug)]
-enum UpgradeSourceError {
-    /// The local path given by the user could not be found
-    #[error("Cannot upgrade to local repostory {0}: path not found")]
-    LocalPathNotFound(PathBuf),
-    /// We couldn’t find local_path/release.nix, it is not a lorri repo.
-    #[error("{0} does not exist, are you sure this is a lorri repository?")]
-    ReleaseNixDoesntExist(PathBuf),
-    /// An other error happened when canonicalizing the given path.
-    #[error("Problem accessing local repository")]
-    CantCanonicalizeLocalPath(#[source] std::io::Error),
-}
-
-impl ExitAs for UpgradeSourceError {
-    fn exit_as(&self) -> ExitErrorType {
-        use ExitErrorType::*;
-        use UpgradeSourceError::*;
-        match self {
-            LocalPathNotFound(_) => UserError,
-            CantCanonicalizeLocalPath(_) => Temporary,
-            ReleaseNixDoesntExist(_) => UserError,
-        }
-    }
-}
-
-impl UpgradeSource {
-    /// Convert from the cli argument to a form we can pass to ./upgrade.nix.
-    fn from_cli_argument(upgrade_target: cli::UpgradeTo) -> Result<Self, UpgradeSourceError> {
-        // if no source was given, we default to the rolling-release branch
-        let src = upgrade_target
-            .source
-            .unwrap_or(cli::UpgradeSource::RollingRelease);
-        Ok(match src {
-            cli::UpgradeSource::RollingRelease => {
-                UpgradeSource::Branch("rolling-release".to_string())
-            }
-            cli::UpgradeSource::Master => UpgradeSource::Branch("canon".to_string()),
-            cli::UpgradeSource::Canon => UpgradeSource::Branch("canon".to_string()),
-            cli::UpgradeSource::Branch(b) => UpgradeSource::Branch(b.branch),
-            cli::UpgradeSource::Local(dest) => {
-                // make it absolute to not confuse ./upgrade.nix
-                (match std::fs::canonicalize(dest.path.clone()) {
-                    Ok(abspath) => {
-                        // Check whether we actually have something like a lorri repository
-                        let release_nix = abspath.join("release.nix");
-                        if release_nix.exists() {
-                            Ok(UpgradeSource::Local(abspath))
-                        } else {
-                            Err(UpgradeSourceError::ReleaseNixDoesntExist(release_nix))
-                        }
-                    }
-                    Err(err) => Err(match err.kind() {
-                        std::io::ErrorKind::NotFound => {
-                            UpgradeSourceError::LocalPathNotFound(dest.path)
-                        }
-                        _ => UpgradeSourceError::CantCanonicalizeLocalPath(err),
-                    }),
-                })?
-            }
-        })
-    }
-}
-
-/// Upgrade lorri by using nix-env to install from Git.
-///
-/// This is useful for pointing users to an fix to a reported bug,
-/// or for users who want to follow the lorri canon locally.
-///
-/// Originally it was used as pre-release, that’s why there is support
-/// for updating to a special rolling-release branch.
-pub async fn op_upgrade(
-    upgrade_target: cli::UpgradeTo,
-    cas: &ContentAddressable,
-    logger: &slog::Logger,
-) -> Result<(), ExitError> {
-    /*
-    1. nix-instantiate the expression
-    2. get all the changelog entries from <currentnumber> to <maxnumber>
-    3. nix-build the expression's package attribute
-    4. nix-env -i the package
-     */
-    let upgrade_expr = cas
-        .file_from_string(include_str!("./ops/upgrade.nix"))
-        .expect("could not write to CAS");
-
-    let expr = {
-        let src = UpgradeSource::from_cli_argument(upgrade_target)?;
-
-        match src {
-            UpgradeSource::Branch(ref b) => println!("Upgrading from branch: {}", b),
-            UpgradeSource::Local(ref p) => println!("Upgrading from local path: {}", p.display()),
-        }
-
-        let mut expr = CallOpts::file(upgrade_expr.as_path());
-
-        match src {
-            UpgradeSource::Branch(b) => {
-                expr.argstr("type", "branch");
-                expr.argstr("branch", b);
-            }
-            UpgradeSource::Local(p) => {
-                expr.argstr("type", "local");
-                expr.argstr("path", p);
-            }
-        }
-        // ugly hack to prevent expr from being mutable outside,
-        // since I can't sort out how to chain argstr and still
-        // keep a reference
-        expr
-    };
-
-    let changelog: changelog::Log = expr.clone().attribute("changelog").value().await.unwrap();
-
-    println!("Changelog when upgrading from {}:", VERSION_BUILD_REV);
-    for entry in changelog.entries.iter().rev() {
-        if VERSION_BUILD_REV < entry.version {
-            println!();
-            println!("{}:", entry.version);
-            for line in entry.changes.lines() {
-                println!("    {}", line);
-            }
-        }
-    }
-
-    println!("Building ...");
-    match expr.clone().attribute("package").path(logger).await {
-        Ok((build_result, gc_root)) => {
-            let status = Command::new("nix-env")
-                .arg("--install")
-                .arg(build_result.as_path())
-                .status()
-                // TODO: check existence of commands at the beginning
-                .expect("Error: failed to execute nix-env --install");
-            // we can drop the temporary gc root
-            drop(gc_root);
-
-            if status.success() {
-                info!(logger, "upgrade successful");
-                Ok(())
-            } else {
-                Err(ExitError::expected_error(anyhow::anyhow!(
-                    "\nError: nix-env command was not successful!\n{:#?}",
-                    status
-                )))
-            }
-        }
-        // our update expression is broken, crash
-        Err(e) => panic!("Failed to build the update! {:#?}", e),
     }
 }
 
