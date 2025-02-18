@@ -3,12 +3,7 @@ use std::collections::HashMap;
 
 #[tokio::test]
 async fn bug97_varmap_leak() {
-    let mut testcase = DirenvTestCase::with_shell("bug97_varmap_leak");
-    testcase
-        .evaluate()
-        .await
-        .expect("Failed to build the first time");
-
+    let (testcase, _build) = DirenvTestCase::with_shell_eval("bug97_varmap_leak").await;
     let env = testcase.get_direnv_variables().await;
 
     assert_eq!(env.get_env("preHook"), DirenvValue::Value("echo 'foo bar'"));

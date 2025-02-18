@@ -3,7 +3,7 @@
 
 use lorri::build_loop::BuildLoop;
 use lorri::builder;
-use lorri::builder::BuildError;
+use lorri::builder::{BuildError, OutputPath};
 use lorri::cas::ContentAddressable;
 use lorri::nix::options::NixOptions;
 use lorri::ops;
@@ -31,23 +31,38 @@ pub struct DirenvTestCase {
 }
 
 impl DirenvTestCase {
-    pub fn with_shell(name: &str) -> DirenvTestCase {
+    pub async fn with_shell_eval(name: &str) -> (DirenvTestCase, OutputPath) {
         let test_root =
             PathBuf::from_iter([env!("CARGO_MANIFEST_DIR"), "tests", "integration", name]);
 
         let shell_file = NixFile::from(AbsPathBuf::new(test_root.join("shell.nix")).unwrap());
         let project_file = project::ProjectFile::ShellNix(shell_file);
-        Self::new(project_file)
+        let mut tc = Self::new(project_file);
+
+        match tc.evaluate().await {
+            Err(err) => {
+                println!("{err}");
+                panic!("build failed")
+            }
+            Ok(a) => (tc, a),
+        }
     }
 
-    pub fn with_flake(name: &str) -> DirenvTestCase {
+    pub async fn with_flake_eval(name: &str) -> (DirenvTestCase, OutputPath) {
         let test_root =
             PathBuf::from_iter([env!("CARGO_MANIFEST_DIR"), "tests", "integration", name]);
         let project_file = project::ProjectFile::FlakeNix(Installable {
             context: AbsPathBuf::new(test_root).unwrap(),
             installable: ".#".to_string(),
         });
-        Self::new(project_file)
+        let mut tc = Self::new(project_file);
+        match tc.evaluate().await {
+            Err(err) => {
+                println!("{err}");
+                panic!("flake build failed")
+            }
+            Ok(a) => (tc, a),
+        }
     }
 
     fn new(project_file: project::ProjectFile) -> DirenvTestCase {

@@ -4,11 +4,7 @@ use std::env;
 #[tokio::test]
 async fn bug23_gopath() {
     env::set_var("GOPATH", "my-neat-go-path");
-    let mut testcase = DirenvTestCase::with_shell("bug23_gopath");
-    testcase
-        .evaluate()
-        .await
-        .expect("Failed to build the first time");
+    let (testcase, _build) = DirenvTestCase::with_shell_eval("bug23_gopath").await;
 
     let env = testcase.get_direnv_variables();
     assert_eq!(

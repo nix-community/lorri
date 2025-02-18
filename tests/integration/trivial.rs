@@ -2,11 +2,7 @@ use crate::direnvtestcase::{DirenvTestCase, DirenvValue};
 
 #[tokio::test]
 async fn trivial() -> std::io::Result<()> {
-    let mut testcase = DirenvTestCase::with_shell("basic");
-    let res = testcase
-        .evaluate()
-        .await
-        .expect("Failed to build the first time");
+    let (testcase, res) = DirenvTestCase::with_shell_eval("basic").await;
 
     assert!(
         res.all_exist(),
@@ -30,11 +26,7 @@ async fn trivial() -> std::io::Result<()> {
 
 #[tokio::test]
 async fn flake() -> std::io::Result<()> {
-    let mut testcase = DirenvTestCase::with_flake("basic-flake");
-    let res = testcase
-        .evaluate()
-        .await
-        .expect("Failed to build the first time");
+    let (testcase, res) = DirenvTestCase::with_flake_eval("basic-flake").await;
 
     assert!(
         res.all_exist(),
