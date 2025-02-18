@@ -120,7 +120,6 @@ async fn run_command(logger: &slog::Logger, opts: Arguments) -> Result<(), ExitE
             install_signal_handler();
             ops::op_daemon(opts, logger).await
         }
-        Command::Upgrade(opts) => ops::op_upgrade(opts, paths.cas_store(), logger).await,
         Command::Init => ops::op_init(TRIVIAL_SHELL_SRC, DEFAULT_ENVRC, logger),
 
         Command::Internal { command } => match command {

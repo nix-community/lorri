@@ -2,12 +2,9 @@
 # nix-build ./ci.nix; ./result
 { pkgs ? import ../../nix/nixpkgs-stable.nix {} }:
 let
-  checkout = { fetch-depth ? null }: {
+  checkout = { }: {
     name = "Checkout";
     uses = "actions/checkout@v4";
-    "with" = {
-      inherit fetch-depth;
-    };
   };
   setup-nix = {
     name = "Nix";
@@ -83,12 +80,7 @@ let
         name = "nix-build [nixos stable] (${runs-on})";
         inherit runs-on;
         steps = [
-          (
-            checkout {
-              # required for lorri self-upgrade local
-              fetch-depth = 0;
-            }
-          )
+          (checkout {})
           setup-nix
           setup-cachix
           {
@@ -98,10 +90,6 @@ let
           {
             name = "Install";
             run = "nix-env -i ./result";
-          }
-          {
-            name = "Self-upgrade";
-            run = "lorri self-upgrade local \$(pwd)";
           }
         ];
       };

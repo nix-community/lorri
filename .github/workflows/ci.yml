@@ -7,8 +7,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - name: Nix
         uses: cachix/install-nix-action@v26
       - name: Cachix
@@ -20,16 +18,12 @@ jobs:
         run: nix-build
       - name: Install
         run: nix-env -i ./result
-      - name: Self-upgrade
-        run: lorri self-upgrade local $(pwd)
   nix-build_stable-ubuntu-latest:
     name: nix-build [nixos stable] (ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - name: Nix
         uses: cachix/install-nix-action@v26
       - name: Cachix
@@ -41,16 +35,12 @@ jobs:
         run: nix-build
       - name: Install
         run: nix-env -i ./result
-      - name: Self-upgrade
-        run: lorri self-upgrade local $(pwd)
   overlay-macos-latest:
     name: Overlay builds (macos-latest)
     runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: null
       - name: Nix
         uses: cachix/install-nix-action@v26
       - name: Cachix
@@ -66,8 +56,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: null
       - name: Nix
         uses: cachix/install-nix-action@v26
       - name: Cachix
@@ -83,8 +71,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: null
       - name: Nix
         uses: cachix/install-nix-action@v26
       - name: Cachix
@@ -117,8 +103,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: null
       - name: Nix
         uses: cachix/install-nix-action@v26
       - name: Cachix
