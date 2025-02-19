@@ -10,6 +10,11 @@ If your business wants to see them happen, let’s talk! Please see [BUSINESS_SU
 
 The basic UX of lorri can be a little rough, so here are some proposals to improve it.
 
+### Full flakes support
+
+Currently, lorri only has a very initial implementation of flakes.
+We should aim to support most of the flakes workflows, and integrate into the flake evaluation caching as well.
+
 ### Reduce line noise when entering shell, add information
 
 Currently, when entering a lorri shell via direnv, it prints a diff of which environment variables changed,
