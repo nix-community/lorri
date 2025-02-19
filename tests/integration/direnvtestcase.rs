@@ -10,7 +10,6 @@ use lorri::ops;
 use lorri::project;
 use lorri::project::Project;
 use lorri::AbsPathBuf;
-use lorri::Installable;
 use lorri::NixFile;
 
 use std::collections::HashMap;
@@ -48,22 +47,22 @@ impl DirenvTestCase {
         }
     }
 
-    pub async fn with_flake_eval(name: &str) -> (DirenvTestCase, OutputPath) {
-        let test_root =
-            PathBuf::from_iter([env!("CARGO_MANIFEST_DIR"), "tests", "integration", name]);
-        let project_file = project::ProjectFile::FlakeNix(Installable {
-            context: AbsPathBuf::new(test_root).unwrap(),
-            installable: ".#".to_string(),
-        });
-        let mut tc = Self::new(project_file);
-        match tc.evaluate().await {
-            Err(err) => {
-                println!("{err}");
-                panic!("flake build failed")
-            }
-            Ok(a) => (tc, a),
-        }
-    }
+    // pub async fn with_flake_eval(name: &str) -> (DirenvTestCase, OutputPath) {
+    //     let test_root =
+    //         PathBuf::from_iter([env!("CARGO_MANIFEST_DIR"), "tests", "integration", name]);
+    //     let project_file = project::ProjectFile::FlakeNix(Installable {
+    //         context: AbsPathBuf::new(test_root).unwrap(),
+    //         installable: ".#".to_string(),
+    //     });
+    //     let mut tc = Self::new(project_file);
+    //     match tc.evaluate().await {
+    //         Err(err) => {
+    //             println!("{err}");
+    //             panic!("flake build failed")
+    //         }
+    //         Ok(a) => (tc, a),
+    //     }
+    // }
 
     fn new(project_file: project::ProjectFile) -> DirenvTestCase {
         let projectdir = tempdir().expect("tempfile::tempdir() failed us!");
