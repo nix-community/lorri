@@ -16,7 +16,8 @@ The project is about experimenting with and improving the developer's
 experience with Nix. A particular focus is managing your project's
 external dependencies, editor integration, and quick feedback.
 
-lorri supports Linux and macOS.
+lorri supports Linux and macOS. macOS support is brittle, we are looking
+for funding to improve it (see below).
 
 ## Business Support
 

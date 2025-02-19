@@ -35,6 +35,16 @@ and `ℓ✓` when we have the newest version.
 For more complex use-cases, the user could use the varlink interface (see below) with `varlinkctl`
 to build their own implementation. 
 
+### MacOS support on par with Linux
+
+Many developers in (US) software teams use MacBooks as their primary developer environment.
+
+Lorri has always tried to support macOS, we have CI set up for it,
+but none of our current development team uses macOS or even owns a MacBook,
+meaning we can only hope it does in fact work in this environment.
+
+We’d be happy to ensure first-class support on current MacBooks given appropriate remuneration.
+
 ## New frontiers
 
 So far the changes are quite easy to do and existing tools provide them,
