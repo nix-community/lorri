@@ -714,7 +714,7 @@ where
                 LogDatum::CopiedSource(PathBuf::from(&matches["source"]))
             } else if let Some(matches) = LORRI_READ.captures(linestr) {
                 LogDatum::ReadRecursively(PathBuf::from(&matches["source"]))
-            } else if let Some(matches) = LORRI_READ.captures(linestr) {
+            } else if let Some(matches) = LORRI_READDIR.captures(linestr) {
                 LogDatum::ReadDir(PathBuf::from(&matches["source"]))
             } else {
                 LogDatum::Text(linestr.to_owned())
