@@ -18,6 +18,14 @@ external dependencies, editor integration, and quick feedback.
 
 lorri supports Linux and macOS.
 
+## Business Support
+
+We provide support to businesses who wish to use lorri in their development team
+or wish to pay for further improvements or set up support contracts.
+
+See [BUSINESS_SUPPORT.md](BUSINESS_SUPPORT.md) for further information
+and [ROADMAP.md](ROADMAP.md) for an overview of planned improvements that need funding.
+
 ## Demo
 
 This screencast shows lorri and direnv working together to reload the
