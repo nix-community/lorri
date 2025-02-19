@@ -1,4 +1,4 @@
-# Lorri Roadmap
+# ℓ lorri Roadmap
 
 Lorri-the-tool is broadly usable and is used widely both by enthusiasts and business developers.
 However, we think there is a lot of unexplored and valuable potential for nix workflows.
