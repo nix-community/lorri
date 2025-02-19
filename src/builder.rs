@@ -22,6 +22,7 @@ use std::future::Future;
 use std::os::unix::prelude::OsStrExt;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
+use std::sync::LazyLock;
 use tokio::fs::File;
 use tokio::io::BufReader;
 use tokio::process::{ChildStderr, ChildStdout, Command};
@@ -674,26 +675,30 @@ fn parse_evaluation_line<T>(line: T) -> LogDatum
 where
     T: AsRef<OsStr>,
 {
-    lazy_static::lazy_static! {
-        // These are the .nix files that are opened for evaluation.
-        static ref EVAL_FILE: Regex =
-            Regex::new("^evaluating file '(?P<source>.*)'$").expect("invalid regex!");
-        // When you reference a source file, nix copies it to the store and prints this.
-        // This the same is true for directories (e.g. `foo = ./abc` in a derivation).
-        static ref COPIED_SOURCE: Regex =
-            Regex::new("^copied source '(?P<source>.*)' -> '(?:.*)'$").expect("invalid regex!");
-        // These are printed for `builtins.readFile` and `builtins.filterSource`,
-        // by our instrumentation in `./logged-evaluation.nix`.
-        // They mean we should watch recursively this file or directory
-        static ref LORRI_READ: Regex =
-            Regex::new("^trace: lorri read: '(?P<source>.*)'$").expect("invalid regex!");
-        // These are printed for `builtins.readDir` and `builtins.filterSource`,
-        // by our instrumentation in `./logged-evaluation.nix`.
-        // They mean we should watch the file listing of this directory, but not
-        // its children.
-        static ref LORRI_READDIR: Regex =
-            Regex::new("^trace: lorri readdir: '(?P<source>.*)'$").expect("invalid regex!");
-    }
+    // These are the .nix files that are opened for evaluation.
+    static EVAL_FILE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new("^evaluating file '(?P<source>.*)'$").expect("invalid regex!"));
+
+    // When you reference a source file, nix copies it to the store and prints this. This the
+    // same is true for directories (e.g. `foo = ./abc` in a derivation).
+    static COPIED_SOURCE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new("^copied source '(?P<source>.*)' -> '(?:.*)'$").expect("invalid regex!")
+    });
+
+    // These are printed for `builtins.readFile` and `builtins.filterSource`,
+    // by our instrumentation in `./logged-evaluation.nix`.
+    // They mean we should watch recursively this file or directory
+    static LORRI_READ: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new("^trace: lorri read: '(?P<source>.*)'$").expect("invalid regex!")
+    });
+
+    // These are printed for `builtins.readDir` and `builtins.filterSource`,
+    // by our instrumentation in `./logged-evaluation.nix`.
+    // They mean we should watch the file listing of this directory, but not
+    // its children.
+    static LORRI_READDIR: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new("^trace: lorri readdir: '(?P<source>.*)'$").expect("invalid regex!")
+    });
 
     // see the regexes above for explanations of the nix outputs
     match line.as_ref().to_str() {
@@ -756,9 +761,12 @@ impl NixDevParser {
         // evaluating derivation 'git+file:///home/judson/dev/picklist#devShells.x86_64-linux.default'...
         // got tree '/nix/store/47b9j9bnhi1n7larnn6wy40xcyfbz9mr-source' from 'git+file:///home/judson/dev/picklist'
         // checking access to '/nix/store/47b9j9bnhi1n7larnn6wy40xcyfbz9mr-source/flake.nix'
-        lazy_static::lazy_static! {
-            static ref EVAL_DRV: Regex = Regex::new(r#"evaluating derivation '(?P<flake>git\+file://(?P<path>[^?]*)[^#]*)#\S*'\.\.\."#).expect("regex to compile!");
-        }
+        static EVAL_DRV: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(
+                r#"evaluating derivation '(?P<flake>git\+file://(?P<path>[^?]*)[^#]*)#\S*'\.\.\."#,
+            )
+            .expect("regex to compile!")
+        });
 
         for (re, path) in self.tree_rees.values() {
             if let Some(matches) = re.captures(line) {
