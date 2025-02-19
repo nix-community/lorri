@@ -1,23 +1,14 @@
-# lorri
-
-https://github.com/nix-community/lorri
-
-[![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
-[![CI](https://github.com/nix-community/lorri/actions/workflows/ci.yml/badge.svg)](https://github.com/nix-community/lorri/actions/workflows/ci.yml)
+# ℓ lorri
 
 lorri is a `nix-shell` replacement for project development. lorri is
 based around fast direnv integration for robust CLI and editor
 integration.
 
-When changes are made that would affect a project's developement shell,
+When changes are made that would affect a project's development shell,
 lorri builds the new shell in the background, and applies the result on the next
 shell prompt. The result is that development tools are kept in sync
 with the current Nix shell configuration (even e.g. as you switch branches)
 without blocking your use of the terminal.
-
-:point_right: **[Check out our blog post][lorri-blog-post] to see how lorri
-improves on the `nix-shell` experience during everyday development as well as
-in common scenarios like channel updates and Nix garbage collection.**
 
 lorri supports both `shell.nix` and `devShells` in `flake.nix` files.
 
@@ -287,6 +278,12 @@ Copyright 2019–2020 Target, Copyright 2021 The Nix Community
 License: Apache 2.0 (see [`LICENSE` file](./LICENSE))
 
 ---
+
+## Historical
+
+Lorri was originally started by [Tweag]() for [Target](https://target.com).
+See the [original announcement Blogpost](https://www.tweag.io/blog/2019-03-28-introducing-lorri/) (2018-03-28)
+for more details and a sense of the original feature set.
 
 ###### ASCII Art
 
