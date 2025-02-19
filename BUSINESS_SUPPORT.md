@@ -8,7 +8,9 @@ Business Support for lorri is provided by the lead developer of lorri,
 [@Profpatsch](https://github.com/nix-community/lorri/graphs/contributors),
 under the **Decent Software** moniker.
 
-📨 [Please contact us](mailto:philip@decentsoftware.de?subject=lorri Business Inquiry) for inquiries.
+📨 [Please contact us][mailto_contact] for inquiries.
+
+[mailto_contact]: mailto:philip@decentsoftware.de?subject=lorri%20Business%20Inquiry
 
 ## What we provide
 
