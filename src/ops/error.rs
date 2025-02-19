@@ -1,6 +1,6 @@
 //! Exit errors returned from an op.
 
-use structopt::clap;
+use clap;
 
 /// Non-zero exit status from an op.
 ///
@@ -115,8 +115,8 @@ impl From<std::io::Error> for ExitError {
     }
 }
 
-impl From<clap::Error> for ExitError {
-    fn from(err: clap::Error) -> Self {
+impl From<clap::error::Error> for ExitError {
+    fn from(err: clap::error::Error) -> Self {
         ExitError::user_error(err)
     }
 }

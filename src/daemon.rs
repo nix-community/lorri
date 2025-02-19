@@ -8,17 +8,21 @@ use crate::nix::options::NixOptions;
 use crate::ops::error::ExitError;
 use crate::project::ProjectFile;
 use crate::socket::communicate;
+use crate::socket::communicate::listener::Listener;
 use crate::socket::path::SocketPath;
 use crate::{AbsPathBuf, NixFile};
-use crossbeam_channel as chan;
 use slog::debug;
 use std::collections::HashMap;
+use tokio::sync::mpsc::{
+    channel, unbounded_channel, Receiver, Sender, UnboundedReceiver, UnboundedSender,
+};
+use tokio::task::JoinSet;
 
 #[derive(Debug, Clone)]
 /// Union of build_loop::Event and NewListener for internal use.
 pub enum LoopHandlerEvent {
     /// A new listener has joined for event streaming
-    NewListener(chan::Sender<Event>),
+    NewListener(Sender<Event>),
     /// Events from a BuildLoop
     BuildEvent(Event),
 }
@@ -41,9 +45,9 @@ pub struct IndicateActivity {
 pub struct Daemon {
     /// Sending end that we pass to every `BuildLoop` the daemon controls.
     // TODO: this needs to transmit information to identify the builder with
-    tx_build_events: chan::Sender<LoopHandlerEvent>,
-    rx_build_events: chan::Receiver<LoopHandlerEvent>,
-    mon_tx: chan::Sender<LoopHandlerEvent>,
+    tx_build_events: UnboundedSender<LoopHandlerEvent>,
+    rx_build_events: UnboundedReceiver<LoopHandlerEvent>,
+    mon_tx: Sender<LoopHandlerEvent>,
     /// Extra options to pass to each nix invocation
     extra_nix_options: NixOptions,
 }
@@ -52,9 +56,9 @@ impl Daemon {
     /// Create a new daemon. Also return an `chan::Receiver` that
     /// receives `LoopHandlerEvent`s for all builders this daemon
     /// supervises.
-    pub fn new(extra_nix_options: NixOptions) -> (Daemon, chan::Receiver<LoopHandlerEvent>) {
-        let (tx_build_events, rx_build_events) = chan::unbounded();
-        let (mon_tx, mon_rx) = chan::unbounded();
+    pub fn new(extra_nix_options: NixOptions) -> (Daemon, Receiver<LoopHandlerEvent>) {
+        let (tx_build_events, rx_build_events) = unbounded_channel();
+        let (mon_tx, mon_rx) = channel(10);
         (
             Daemon {
                 tx_build_events,
@@ -67,72 +71,65 @@ impl Daemon {
     }
 
     /// Serve the daemon's RPC endpoint.
-    pub fn serve(
-        &mut self,
+    pub async fn serve(
+        self,
         socket_path: &SocketPath,
         gc_root_dir: &AbsPathBuf,
         cas: crate::cas::ContentAddressable,
         logger: &slog::Logger,
     ) -> Result<(), ExitError> {
-        let (tx_activity, rx_activity): (
-            chan::Sender<IndicateActivity>,
-            chan::Receiver<IndicateActivity>,
-        ) = chan::unbounded();
-
-        let mut pool = crate::thread::Pool::new(logger.clone());
-        let tx_build_events = self.tx_build_events.clone();
-
-        let server = server::Server::new(tx_activity, tx_build_events);
+        let (tx_activity, rx_activity): (Sender<IndicateActivity>, Receiver<IndicateActivity>) =
+            channel(10);
 
         let socket_path = socket_path.clone();
         let logger = logger.clone();
         let logger2 = logger.clone();
         let logger3 = logger.clone();
 
-        pool.spawn("accept-loop", move || {
-            server.listen(&socket_path, &logger).map(|n| n.never())
-        })?;
+        let server = server::Server::new(tx_activity, self.tx_build_events.clone());
+        let listener = Listener::new(&socket_path).await?;
+        tokio::spawn(server.listen(listener, logger));
 
-        let rx_build_events = self.rx_build_events.clone();
         let mon_tx = self.mon_tx.clone();
-        pool.spawn("build-loop", move || {
-            Self::build_loop(rx_build_events, mon_tx, &logger2);
-            Ok(())
-        })?;
+        let build_loop_hdl =
+            tokio::task::spawn(Self::build_loop(self.rx_build_events, mon_tx, logger2));
 
         let tx_build_events = self.tx_build_events.clone();
         let extra_nix_options = self.extra_nix_options.clone();
         let gc_root_dir = gc_root_dir.clone();
-        pool.spawn("build-instruction-handler", move || {
-            Self::build_instruction_handler(
-                tx_build_events,
-                extra_nix_options,
-                rx_activity,
-                &gc_root_dir,
-                cas,
-                &logger3,
-            );
-            Ok(())
-        })?;
+        let join_set = Self::build_instruction_handler(
+            tx_build_events,
+            extra_nix_options,
+            rx_activity,
+            &gc_root_dir,
+            cas,
+            &logger3,
+        )
+        .await;
 
-        pool.join_all_or_panic()?;
-
+        join_set.join_all().await;
+        build_loop_hdl.await.expect("build loop error");
         Ok(())
     }
 
-    fn build_loop(
-        rx_build_events: chan::Receiver<LoopHandlerEvent>,
-        mon_tx: chan::Sender<LoopHandlerEvent>,
-        logger: &slog::Logger,
+    async fn build_loop(
+        mut rx_build_events: UnboundedReceiver<LoopHandlerEvent>,
+        mon_tx: Sender<LoopHandlerEvent>,
+        logger: slog::Logger,
     ) {
         let mut project_states: HashMap<NixFile, Event> = HashMap::new();
-        let mut event_listeners: Vec<chan::Sender<Event>> = Vec::new();
+        let mut event_listeners: Vec<Sender<Event>> = Vec::new();
 
-        for msg in rx_build_events {
+        loop {
+            let Some(msg) = rx_build_events.recv().await else {
+                break;
+            };
             mon_tx
                 .send(msg.clone())
+                .await
                 .expect("listener still to be there");
-            match &msg {
+            // blocking because we want to call `tx.blocking_send` inside `Vec::retain`
+            tokio::task::block_in_place(|| match &msg {
                 LoopHandlerEvent::BuildEvent(ev) => match ev {
                     Event::SectionEnd => (),
                     Event::Started { nix_file, .. }
@@ -140,7 +137,7 @@ impl Daemon {
                     | Event::Failure { nix_file, .. } => {
                         project_states.insert(nix_file.clone(), ev.clone());
                         event_listeners.retain(|tx| {
-                            let keep = tx.send(ev.clone()).is_ok();
+                            let keep = tx.blocking_send(ev.clone()).is_ok();
                             debug!(logger,"Sent"; "event" => ?ev, "keep" => keep);
                             keep
                         })
@@ -149,7 +146,7 @@ impl Daemon {
                 LoopHandlerEvent::NewListener(tx) => {
                     debug!(logger, "adding listener");
                     let keep = project_states.values().all(|event| {
-                        let keeping = tx.send(event.clone()).is_ok();
+                        let keeping = tx.blocking_send(event.clone()).is_ok();
                         debug!(logger, "Sent snapshot"; "event" => ?&event, "keep" => keeping);
                         keeping
                     });
@@ -158,35 +155,38 @@ impl Daemon {
                         event_listeners.push(tx.clone());
                     }
                     event_listeners.retain(|tx| {
-                        let keep = tx.send(Event::SectionEnd).is_ok();
+                        let keep = tx.blocking_send(Event::SectionEnd).is_ok();
                         debug!(logger, "Sent new listener sectionend"; "keep" => keep);
                         keep
                     })
                 }
-            }
+            })
         }
     }
 
-    fn build_instruction_handler(
-        // TODO: use the pool here
-        // pool: &mut crate::thread::Pool,
-        tx_build_events: chan::Sender<LoopHandlerEvent>,
+    async fn build_instruction_handler(
+        tx_build_events: UnboundedSender<LoopHandlerEvent>,
         extra_nix_options: NixOptions,
-        rx_activity: chan::Receiver<IndicateActivity>,
+        mut rx_activity: Receiver<IndicateActivity>,
         gc_root_dir: &AbsPathBuf,
         cas: crate::cas::ContentAddressable,
         logger: &slog::Logger,
-    ) {
+    ) -> JoinSet<()> {
         // A thread for each `BuildLoop`, keyed by the nix files listened on.
-        let mut handler_threads: HashMap<NixFile, chan::Sender<()>> = HashMap::new();
+        let mut handler_threads: HashMap<NixFile, Sender<()>> = HashMap::new();
+
+        let mut join_set = JoinSet::new();
 
         // For each build instruction, add the corresponding file
         // to the watch list.
-        for IndicateActivity {
-            project_file,
-            rebuild,
-        } in rx_activity
-        {
+        loop {
+            let Some(IndicateActivity {
+                project_file,
+                rebuild,
+            }) = rx_activity.recv().await
+            else {
+                break;
+            };
             let project = crate::project::Project::new(project_file, gc_root_dir, cas.clone())
                 // TODO: the project needs to create its gc root dir
                 .unwrap();
@@ -194,58 +194,52 @@ impl Daemon {
             let key = project.file.as_nix_file().clone();
             let project_is_watched = handler_threads.get(&key);
 
-            let send_ping =
-                |to: &chan::Sender<()>| to.send(()).expect("could not ping the build loop");
-
             match (project_is_watched, rebuild) {
                 (Some(builder), communicate::Rebuild::Always) => {
                     debug!(logger, "triggering rebuild"; "project" => key, "cause" => "unconditional ping");
-                    send_ping(builder)
+                    builder
+                        .send(())
+                        .await
+                        .expect("could not ping the build loop");
                 }
                 (Some(_), communicate::Rebuild::OnlyIfNotYetWatching) => {
                     debug!(logger, "skipping rebuild"; "project" => key, "cause" => "already watching");
                 }
                 // only add if there is no no build_loop for this file yet.
                 (None, _) => {
-                    let (tx_ping, rx_ping) = chan::unbounded();
+                    let (tx_ping, rx_ping) = channel(10);
                     // cloning the tx means the daemon’s rx gets all
                     // messages from all builders.
                     let tx_build_events = tx_build_events.clone();
                     let extra_nix_options = extra_nix_options.clone();
                     let logger = logger.clone();
                     let logger2 = logger.clone();
-                    // TODO: how to use the pool here?
-                    // We cannot just spawn new threads once messages come in,
-                    // because then then pool objects is stuck in this loop
-                    // and will never start to wait for joins, which means
-                    // we don’t catch panics as they happen!
-                    // If we can get the pool to “wait for join but also spawn new
-                    // thread when you get a message” that could work!
-                    // pool.spawn(format!("build_loop for {}", nix_file.display()),
-                    let _ = std::thread::spawn(move || {
-                        match BuildLoop::new(&project, extra_nix_options, logger) {
-                            Ok(mut build_loop) => {
-                                build_loop.forever(tx_build_events, rx_ping).never()
-                            }
-                            Err(err) =>
-                            // TODO: omg this is so bad, too many layers of wrapping
-                            {
-                                tx_build_events
-                                    .send(LoopHandlerEvent::BuildEvent(Event::Failure {
-                                        nix_file: project.file.as_nix_file(),
-                                        failure: crate::builder::BuildError::Io {
-                                            msg: err
-                                                .context(format!(
-                                                    "could not start the watcher for {}",
-                                                    &project.file.as_nix_file().display()
-                                                ))
-                                                .to_string(),
-                                        },
-                                    }))
-                                    .expect("rx_build_events hung up")
-                            }
+                    let project_file = project.file.as_nix_file();
+
+                    match BuildLoop::new(project, extra_nix_options, logger) {
+                        Ok(build_loop) => {
+                            let _ = join_set.spawn(async move {
+                                build_loop.forever(tx_build_events, rx_ping).await
+                            });
                         }
-                    });
+                        Err(err) =>
+                        // TODO: omg this is so bad, too many layers of wrapping
+                        {
+                            tx_build_events
+                                .send(LoopHandlerEvent::BuildEvent(Event::Failure {
+                                    nix_file: project_file.clone(),
+                                    failure: crate::builder::BuildError::Io {
+                                        msg: err
+                                            .context(format!(
+                                                "could not start the watcher for {}",
+                                                &project_file.display()
+                                            ))
+                                            .to_string(),
+                                    },
+                                }))
+                                .expect("rx_build_events hung up")
+                        }
+                    }
 
                     let e = handler_threads.insert(key.clone(), tx_ping.clone());
                     match e {
@@ -255,9 +249,14 @@ impl Daemon {
                         }
                     }
                     debug!(logger2, "triggering rebuild"; "project" => key, "cause" => "new project");
-                    send_ping(&tx_ping);
+                    tx_ping
+                        .send(())
+                        .await
+                        .expect("could not ping the build loop");
                 }
             }
         }
+
+        join_set
     }
 }

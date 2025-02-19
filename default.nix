@@ -28,12 +28,6 @@ cargoLorri.override {
       # add man and doc outputs to put our documentation into
       outputs = cargoLorri.outputs ++ [ "man" "doc" ];
 
-      # This is implicitely set by `builtins.fetchGit`
-      # (which we use in `src/ops/upgrade/upgrade.nix`).
-      # So if a user upgrades from a branch of the repository,
-      # it will return a revCount. Default to `1` for e.g.
-      # `self-upgrade local`.
-      BUILD_REV_COUNT = src.revCount or 1;
       RUN_TIME_CLOSURE = pkgs.callPackage ./nix/runtime.nix {};
       NIX_PATH = "nixpkgs=${./nix/bogus-nixpkgs}";
 

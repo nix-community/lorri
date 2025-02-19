@@ -6,6 +6,34 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
+	version = 1065;
+	changes = ''
+	  Improved the crash error message, providing an easier way to open an issue
+	  on Github by clicking a link.
+	'';
+      }
+      {
+        version = 1062;
+        changes = ''
+          Removed the `self-upgrade` subcommand.
+          Please use official distributions like nixos to install lorri.
+
+          If you need to test out lorri locally, you can run
+          `nix-build && nix-env -i ./result` from within the lorri project directory,
+          which installs it into your local nix profile.
+        '';
+      }
+      {
+        version = 1055;
+        changes = ''
+          Rewrote the lorri codebase to use the tokio async library in many
+          places.
+
+          This should be a pure invisible change that improves lorri’s
+          longer-term maintainability, but might lead to some bugs.
+        '';
+      }
+      {
         version = 957;
         changes = ''
           Add support for Nix Flakes. Lorri will still prefer a shell.nix by

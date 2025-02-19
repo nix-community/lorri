@@ -2,12 +2,9 @@
 # nix-build ./ci.nix; ./result
 { pkgs ? import ../../nix/nixpkgs-stable.nix {} }:
 let
-  checkout = { fetch-depth ? null }: {
+  checkout = { }: {
     name = "Checkout";
     uses = "actions/checkout@v4";
-    "with" = {
-      inherit fetch-depth;
-    };
   };
   setup-nix = {
     name = "Nix";
@@ -45,8 +42,39 @@ let
   };
 
   builds = {
-    rust = { runs-on }: {
-      name = "rust-${runs-on}";
+    simple-checks = { sort, runs-on }: {
+      name = "j${sort}-simple-checks";
+      value = {
+        name = "Simple Checks";
+        inherit runs-on;
+        steps = [
+          (checkout {})
+          setup-nix
+          setup-cachix
+          add-rustc-to-path
+          print-path
+          {
+            name = "Build simple checks";
+            run = ''
+              nix-build \
+                --out-link ./simple-tests \
+                --arg isDevelopmentShell false \
+                -A ci.testsuite-simple-checks \
+                shell.nix
+            '';
+          }
+          {
+            name = "Run simple checks";
+            run = ''
+              ./simple-tests
+            '';
+          }
+        ];
+      };
+    };
+
+    rust = { sort, runs-on }: {
+      name = "j${sort}-rust-${runs-on}";
       value = {
         name = "Rust and CI tests (${runs-on})";
         inherit runs-on;
@@ -77,18 +105,13 @@ let
       };
     };
 
-    stable = { runs-on }: {
-      name = "nix-build_stable-${runs-on}";
+    stable = { sort, runs-on }: {
+      name = "j${sort}-nix-build_stable-${runs-on}";
       value = {
         name = "nix-build [nixos stable] (${runs-on})";
         inherit runs-on;
         steps = [
-          (
-            checkout {
-              # required for lorri self-upgrade local
-              fetch-depth = 0;
-            }
-          )
+          (checkout {})
           setup-nix
           setup-cachix
           {
@@ -99,16 +122,12 @@ let
             name = "Install";
             run = "nix-env -i ./result";
           }
-          {
-            name = "Self-upgrade";
-            run = "lorri self-upgrade local \$(pwd)";
-          }
         ];
       };
     };
 
-    overlay = { runs-on }: {
-      name = "overlay-${runs-on}";
+    overlay = { sort, runs-on }: {
+      name = "j${sort}-overlay-${runs-on}";
       value = {
         name = "Overlay builds (${runs-on})";
         inherit runs-on;
@@ -136,12 +155,13 @@ let
 
     jobs = builtins.listToAttrs
     [
-      (builds.rust { runs-on = githubRunners.ubuntu; })
-      (builds.rust { runs-on = githubRunners.macos; })
-      (builds.stable { runs-on = githubRunners.ubuntu; })
-      (builds.stable { runs-on = githubRunners.macos; })
-      (builds.overlay { runs-on = githubRunners.ubuntu; })
-      (builds.overlay { runs-on = githubRunners.macos; })
+      (builds.simple-checks { sort = "01"; runs-on = githubRunners.ubuntu; })
+      (builds.rust { sort = "02"; runs-on = githubRunners.ubuntu; })
+      (builds.rust { sort = "12"; runs-on = githubRunners.macos; })
+      (builds.stable { sort = "03"; runs-on = githubRunners.ubuntu; })
+      (builds.stable { sort = "13"; runs-on = githubRunners.macos; })
+      (builds.overlay { sort = "04"; runs-on = githubRunners.ubuntu; })
+      (builds.overlay { sort = "14"; runs-on = githubRunners.macos; })
     ];
   };
 

@@ -15,7 +15,6 @@ let
     inherit
       pkgs
       LORRI_ROOT
-      BUILD_REV_COUNT
       RUN_TIME_CLOSURE
       ;
   };
@@ -25,9 +24,6 @@ let
 
   # The root directory of this project
   LORRI_ROOT = toString ./.;
-  # Needed by the lorri build.rs to determine its own version
-  # for the development repository (non-release), we set it to 1
-  BUILD_REV_COUNT = 1;
   # Needed by the lorri build.rs to access some tools used during
   # the build of lorri's environment derivations.
   RUN_TIME_CLOSURE = pkgs.callPackage ./nix/runtime.nix {};
@@ -80,7 +76,7 @@ pkgs.mkShell (
     name = "lorri";
     inherit buildInputs;
 
-    inherit BUILD_REV_COUNT RUN_TIME_CLOSURE;
+    inherit RUN_TIME_CLOSURE;
 
     inherit RUST_BACKTRACE;
 
