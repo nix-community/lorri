@@ -12,14 +12,11 @@
 #![allow(dropping_copy_types, clippy::zero_ptr)]
 
 #[macro_use]
-extern crate structopt;
-#[macro_use]
 extern crate serde_derive;
 
 pub mod build_loop;
 pub mod builder;
 pub mod cas;
-pub mod changelog;
 pub mod cli;
 pub mod constants;
 pub mod daemon;
@@ -29,9 +26,7 @@ pub mod ops;
 pub mod osstrlines;
 pub mod pathreduction;
 pub mod project;
-pub mod run_async;
 pub mod socket;
-pub mod thread;
 pub mod watch;
 
 use std::ffi::OsStr;
@@ -136,6 +131,11 @@ impl AbsPathBuf {
         self.0.display()
     }
 
+    /// Print a path to a json string, assuming it is UTF-8, converting any non-utf codeblocks to replacement characters
+    pub fn to_json_value(&self) -> serde_json::Value {
+        path_to_json_string(self.0.as_path())
+    }
+
     /// Joins a path to the end of this absolute path.
     /// If the path is absolute, it will replace this absolute path.
     pub fn join<P: AsRef<Path>>(&self, pb: P) -> Self {
@@ -182,13 +182,22 @@ impl NixFile {
     pub fn as_absolute_path(&self) -> &Path {
         self.0.as_path()
     }
-}
 
-impl NixFile {
     /// `display` the path.
     pub fn display(&self) -> std::path::Display {
         self.0.display()
     }
+
+    /// Print a path to a json string, assuming it is UTF-8, converting any non-utf codeblocks to replacement characters
+    pub fn to_json_value(&self) -> serde_json::Value {
+        path_to_json_string(self.0.as_path())
+    }
+}
+
+/// Print a path to a json string, assuming it is UTF-8, converting any non-utf codeblocks to replacement characters
+fn path_to_json_string(p: &Path) -> serde_json::Value {
+    let s = p.as_os_str().to_string_lossy().into_owned();
+    serde_json::json!(s)
 }
 
 impl From<AbsPathBuf> for NixFile {
@@ -222,17 +231,6 @@ impl DrvFile {
 impl From<PathBuf> for DrvFile {
     fn from(p: PathBuf) -> DrvFile {
         DrvFile(p)
-    }
-}
-
-/// Struct that will never be constructed (no elements).
-/// In newer rustc, this corresponds to the (compiler supported) `!` type.
-pub struct Never {}
-
-impl Never {
-    /// This will never be called, so we can return anything.
-    pub fn never<T>(&self) -> T {
-        panic!("can never be called");
     }
 }
 

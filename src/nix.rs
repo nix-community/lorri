@@ -10,7 +10,8 @@
 //!     contributions: usize
 //! }
 //!
-//! let output: Result<Vec<Author>, _> = nix::CallOpts::expression(r#"
+//! let output: Result<Vec<Author>, _> = tokio::runtime::Runtime::new().unwrap().block_on(async {
+//! nix::CallOpts::expression(r#"
 //!   { name }:
 //!   {
 //!     contributors = [
@@ -20,7 +21,9 @@
 //! "#)
 //!     .argstr("name", "Jill")
 //!     .attribute("contributors")
-//!     .value();
+//!     .value()
+//!     .await
+//! });
 //!
 //! assert_eq!(
 //!     output.unwrap(),
@@ -32,13 +35,16 @@
 
 use crate::builder::BuildError;
 use crate::osstrlines;
-use crossbeam_channel as chan;
 use slog::debug;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
+use std::future::Future;
+use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
-use std::process::{ChildStderr, ChildStdout, Command, ExitStatus, Stdio};
-use std::thread;
+use std::process::{ExitStatus, Stdio};
+use std::sync::mpsc::channel;
+use tokio::io::{AsyncReadExt, BufReader};
+use tokio::process::{ChildStderr, ChildStdout, Command};
 use vec1::Vec1;
 
 /// Construct and combine nix options to pass to nix executables.
@@ -80,14 +86,14 @@ impl From<PathBuf> for StorePath {
     }
 }
 
-impl From<&std::ffi::OsStr> for StorePath {
-    fn from(s: &std::ffi::OsStr) -> StorePath {
+impl From<&OsStr> for StorePath {
+    fn from(s: &OsStr) -> StorePath {
         StorePath(PathBuf::from(s.to_owned()))
     }
 }
 
-impl From<std::ffi::OsString> for StorePath {
-    fn from(s: std::ffi::OsString) -> StorePath {
+impl From<OsString> for StorePath {
+    fn from(s: OsString) -> StorePath {
         StorePath(PathBuf::from(s))
     }
 }
@@ -110,8 +116,10 @@ impl<'a> CallOpts<'a> {
     /// ```rust
     /// extern crate lorri;
     /// use lorri::nix;
-    /// let output: Result<u8, _> = nix::CallOpts::expression("let x = 5; in x")
-    ///     .value();
+    /// let output: Result<u8, _> = tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// nix::CallOpts::expression("let x = 5; in x")
+    ///     .value().await
+    /// });
     /// assert_eq!(
     ///   output.unwrap(), 5
     /// );
@@ -152,9 +160,11 @@ impl<'a> CallOpts<'a> {
     /// ```rust
     /// extern crate lorri;
     /// use lorri::nix;
-    /// let output: Result<u8, _> = nix::CallOpts::expression("let x = 5; in { a = x; }")
+    /// let output: Result<u8, _> = tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// nix::CallOpts::expression("let x = 5; in { a = x; }")
     ///     .attribute("a")
-    ///     .value();
+    ///     .value().await
+    /// });
     /// assert_eq!(
     ///   output.unwrap(), 5
     /// );
@@ -177,9 +187,11 @@ impl<'a> CallOpts<'a> {
     /// ```rust
     /// extern crate lorri;
     /// use lorri::nix;
-    /// let output: Result<String, _> = nix::CallOpts::expression(r#"{ name }: "Hello, ${name}!""#)
+    /// let output: Result<String, _> = tokio::runtime::Runtime::new().unwrap().block_on(async {
+    ///   nix::CallOpts::expression(r#"{ name }: "Hello, ${name}!""#)
     ///     .argstr("name", "Jill")
-    ///     .value();
+    ///     .value().await
+    /// });
     /// assert_eq!(
     ///   output.unwrap(), "Hello, Jill!"
     /// );
@@ -207,7 +219,8 @@ impl<'a> CallOpts<'a> {
     ///     contributions: usize
     /// }
     ///
-    /// let output: Result<Vec<Author>, _> = nix::CallOpts::expression(r#"
+    /// let output: Result<Vec<Author>, _> = tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// nix::CallOpts::expression(r#"
     ///   { name }:
     ///   {
     ///     contributors = [
@@ -217,7 +230,8 @@ impl<'a> CallOpts<'a> {
     /// "#)
     ///     .argstr("name", "Jill")
     ///     .attribute("contributors")
-    ///     .value();
+    ///     .value().await
+    /// });
     ///
     /// assert_eq!(
     ///     output.unwrap(),
@@ -226,17 +240,22 @@ impl<'a> CallOpts<'a> {
     ///     ]
     /// );
     /// ```
-    pub fn value<T: 'static>(&self) -> Result<T, BuildError>
+    pub async fn value<T: 'static>(&self) -> Result<T, BuildError>
     where
         T: Send + serde::de::DeserializeOwned,
     {
         let mut cmd = Command::new("nix-instantiate");
         cmd.args(["--eval", "--json", "--strict"]);
         cmd.args(self.command_arguments());
-        self.execute(cmd, move |stdout_handle| {
-            serde_json::from_reader::<_, T>(stdout_handle)
-        })?
-        .map_err(BuildError::io)
+        self.execute(cmd, move |stdout_handle| async {
+            let mut stdin = stdout_handle.take(1_000_000);
+            let mut buf = vec![];
+            let _size = stdin.read_to_end(&mut buf).await?;
+            let buf2 = buf.trim_ascii_end();
+            let res = serde_json::from_slice::<T>(buf2)?;
+            Ok(res)
+        })
+        .await?
     }
 
     /// Build the expression and return a path to the build result:
@@ -248,13 +267,14 @@ impl<'a> CallOpts<'a> {
     /// # use std::env;
     /// # env::set_var("NIX_PATH", "nixpkgs=./nix/bogus-nixpkgs/");
     ///
-    /// let (location, gc_root) = nix::CallOpts::expression(r#"
+    /// let (location, gc_root) = tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// nix::CallOpts::expression(r#"
     ///             import <nixpkgs> {}
     /// "#)
     ///         .attribute("hello")
-    ///         .path(&lorri::logging::test_logger("doctest_path_1"))
+    ///         .path(&lorri::logging::test_logger("doctest_path_1")).await
     ///         .unwrap()
-    ///         ;
+    ///  });
     ///
     /// let location = location.as_path().to_string_lossy().into_owned();
     /// println!("{:?}", location);
@@ -279,18 +299,23 @@ impl<'a> CallOpts<'a> {
     /// # use std::env;
     /// # env::set_var("NIX_PATH", "nixpkgs=./nix/bogus-nixpkgs/");
     ///
-    /// let paths = nix::CallOpts::expression(r#"
+    /// let paths = tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// nix::CallOpts::expression(r#"
     ///             { inherit (import <nixpkgs> {}) hello git; }
     /// "#)
-    ///         .path(&lorri::logging::test_logger("doctest_path_2"));
+    ///         .path(&lorri::logging::test_logger("doctest_path_2")).await
+    /// });
     ///
     /// match paths {
     ///    Err(BuildError::Output { .. }) => {},
     ///    otherwise => panic!("{:?}", otherwise)
     /// }
     /// ```
-    pub fn path(&self, logger: &slog::Logger) -> Result<(StorePath, GcRootTempDir), BuildError> {
-        let (pathsv1, gc_root) = self.paths(logger)?;
+    pub async fn path(
+        &self,
+        logger: &slog::Logger,
+    ) -> Result<(StorePath, GcRootTempDir), BuildError> {
+        let (pathsv1, gc_root) = self.paths(logger).await?;
         let mut paths = pathsv1.into_vec();
 
         match (paths.pop(), paths.pop()) {
@@ -319,11 +344,14 @@ impl<'a> CallOpts<'a> {
     /// # use std::env;
     /// # env::set_var("NIX_PATH", "nixpkgs=./nix/bogus-nixpkgs/");
     ///
-    /// let (paths, gc_root) = nix::CallOpts::expression(r#"
+    /// let (paths, gc_root) = tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// nix::CallOpts::expression(r#"
     ///             { inherit (import <nixpkgs> {}) hello git; }
     /// "#)
     ///         .paths(&lorri::logging::test_logger("doctest_paths"))
-    ///         .unwrap();
+    ///         .await
+    ///         .unwrap()
+    /// });
     /// let mut paths = paths
     ///         .into_iter()
     ///         .map(|path| { println!("{:?}", path); format!("{:?}", path) });
@@ -331,7 +359,7 @@ impl<'a> CallOpts<'a> {
     /// assert!(paths.next().unwrap().contains("hello-"));
     /// drop(gc_root);
     /// ```
-    pub fn paths(
+    pub async fn paths(
         &self,
         logger: &slog::Logger,
     ) -> Result<(Vec1<StorePath>, GcRootTempDir), BuildError> {
@@ -352,11 +380,20 @@ impl<'a> CallOpts<'a> {
 
         debug!(logger, "nix-build"; "command" => ?cmd);
 
-        let paths: Vec<StorePath> = self.execute(cmd, move |stdout_handle| {
-            osstrlines::Lines::from(stdout_handle)
-                .map(|line| line.map(StorePath::from))
-                .collect::<Result<Vec<StorePath>, _>>()
-        })??;
+        let paths: Vec<StorePath> = self
+            .execute(cmd, move |stdout_handle| async {
+                let mut lines = osstrlines::Lines::from(BufReader::new(stdout_handle));
+                let mut res = vec![];
+                loop {
+                    match lines.next().await {
+                        None => break,
+                        Some(Err(e)) => return Err(e),
+                        Some(Ok(a)) => res.push(StorePath::from(a)),
+                    }
+                }
+                Ok(res)
+            })
+            .await??;
 
         if let Ok(vec1) = Vec1::try_from_vec(paths) {
             Ok((vec1, GcRootTempDir(gc_root_dir)))
@@ -370,52 +407,58 @@ impl<'a> CallOpts<'a> {
     /// Execute a command (presumably a Nix command :)). stderr output
     /// is passed line-based to the CallOpts' stderr_line_tx receiver.
     /// Stdout is passed as a BufReader to `stdout_fn`.
-    fn execute<T: 'static, S: 'static>(
+    async fn execute<T: 'static, S: 'static, F: 'static>(
         &self,
         mut cmd: Command,
         stdout_fn: S,
     ) -> Result<T, BuildError>
     where
-        S: Send + Fn(std::io::BufReader<ChildStdout>) -> T,
+        S: Send + Fn(BufReader<ChildStdout>) -> F,
         T: Send,
+        F: Future<Output = T> + Send,
     {
         cmd.stderr(Stdio::piped());
         cmd.stdout(Stdio::piped());
 
         // 0. spawn the process
         let mut nix_proc = cmd.spawn().map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => BuildError::spawn(&cmd, e),
+            ErrorKind::NotFound => BuildError::spawn(&cmd, e),
             _ => BuildError::io(e),
         })?;
 
         // 1. spawn a stderr handling thread
-        let (stderr_tx, stderr_rx) = chan::unbounded();
+        let (stderr_tx, stderr_rx) = channel();
         let stderr_handle: ChildStderr = nix_proc.stderr.take().expect("failed to take stderr");
-        let stderr_thread = thread::spawn(move || {
-            let reader = osstrlines::Lines::from(std::io::BufReader::new(stderr_handle));
-            for line in reader {
-                stderr_tx
-                    .send(line.unwrap())
-                    .expect("Receiver for nix.rs hung up");
+        let stderr_thread = tokio::spawn(async move {
+            let mut reader = osstrlines::Lines::from(BufReader::new(stderr_handle));
+            loop {
+                match reader.next().await {
+                    None => break,
+                    Some(line) => {
+                        stderr_tx
+                            .send(line.unwrap())
+                            .expect("Receiver for nix.rs hung up");
+                    }
+                }
             }
         });
 
         // 2. spawn a stdout handling thread (?)
         let stdout_handle: ChildStdout = nix_proc.stdout.take().expect("failed to take stdout");
         let stdout_thread =
-            thread::spawn(move || stdout_fn(std::io::BufReader::new(stdout_handle)));
+            tokio::spawn(async move { stdout_fn(BufReader::new(stdout_handle)).await });
 
         // 3. wait on the process
-        let nix_proc_result = nix_proc.wait()?;
+        let nix_proc_result = nix_proc.wait().await?;
 
         // 4. join the stderr handler
         stderr_thread
-            .join()
+            .await
             .expect("stderr handling thread panicked");
 
         // 5. join the stdout handler
         let data_result = stdout_thread
-            .join()
+            .await
             .expect("stderr handling thread panicked");
 
         if !nix_proc_result.success() {
@@ -474,7 +517,7 @@ impl<'a> CallOpts<'a> {
 #[derive(Debug)]
 pub enum EvaluationError {
     /// A system-level IO error occured while executing Nix.
-    Io(std::io::Error),
+    Io(Error),
 
     /// Nix commands not on PATH
     NixNotFound,
@@ -487,8 +530,8 @@ pub enum EvaluationError {
     Decoding(serde_json::Error),
 }
 
-impl From<std::io::Error> for EvaluationError {
-    fn from(e: std::io::Error) -> EvaluationError {
+impl From<Error> for EvaluationError {
+    fn from(e: Error) -> EvaluationError {
         EvaluationError::Io(e)
     }
 }

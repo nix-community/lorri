@@ -1,4 +1,4 @@
-{ pkgs, LORRI_ROOT, BUILD_REV_COUNT, RUN_TIME_CLOSURE }:
+{ pkgs, LORRI_ROOT, RUN_TIME_CLOSURE }:
 let
 
   lib = pkgs.lib;
@@ -104,7 +104,6 @@ let
     ])
     ++ [
       "export" "RUST_BACKTRACE" "full"
-      "export" "BUILD_REV_COUNT" (toString BUILD_REV_COUNT)
       "export" "RUN_TIME_CLOSURE" RUN_TIME_CLOSURE
     ];
 
@@ -117,21 +116,6 @@ let
   # If a test changes files in the repository, sandbox it.
 
   tests = {
-
-    shellcheck =
-      let files = [
-        "nix/bogus-nixpkgs/builder.sh"
-        "src/ops/direnv/envrc.bash"
-      ];
-      in {
-        description = "shellcheck ${pkgs.lib.concatStringsSep " and " files}";
-        test = allCommandsSucceed "lint-shellcheck-all" (map shellcheck files);
-      };
-
-    cargo-fmt = {
-      description = "cargo fmt was done";
-      test = writeCargo "lint-cargo-fmt" [] [ "fmt" "--" "--check" ];
-    };
 
     # TODO: it would be good to sandbox this (it changes files in the tree)
     # can crate2nix generate nix files without any compilation?
@@ -159,25 +143,6 @@ let
     };
 
 
-    lint-manpage = offlineCheck.test {
-      name = "lint-manpage";
-      description = "lint the manpage";
-      test = { ok, err }: pkgs.writers.writeDash "mandoc-lint" ''
-        lint_warnings="$(
-          ${bins.mandoc} -Tlint < ${../../lorri.1} \
-            | ${bins.sed} -e '/referenced manual not found/d'
-        )"
-
-        # only succeed if theer were no warnings
-        if [ ! -z "$lint_warnings" ]; then
-          echo "$lint_warnings" >&2
-          ${err}
-        else
-          ${ok}
-        fi
-      '';
-    };
-
     cargo-test = {
       description = "run cargo test";
       test = writeCargo "cargo-test"
@@ -199,6 +164,47 @@ let
         "if" [ "cargo-clippy" "--version" ]
         "export" "RUSTFLAGS" "-D warnings"
       ] [ "clippy" "--offline" ];
+    };
+
+  };
+
+  # Tests that don’t need to be run on different CI runners,
+  # and that don’t take a long time to be red (so we don’t have to wait for them).
+  # Also tests that are somewhat annoying but should be fixed nonetheless.
+  tests-simple-checks = {
+
+    shellcheck =
+      let files = [
+        "nix/bogus-nixpkgs/builder.sh"
+        "src/ops/direnv/envrc.bash"
+      ];
+      in {
+        description = "shellcheck ${pkgs.lib.concatStringsSep " and " files}";
+        test = allCommandsSucceed "lint-shellcheck-all" (map shellcheck files);
+      };
+
+    cargo-fmt = {
+      description = "cargo fmt was done";
+      test = writeCargo "lint-cargo-fmt" [] [ "fmt" "--" "--check" ];
+    };
+
+    lint-manpage = offlineCheck.test {
+      name = "lint-manpage";
+      description = "lint the manpage";
+      test = { ok, err }: pkgs.writers.writeDash "mandoc-lint" ''
+        lint_warnings="$(
+          ${bins.mandoc} -Tlint < ${../../lorri.1} \
+            | ${bins.sed} -e '/referenced manual not found/d'
+        )"
+
+        # only succeed if theer were no warnings
+        if [ ! -z "$lint_warnings" ]; then
+          echo "$lint_warnings" >&2
+          ${err}
+        else
+          ${ok}
+        fi
+      '';
     };
 
   };
@@ -318,6 +324,7 @@ let
 
 in {
   testsuite = batsScript "run-testsuite" limitedTests;
+  testsuite-simple-checks = batsScript "run-testsuite-simple-checks" tests-simple-checks;
 
   # we want the single test attributes to have their environment emptied as well.
   tests = testsWithEmptyEnv;

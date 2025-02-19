@@ -235,15 +235,6 @@ not expect. This can happen for a number of reasons:
 
 ---
 
-## Upgrading
-
-Upgrading lorri is easy with the `lorri self-upgrade` command.
-
-By default, the upgrade command will upgrade from the `canon` branch.
-
-Other upgrade options are available, including upgrading from a
-local clone. See `lorri self-upgrade --help` for more details.
-
 ## Evaluator + watch design
 
 The evaluator should eagerly reevaluate the Nix expressions as soon as

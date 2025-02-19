@@ -9,13 +9,12 @@
 //! `client` implements a set of clients specialized to the communications
 //! we support.
 
-use std::os::unix::net::UnixStream;
 use thiserror::Error;
 
 use crate::build_loop;
 use crate::ops::error::{ExitAs, ExitErrorType};
 use crate::project::ProjectFile;
-use crate::socket::path::{BindError, BindLock, SocketPath};
+use crate::socket::path::{BindError, SocketPath};
 use crate::socket::read_writer::{ReadWriteError, ReadWriter, Timeout};
 
 /// We declare 1s as the time readers should wait
@@ -107,7 +106,9 @@ impl Handler for StreamEvents {
 /// `Listener` and possible errors.
 pub mod listener {
     use super::*;
-    use std::os::unix::net::UnixListener;
+    use nix::fcntl::Flock;
+    use std::fs::File;
+    use tokio::net::{UnixListener, UnixStream};
 
     /// If a connection on the socket is attempted and the first
     /// message is of a `ConnectionType`, the `Listener` returns
@@ -127,7 +128,7 @@ pub mod listener {
         // it is released when `Listener`’s lifetime ends.
         // We can ignore the “dead code” warning.
         #[allow(dead_code)]
-        bind_lock: BindLock,
+        bind_lock: Flock<File>,
         /// How long to wait for the client to send its
         /// first message after opening the connection.
         accept_timeout: Timeout,
@@ -140,8 +141,8 @@ pub mod listener {
     pub struct Connection {
         /// The kind of communication the client requested us to talk to it.
         pub communication_type: CommunicationType,
-        /// The handlers, being able to
-        pub handlers: Handlers,
+        /// socket
+        pub socket: UnixStream,
     }
 
     /// Errors in `accept()`ing a new connection.
@@ -155,8 +156,8 @@ pub mod listener {
 
     impl Listener {
         /// Create a new `daemon` by binding to `socket_path`.
-        pub fn new(socket_path: &SocketPath) -> Result<Listener, BindError> {
-            let (l, lock) = socket_path.bind()?;
+        pub async fn new(socket_path: &SocketPath) -> Result<Listener, BindError> {
+            let (l, lock) = socket_path.bind().await?;
             Ok(Listener {
                 listener: l,
                 bind_lock: lock,
@@ -168,44 +169,47 @@ pub mod listener {
         /// then return the open socket.
         ///
         /// This method blocks until a client tries to connect.
-        pub fn accept(&self) -> Result<Connection, AcceptError> {
+        pub async fn accept(&self) -> Result<Connection, AcceptError> {
             // - socket accept
-            let (unix_stream, _) = self.listener.accept().map_err(AcceptError::Accept)?;
+            let (unix_stream, _) = self.listener.accept().await.map_err(AcceptError::Accept)?;
             // - read first message as a `CommunicationType`
-            let communication_type: CommunicationType =
-                ReadWriter::<CommunicationType, ConnectionAccepted>::new(&unix_stream)
-                    .react(self.accept_timeout, |_| ConnectionAccepted())
-                    .map_err(AcceptError::Message)?;
+            let mut rw = ReadWriter::<CommunicationType, ConnectionAccepted>::new(unix_stream);
+            let communication_type: CommunicationType = rw
+                .react(self.accept_timeout, |_| ConnectionAccepted())
+                .await
+                .map_err(AcceptError::Message)?;
+            let socket = rw.into_inner();
             // spawn a thread with the accept handler
             Ok(Connection {
-                handlers: Handlers {
-                    socket: unix_stream,
-                },
+                socket,
                 communication_type,
             })
         }
     }
 
-    /// A wrapper that is returned by accept and provides a `ReadWriter` for each of the `CommunicationType`s.
-    pub struct Handlers {
-        socket: UnixStream,
-    }
-
     /// All handlers we have available to read messages and reply.
-    impl Handlers {
+    pub mod handlers {
+        use crate::socket::communicate::*;
+        use crate::socket::read_writer::ReadWriter;
+        use tokio::net::UnixStream;
+
         /// React to a DaemonInfo message
-        pub fn daemon_info(&self) -> ReadWriter<DaemonInfo, <DaemonInfo as Handler>::Resp> {
-            ReadWriter::new(&self.socket)
+        pub fn daemon_info(
+            socket: UnixStream,
+        ) -> ReadWriter<DaemonInfo, <DaemonInfo as Handler>::Resp> {
+            ReadWriter::new(socket)
         }
 
         /// React to a ping message
-        pub fn ping(&self) -> ReadWriter<Ping, <Ping as Handler>::Resp> {
-            ReadWriter::new(&self.socket)
+        pub fn ping(socket: UnixStream) -> ReadWriter<Ping, <Ping as Handler>::Resp> {
+            ReadWriter::new(socket)
         }
 
         /// Stream events to the client as they happen
-        pub fn stream_events(&self) -> ReadWriter<StreamEvents, <StreamEvents as Handler>::Resp> {
-            ReadWriter::new(&self.socket)
+        pub fn stream_events(
+            socket: UnixStream,
+        ) -> ReadWriter<StreamEvents, <StreamEvents as Handler>::Resp> {
+            ReadWriter::new(socket)
         }
     }
 }
@@ -220,6 +224,7 @@ pub mod listener {
 pub mod client {
     use super::*;
     use std::marker::PhantomData;
+    use tokio::net::UnixStream;
 
     /// A `Client` that can talk to a `Listener`.
     pub struct Client<R, W> {
@@ -278,12 +283,12 @@ pub mod client {
 
     /// Create a Client for a given `Handler` type.
     /// Every enum in `CommunicationType` will have an instance for the type,
-    /// named after the request (e.g. `CommunicationType::Ping` has a handler instance for `Ping`.
-    pub fn new<T>(timeout: Timeout) -> client::Client<T::Resp, T>
+    /// named after the request (e.g. `CommunicationType::Ping` has a handler instance for `Ping`).
+    pub fn new<T>(timeout: Timeout) -> Client<T::Resp, T>
     where
         T: Handler,
     {
-        client::Client::bake(timeout, T::communication_type())
+        Client::bake(timeout, T::communication_type())
     }
 
     // builder pattern for timeouts?
@@ -303,23 +308,31 @@ pub mod client {
 
         /// Connect to the `Listener` listening on `socket_path`.
         /// TODO: remove the split between new() and connect(), and then remove `Error::NotConnected`
-        pub fn connect(self, socket_path: &SocketPath) -> Result<Client<R, W>, InitError> {
+        pub async fn connect(self, socket_path: &SocketPath) -> Result<Client<R, W>, InitError> {
             // TODO: check if the file exists and is a socket
 
             // - connect to `socket_path`
             let socket = socket_path
                 .connect()
+                .await
                 .map_err(|e| InitError::SocketConnect(socket_path.clone(), e))?;
 
             // - send initial message with the CommunicationType
             // - wait for server to acknowledge connect
-            let _: listener::ConnectionAccepted = ReadWriter::new(&socket)
-                .communicate(self.timeout, &self.comm_type)
+            let mut rw = ReadWriter::new(socket);
+            let (_, _): (Timeout, listener::ConnectionAccepted) = rw
+                .communicate(
+                    // The first connection does not use the read/write timeout
+                    // because we never want to block indefinitely on the daemon on first connect
+                    Timeout::from_millis(1000),
+                    &self.comm_type,
+                )
+                .await
                 .map_err(InitError::ServerHandshake)?;
 
             Ok(Client {
                 comm_type: self.comm_type,
-                socket: Some(socket),
+                socket: Some(rw.into_inner()),
                 timeout: self.timeout,
                 read_type: PhantomData,
                 write_type: PhantomData,
@@ -327,37 +340,49 @@ pub mod client {
         }
 
         /// Write a message to the connected `Listener`, then wait for the reply. The configured timeout counts for the whole roundtrip.
-        pub fn comunicate(&self, mes: &W) -> Result<R, Error>
+        pub async fn communicate(&mut self, mes: &W) -> Result<(Timeout, R), Error>
         where
             W: serde::Serialize,
             R: serde::de::DeserializeOwned,
         {
-            let sock = self.socket.as_ref().ok_or(Error::NotConnected)?;
+            let sock = self.socket.take().ok_or(Error::NotConnected)?;
             let mut rw: ReadWriter<R, W> = ReadWriter::new(sock);
-            rw.communicate(self.timeout, mes)
-                .map_err(|e| Error::Message(e))
+            let res = rw
+                .communicate(self.timeout, mes)
+                .await
+                .map_err(|e| Error::Message(e));
+            self.socket = Some(rw.into_inner());
+            res
         }
 
         /// Read a message returned by the connected `Listener`.
-        pub fn read(&self) -> Result<R, Error>
+        pub async fn read(&mut self) -> Result<R, Error>
         where
             R: serde::de::DeserializeOwned,
         {
-            let sock = self.socket.as_ref().ok_or(Error::NotConnected)?;
-            let rw: ReadWriter<R, W> = ReadWriter::new(sock);
-            rw.read(self.timeout)
-                .map_err(|e| Error::Message(ReadWriteError::R(e)))
+            let sock = self.socket.take().ok_or(Error::NotConnected)?;
+            let mut rw: ReadWriter<R, W> = ReadWriter::new(sock);
+            let res = rw
+                .read(self.timeout)
+                .await
+                .map_err(|e| Error::Message(ReadWriteError::R(e)))?;
+            self.socket = Some(rw.into_inner());
+            Ok(res.1)
         }
 
         /// Write a message to the connected `Listener`.
-        pub fn write(&self, mes: &W) -> Result<(), Error>
+        pub async fn write(&mut self, mes: &W) -> Result<(), Error>
         where
             W: serde::Serialize,
         {
-            let sock = self.socket.as_ref().ok_or(Error::NotConnected)?;
+            let sock = self.socket.take().ok_or(Error::NotConnected)?;
             let mut rw: ReadWriter<R, W> = ReadWriter::new(sock);
-            rw.write(self.timeout, mes)
-                .map_err(|e| Error::Message(ReadWriteError::W(e)))
+            let _timeout = rw
+                .write(self.timeout, mes)
+                .await
+                .map_err(|e| Error::Message(ReadWriteError::W(e)))?;
+            self.socket = Some(rw.into_inner());
+            Ok(())
         }
     }
 }

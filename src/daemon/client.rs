@@ -10,7 +10,7 @@ pub use crate::socket::communicate::{DaemonInfo, Ping, Rebuild, StreamEvents};
 pub use crate::socket::read_writer::Timeout;
 
 /// Create a connected client or exit.
-pub fn create<H>(
+pub async fn create<H>(
     paths: &Paths,
     timeout: Timeout,
     logger: &slog::Logger,
@@ -21,7 +21,9 @@ where
     let address = paths.daemon_socket_file().clone();
     debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
 
-    let client = communicate::client::new::<H>(timeout).connect(&SocketPath::from(address))?;
+    let client = communicate::client::new::<H>(timeout)
+        .connect(&SocketPath::from(address))
+        .await?;
 
     Ok(client)
 }

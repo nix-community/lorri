@@ -1,12 +1,15 @@
 use crate::direnvtestcase::{DirenvTestCase, DirenvValue};
 use std::collections::HashMap;
 
-#[test]
-fn bug97_varmap_leak() {
+#[tokio::test]
+async fn bug97_varmap_leak() {
     let mut testcase = DirenvTestCase::with_shell("bug97_varmap_leak");
-    testcase.evaluate().expect("Failed to build the first time");
+    testcase
+        .evaluate()
+        .await
+        .expect("Failed to build the first time");
 
-    let env = testcase.get_direnv_variables();
+    let env = testcase.get_direnv_variables().await;
 
     assert_eq!(env.get_env("preHook"), DirenvValue::Value("echo 'foo bar'"));
 

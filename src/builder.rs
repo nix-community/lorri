@@ -9,6 +9,7 @@
 
 use crate::cas::ContentAddressable;
 use crate::nix::{options::NixOptions, StorePath};
+use crate::project::RootPath;
 use crate::watch::WatchPathBuf;
 use crate::{osstrlines, AbsDirPathBuf, Installable};
 use crate::{DrvFile, NixFile};
@@ -16,13 +17,15 @@ use regex::Regex;
 use slog::{debug, trace};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
-use std::fs::File;
-use std::io::{self, BufReader};
+use std::fmt;
+use std::future::Future;
 use std::os::unix::prelude::OsStrExt;
 use std::path::PathBuf;
-use std::process::{ChildStderr, ChildStdout, Command, ExitStatus, Stdio};
+use std::process::{ExitStatus, Stdio};
 use std::sync::LazyLock;
-use std::{fmt, thread};
+use tokio::fs::File;
+use tokio::io::BufReader;
+use tokio::process::{ChildStderr, ChildStdout, Command};
 
 /// An error that can occur during a build.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -229,7 +232,7 @@ struct InstantiateOutput {
     output: RootedDrv,
 }
 
-fn instrumented_instantiation(
+async fn instrumented_instantiation(
     nix_file: &NixFile,
     cas: &ContentAddressable,
     extra_nix_options: &NixOptions,
@@ -295,25 +298,39 @@ fn instrumented_instantiation(
         .take()
         .expect("we must be able to access the stderr of nix-instantiate");
 
-    let stderr_results = thread::spawn(move || {
-        osstrlines::Lines::from(BufReader::new(stderr))
-            .map(|line| line.map(parse_evaluation_line))
-            .collect::<Result<Vec<LogDatum>, _>>()
+    let stderr_results = tokio::spawn(async move {
+        let mut lines = osstrlines::Lines::from(BufReader::new(stderr));
+        let mut res = vec![];
+        loop {
+            match lines.next().await {
+                None => break,
+                Some(Err(e)) => return Err(e),
+                Some(Ok(a)) => res.push(parse_evaluation_line(a)),
+            }
+        }
+        Ok(res)
     });
 
-    let build_products = thread::spawn(move || {
-        osstrlines::Lines::from(BufReader::new(stdout))
-            .map(|line| line.map(|os_string| DrvFile::from(PathBuf::from(os_string))))
-            .collect::<Result<Vec<DrvFile>, _>>()
+    let build_products = tokio::spawn(async move {
+        let mut lines = osstrlines::Lines::from(BufReader::new(stdout));
+        let mut res = vec![];
+        loop {
+            match lines.next().await {
+                None => break,
+                Some(Err(e)) => return Err(e),
+                Some(Ok(a)) => res.push(DrvFile::from(PathBuf::from(a))),
+            }
+        }
+        Ok(res)
     });
 
     let (exec_result, mut build_products, results) = (
-        child.wait()?,
+        child.wait().await?,
         build_products
-            .join()
+            .await
             .expect("Failed to join stdout processing thread")?,
         stderr_results
-            .join()
+            .await
             .expect("Failed to join stderr processing thread")?,
     );
 
@@ -379,8 +396,10 @@ struct BuildOutput {
 /// Builds the Nix expression in `root_nix_file`.
 ///
 /// Instruments the nix file to gain extra information, which is valuable even if the build fails.
-fn build(drv_path: DrvFile, logger: &slog::Logger) -> Result<BuildOutput, BuildError> {
-    let (path, gc_handle) = crate::nix::CallOpts::file(drv_path.as_path()).path(logger)?;
+async fn build(drv_path: DrvFile, logger: &slog::Logger) -> Result<BuildOutput, BuildError> {
+    let (path, gc_handle) = crate::nix::CallOpts::file(drv_path.as_path())
+        .path(logger)
+        .await?;
     Ok(BuildOutput {
         output: RootedPath {
             gc_handle,
@@ -410,14 +429,15 @@ pub struct RunResult {
 ///
 /// Instruments the nix file to gain extra information,
 /// which is valuable even if the build fails.
-pub fn run(
+pub async fn run(
     root_nix_file: &NixFile,
     cas: &ContentAddressable,
     extra_nix_options: &NixOptions,
     logger: &slog::Logger,
 ) -> Result<RunResult, BuildError> {
-    let inst_info = instrumented_instantiation(root_nix_file, cas, extra_nix_options, logger)?;
-    let buildoutput = build(inst_info.output.path, logger)?;
+    let inst_info =
+        instrumented_instantiation(root_nix_file, cas, extra_nix_options, logger).await?;
+    let buildoutput = build(inst_info.output.path, logger).await?;
     Ok(RunResult {
         referenced_paths: inst_info.referenced_paths,
         result: buildoutput.output,
@@ -427,7 +447,7 @@ pub fn run(
 /// Execute a command (presumably a Nix command :)). stderr output
 /// is passed line-based to the CallOpts' stderr_line_tx receiver.
 /// Stdout is passed as a BufReader to `stdout_fn`.
-fn execute<OF: 'static, EF: 'static, O: 'static>(
+async fn execute<OF: 'static, EF: 'static, F: 'static, O: 'static, F2: 'static>(
     nickname: &str,
     mut cmd: Command,
     logger: &slog::Logger,
@@ -435,14 +455,16 @@ fn execute<OF: 'static, EF: 'static, O: 'static>(
     stderr_fn: EF,
 ) -> Result<(O, Vec<LogDatum>), BuildError>
 where
-    OF: Send + FnOnce(ChildStdout) -> O,
+    OF: Send + FnOnce(ChildStdout) -> F,
+    F: Future<Output = O> + Send,
     O: Send,
-    EF: Send + FnOnce(ChildStderr) -> Result<Vec<LogDatum>, io::Error>,
+    F2: Future<Output = Result<Vec<LogDatum>, std::io::Error>> + Send,
+    EF: Send + FnOnce(ChildStderr) -> F2,
 {
     cmd.stderr(Stdio::piped());
     cmd.stdout(Stdio::piped());
 
-    debug!(logger, "{}", nickname; "command" => ?cmd, "dir" => ?cmd.get_current_dir());
+    debug!(logger, "{}", nickname; "command" => ?cmd, "dir" => ?cmd.as_std().get_current_dir());
     // 0. spawn the process
     let mut nix_proc = cmd.spawn().map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => BuildError::spawn(&cmd, e),
@@ -451,25 +473,25 @@ where
 
     // 1. spawn a stderr handling thread
     let stderr_handle = nix_proc.stderr.take().expect("failed to take stderr");
-    let stderr_thread = thread::spawn(move || stderr_fn(stderr_handle));
+    let stderr_thread = tokio::spawn(async move { stderr_fn(stderr_handle).await });
 
     // 2. spawn a stdout handling thread (?)
     let stdout_handle = nix_proc.stdout.take().expect("failed to take stdout");
-    let stdout_thread = thread::spawn(move || stdout_fn(stdout_handle));
+    let stdout_thread = tokio::spawn(async move { stdout_fn(stdout_handle).await });
 
     // 3. wait on the process
-    let nix_proc_result = nix_proc.wait()?;
+    let nix_proc_result = nix_proc.wait().await?;
 
     debug!(logger, "(complete) {}", nickname; "command" => ?cmd, "result" => ?nix_proc_result);
 
     // 4. join the stderr handler
     let stderr_result = stderr_thread
-        .join()
+        .await
         .expect("stderr handling thread panicked")?;
 
     // 5. join the stdout handler
     let stdout_result = stdout_thread
-        .join()
+        .await
         .expect("stderr handling thread panicked");
 
     if !nix_proc_result.success() {
@@ -480,7 +502,10 @@ where
 }
 
 /// Builds the devShell of a flake
-pub fn flake(installable: &Installable, logger: &slog::Logger) -> Result<RunResult, BuildError> {
+pub async fn flake(
+    installable: &Installable,
+    logger: &slog::Logger,
+) -> Result<RunResult, BuildError> {
     let gc_root_dir = tempfile::TempDir::new()?;
 
     let env_path = gc_root_dir.path().join("bash-export");
@@ -507,17 +532,26 @@ pub fn flake(installable: &Installable, logger: &slog::Logger) -> Result<RunResu
         "nix develop",
         cmd,
         logger,
-        move |mut stdout| -> Result<u64, _> {
-            let mut f = File::create(build_env_path)?;
-            io::copy(&mut stdout, &mut f)
+        |mut stdout| async move {
+            let mut f = File::create(build_env_path).await?;
+            tokio::io::copy(&mut stdout, &mut f).await
         },
-        move |stderr| {
+        |stderr| async {
             let mut parser = NixDevParser::new(l2);
-            osstrlines::Lines::from(BufReader::new(stderr))
-                .map(|line| line.map(|i| parser.parse(i)))
-                .collect::<Result<Vec<LogDatum>, _>>()
+
+            let mut lines = osstrlines::Lines::from(BufReader::new(stderr));
+            let mut res = vec![];
+            loop {
+                match lines.next().await {
+                    None => break,
+                    Some(Err(e)) => return Err(e),
+                    Some(Ok(a)) => res.push(parser.parse(a)),
+                }
+            }
+            Ok(res)
         },
-    )?;
+    )
+    .await?;
 
     let referenced_paths = extract_paths(results);
 
@@ -545,17 +579,32 @@ pub fn flake(installable: &Installable, logger: &slog::Logger) -> Result<RunResu
         "nix store add",
         cmd,
         logger,
-        move |stdout| {
-            osstrlines::Lines::from(BufReader::new(stdout))
-                .map(|line| line.map(PathBuf::from))
-                .collect::<Result<Vec<_>, _>>()
+        move |stdout| async {
+            let mut lines = osstrlines::Lines::from(BufReader::new(stdout));
+            let mut res = vec![];
+            loop {
+                match lines.next().await {
+                    None => break,
+                    Some(Err(e)) => return Err(e),
+                    Some(Ok(a)) => res.push(PathBuf::from(a)),
+                }
+            }
+            Ok(res)
         },
-        move |stderr| {
-            osstrlines::Lines::from(BufReader::new(stderr))
-                .map(|line| line.map(|t| LogDatum::Text(t.to_string_lossy().into())))
-                .collect::<Result<Vec<LogDatum>, _>>()
+        move |stderr| async {
+            let mut lines = osstrlines::Lines::from(BufReader::new(stderr));
+            let mut res = vec![];
+            loop {
+                match lines.next().await {
+                    None => break,
+                    Some(Err(e)) => return Err(e),
+                    Some(Ok(a)) => res.push(LogDatum::Text(a.to_string_lossy().into())),
+                }
+            }
+            Ok(res)
         },
-    )?;
+    )
+    .await?;
 
     let store_path = store_paths?
         .first()
@@ -771,21 +820,9 @@ impl NixDevParser {
 
 /// Output path generated by `logged-evaluation.nix`
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OutputPath<T> {
+pub struct OutputPath {
     /// Shell path modified to work as a gc root
-    pub shell_gc_root: T,
-}
-
-impl<T> OutputPath<T> {
-    /// map over the inner type.
-    pub fn map<F, T2>(self, f: F) -> OutputPath<T2>
-    where
-        F: Fn(T) -> T2,
-    {
-        OutputPath {
-            shell_gc_root: f(self.shell_gc_root),
-        }
-    }
+    pub shell_gc_root: RootPath,
 }
 
 #[cfg(test)]
@@ -850,8 +887,8 @@ derivation {{
 
     /// Some nix builds can output non-UTF-8 encoded text
     /// (arbitrary binary output). We should not crash in that case.
-    #[test]
-    fn non_utf8_nix_output() -> std::io::Result<()> {
+    #[tokio::test]
+    async fn non_utf8_nix_output() -> std::io::Result<()> {
         let tmp = tempfile::tempdir()?;
         let cas = ContentAddressable::new(crate::AbsPathBuf::new(tmp.path().to_owned()).unwrap())?;
 
@@ -886,13 +923,14 @@ in {}
             &NixOptions::empty(),
             &crate::logging::test_logger("non_utf8_nix_output"),
         )
+        .await
         .expect("should not crash!");
         Ok(())
     }
 
     /// If the build fails, we shouldn’t crash in the process.
-    #[test]
-    fn gracefully_handle_failing_build() -> std::io::Result<()> {
+    #[tokio::test]
+    async fn gracefully_handle_failing_build() -> std::io::Result<()> {
         let tmp = tempfile::tempdir()?;
         let cas = ContentAddressable::new(crate::AbsPathBuf::new(tmp.path().to_owned()).unwrap())?;
 
@@ -906,7 +944,9 @@ in {}
             &cas,
             &NixOptions::empty(),
             &crate::logging::test_logger("gracefully_handle_failing_build"),
-        ) {
+        )
+        .await
+        {
         } else {
             assert!(
                 false,
@@ -923,8 +963,8 @@ in {}
     /// watch those recursively, which leads to a lot of wasted resources
     /// and often exhausts the amount of available file handles
     /// (especially on macOS).
-    #[test]
-    fn no_unnecessary_files_or_directories_watched() -> std::io::Result<()> {
+    #[tokio::test]
+    async fn no_unnecessary_files_or_directories_watched() -> std::io::Result<()> {
         let root_tmp = tempfile::tempdir()?;
         let cas_tmp = tempfile::tempdir()?;
         let root = root_tmp.path();
@@ -970,6 +1010,7 @@ dir-as-source = ./dir;
             &NixOptions::empty(),
             &crate::logging::test_logger("no_unnecessary_files_or_directories_watched"),
         )
+        .await
         .unwrap();
         let ends_with = |end| {
             inst_info
