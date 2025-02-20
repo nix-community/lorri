@@ -69,16 +69,7 @@ pub async fn op_daemon(
         },
     };
 
-    let (daemon, mut build_rx) = Daemon::new(extra_nix_options);
-    let logger2 = logger.clone();
-    let build_handle = tokio::task::spawn(async move {
-        loop {
-            match build_rx.recv().await {
-                None => break,
-                Some(msg) => info!(logger2, "build status"; "message" => ?msg),
-            }
-        }
-    });
+    let daemon = Daemon::new(extra_nix_options);
     info!(logger, "ready");
 
     let paths = crate::ops::get_paths()?;
@@ -90,7 +81,6 @@ pub async fn op_daemon(
             logger,
         )
         .await?;
-    build_handle.await.expect("build_handle join failed");
     Ok(())
 }
 
