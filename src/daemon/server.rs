@@ -5,6 +5,8 @@ use crate::socket::communicate::{self};
 use crate::socket::communicate::{CommunicationType, Ping, StreamEvents};
 use communicate::DaemonInfo;
 use slog::{debug, info};
+use tokio::io::AsyncWriteExt;
+use tokio::net::UnixStream;
 use tokio::sync::mpsc::{channel, Sender, UnboundedSender};
 
 /// Native backend Server
@@ -39,7 +41,9 @@ impl Server {
             tokio::spawn(async move {
                 match conn {
                     Ok(connection) => {
-                        let (_, _) = self2.clone().handle_client(connection, &logger2).await;
+                        let mut sock = self2.clone().handle_client(connection, &logger2).await;
+                        if let Err(_) = sock.shutdown().await {};
+                        drop(sock)
                     }
                     Err(accept_err) => {
                         info!(logger2, "Failed accepting a client connection"; "accept_error" => format!("{:?}", accept_err));
@@ -49,11 +53,7 @@ impl Server {
         }
     }
 
-    async fn handle_client(
-        &self,
-        conn: Connection,
-        logger: &slog::Logger,
-    ) -> (String, CommunicationType) {
+    async fn handle_client(&self, conn: Connection, logger: &slog::Logger) -> UnixStream {
         let Connection {
             socket,
             communication_type,
@@ -63,7 +63,6 @@ impl Server {
         let display_id: String = std::iter::repeat_with(fastrand::alphanumeric)
             .take(4)
             .collect();
-        let display_id_copy = display_id.clone();
 
         let tx_activity = self.tx_activity.clone();
         let tx_build = self.tx_build.clone();
@@ -74,7 +73,7 @@ impl Server {
 
             let err = |ct, e| debug!(logger, "Unable to communicate with client"; "communication_type" => format!("{:?}", ct), "error" => format!("{:?}", e));
 
-            {
+            let socket = {
                 // handle all events
                 // TODO: it would be good if we didn’t have to match on the communication type here, but I don’t see a way to do that.
                 match communication_type {
@@ -90,15 +89,15 @@ impl Server {
                                         debug!(logger, "client vanished, closing socket"; "communication_type" => format!("{:?}", communication_type), "error" => format!("{:?}", err));
                                     }
                                 }
+                                rw.into_inner()
                             }
                             Err(_) => todo!(),
                         }
                     }
                     CommunicationType::Ping => {
-                        match handlers::ping(socket)
-                            .read(communicate::DEFAULT_READ_TIMEOUT)
-                            .await
-                        {
+                        let mut rw = handlers::ping(socket);
+
+                        match rw.read(communicate::DEFAULT_READ_TIMEOUT).await {
                             Ok((
                                 _,
                                 Ping {
@@ -113,7 +112,8 @@ impl Server {
                                 .await
                                 .expect("Unable to send a ping from listener"),
                             Err(e) => err(communication_type, e),
-                        }
+                        };
+                        rw.into_inner()
                     }
                     CommunicationType::StreamEvents => {
                         let mut rw = handlers::stream_events(socket);
@@ -142,13 +142,14 @@ impl Server {
                             }
                             Err(e) => err(communication_type, e),
                         }
+                        rw.into_inner()
                     }
                 }
             };
 
             debug!(logger, "Client connection handled"; "message_type" => format!("{:?}", communication_type), "thread_id" => &display_id);
-        };
 
-        (display_id_copy, communication_type)
+            socket
+        }
     }
 }

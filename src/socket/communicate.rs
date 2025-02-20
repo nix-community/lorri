@@ -224,6 +224,7 @@ pub mod listener {
 pub mod client {
     use super::*;
     use std::marker::PhantomData;
+    use tokio::io::AsyncWriteExt;
     use tokio::net::UnixStream;
 
     /// A `Client` that can talk to a `Listener`.
@@ -308,6 +309,8 @@ pub mod client {
 
         /// Connect to the `Listener` listening on `socket_path`.
         /// TODO: remove the split between new() and connect(), and then remove `Error::NotConnected`
+        ///
+        /// Don’t forget to call `shutdown()` after finishing with communication.
         pub async fn connect(self, socket_path: &SocketPath) -> Result<Client<R, W>, InitError> {
             // TODO: check if the file exists and is a socket
 
@@ -337,6 +340,13 @@ pub mod client {
                 read_type: PhantomData,
                 write_type: PhantomData,
             })
+        }
+
+        /// Shut down this client, disconnect from socket.
+        /// Any disconnect errors are ignored.
+        pub async fn shutdown(mut self) {
+            if let Err(_) = self.socket.as_mut().unwrap().shutdown().await {};
+            drop(self);
         }
 
         /// Write a message to the connected `Listener`, then wait for the reply. The configured timeout counts for the whole roundtrip.

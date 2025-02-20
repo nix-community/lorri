@@ -112,19 +112,23 @@ pub async fn op_direnv<W: std::io::Write>(
     let ping_sent = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
         debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
-        let c = client::create::<client::Ping>(paths, client::Timeout::from_millis(500), logger)
-            .await
-            .map_err(ExitError::from);
         // TODO: maybe ping should indeed return something so we can at least check whether it parses the message and the version is right. Right now this collapses all of that into a bool …
-        match c {
+        match client::create::<client::Ping>(paths, client::Timeout::from_millis(500), logger)
+            .await
+            .map_err(ExitError::from)
+        {
             Err(_) => false,
-            Ok(mut c) => c
-                .write(&client::Ping {
-                    project_file: project.file.clone(),
-                    rebuild: client::Rebuild::OnlyIfNotYetWatching,
-                })
-                .await
-                .is_ok(),
+            Ok(mut client) => {
+                let res = client
+                    .write(&client::Ping {
+                        project_file: project.file.clone(),
+                        rebuild: client::Rebuild::OnlyIfNotYetWatching,
+                    })
+                    .await
+                    .is_ok();
+                client.shutdown().await;
+                res
+            }
         }
     };
 
@@ -244,10 +248,14 @@ pub async fn op_info(
             .await
         {
             Err(init_error) => format!("`lorri daemon` is not up: {}", init_error),
-            Ok(mut client) => match client.communicate(&DaemonInfo {}).await {
-                Ok(_) => "`lorri daemon` is running".to_string(),
-                Err(err) => format!("Problem connecting to the `lorri daemon`: {}", err),
-            },
+            Ok(mut client) => {
+                let res = match client.communicate(&DaemonInfo {}).await {
+                    Ok(_) => "`lorri daemon` is running".to_string(),
+                    Err(err) => format!("Problem connecting to the `lorri daemon`: {}", err),
+                };
+                client.shutdown().await;
+                res
+            }
         };
 
     let gc_root = if root_paths.all_exist() {
@@ -331,13 +339,14 @@ pub async fn op_ping(
     project_file: ProjectFile,
     logger: &slog::Logger,
 ) -> Result<(), ExitError> {
-    client::create(paths, client::Timeout::from_millis(500), logger)
-        .await?
+    let mut client = client::create(paths, client::Timeout::from_millis(500), logger).await?;
+    client
         .write(&client::Ping {
             project_file,
             rebuild: client::Rebuild::Always,
         })
         .await?;
+    client.shutdown().await;
     Ok(())
 }
 
@@ -641,7 +650,7 @@ pub async fn op_stream_events(
 
         client.write(&client::StreamEvents {}).await?;
         let mut snapshot_done = false;
-        loop {
+        let res = loop {
             let res = client.read().await?;
 
             match res {
@@ -704,7 +713,10 @@ pub async fn op_stream_events(
                     _ => (),
                 },
             }
-        }
+        };
+
+        client.shutdown().await;
+        res
     }
 }
 
