@@ -11,7 +11,7 @@ use crate::socket::communicate;
 use crate::socket::communicate::listener::Listener;
 use crate::socket::path::SocketPath;
 use crate::{AbsPathBuf, NixFile};
-use slog::debug;
+use slog::{debug, info};
 use std::collections::HashMap;
 use tokio::sync::mpsc::{
     channel, unbounded_channel, Receiver, Sender, UnboundedReceiver, UnboundedSender,
@@ -47,7 +47,6 @@ pub struct Daemon {
     // TODO: this needs to transmit information to identify the builder with
     tx_build_events: UnboundedSender<LoopHandlerEvent>,
     rx_build_events: UnboundedReceiver<LoopHandlerEvent>,
-    mon_tx: Sender<LoopHandlerEvent>,
     /// Extra options to pass to each nix invocation
     extra_nix_options: NixOptions,
 }
@@ -56,18 +55,13 @@ impl Daemon {
     /// Create a new daemon. Also return an `chan::Receiver` that
     /// receives `LoopHandlerEvent`s for all builders this daemon
     /// supervises.
-    pub fn new(extra_nix_options: NixOptions) -> (Daemon, Receiver<LoopHandlerEvent>) {
+    pub fn new(extra_nix_options: NixOptions) -> Daemon {
         let (tx_build_events, rx_build_events) = unbounded_channel();
-        let (mon_tx, mon_rx) = channel(10);
-        (
             Daemon {
                 tx_build_events,
                 rx_build_events,
-                mon_tx,
                 extra_nix_options,
-            },
-            mon_rx,
-        )
+            }
     }
 
     /// Serve the daemon's RPC endpoint.
@@ -90,9 +84,8 @@ impl Daemon {
         let listener = Listener::new(&socket_path).await?;
         tokio::spawn(server.listen(listener, logger));
 
-        let mon_tx = self.mon_tx.clone();
         let build_loop_hdl =
-            tokio::task::spawn(Self::build_loop(self.rx_build_events, mon_tx, logger2));
+            tokio::task::spawn(Self::build_loop(self.rx_build_events, logger2));
 
         let tx_build_events = self.tx_build_events.clone();
         let extra_nix_options = self.extra_nix_options.clone();
@@ -114,7 +107,6 @@ impl Daemon {
 
     async fn build_loop(
         mut rx_build_events: UnboundedReceiver<LoopHandlerEvent>,
-        mon_tx: Sender<LoopHandlerEvent>,
         logger: slog::Logger,
     ) {
         let mut project_states: HashMap<NixFile, Event> = HashMap::new();
@@ -124,10 +116,7 @@ impl Daemon {
             let Some(msg) = rx_build_events.recv().await else {
                 break;
             };
-            mon_tx
-                .send(msg.clone())
-                .await
-                .expect("listener still to be there");
+            info!(logger, "build status"; "message" => ?msg);
             // blocking because we want to call `tx.blocking_send` inside `Vec::retain`
             tokio::task::block_in_place(|| match &msg {
                 LoopHandlerEvent::BuildEvent(ev) => match ev {
