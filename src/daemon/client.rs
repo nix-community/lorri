@@ -10,6 +10,8 @@ pub use crate::socket::communicate::{DaemonInfo, Ping, Rebuild, StreamEvents};
 pub use crate::socket::read_writer::Timeout;
 
 /// Create a connected client or exit.
+///
+/// Don’t forget to call `shutdown()` on the client after using it.
 pub async fn create<H>(
     paths: &Paths,
     timeout: Timeout,
