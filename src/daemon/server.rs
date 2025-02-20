@@ -2,12 +2,13 @@
 use crate::daemon::{IndicateActivity, LoopHandlerEvent};
 use crate::socket::communicate::listener::{handlers, Connection, Listener};
 use crate::socket::communicate::{self};
-use crate::socket::communicate::{CommunicationType, Ping, StreamEvents};
+use crate::socket::communicate::{CommunicationType, Ping};
 use communicate::DaemonInfo;
-use slog::{debug, info};
+use slog::{debug, error, info};
 use tokio::io::AsyncWriteExt;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::{channel, Sender, UnboundedSender};
+use tokio::sync::oneshot;
 
 /// Native backend Server
 #[derive(Clone)]
@@ -117,31 +118,47 @@ impl Server {
                     }
                     CommunicationType::StreamEvents => {
                         let mut rw = handlers::stream_events(socket);
-                        match rw.read(communicate::DEFAULT_READ_TIMEOUT).await {
-                            Ok((_, StreamEvents {})) => {
-                                let (tx_event, mut rx_event) = channel(10);
-                                tx_build
-                                    .send(LoopHandlerEvent::NewListener(tx_event))
-                                    .expect("Unable to send a new listener to the build_loop");
-                                loop {
-                                    match rx_event.recv().await {
-                                        None => break,
-                                        Some(event) => match rw
-                                            .write(communicate::DEFAULT_READ_TIMEOUT, &event)
-                                            .await
-                                        {
-                                            Ok(_) => {}
-                                            Err(err) => {
-                                                debug!(logger, "client vanished, closing socket"; "communication_type" => format!("{:?}", communication_type), "error" => format!("{:?}", err));
-                                                // break out of the loop or the handler is not stopped
-                                                break;
-                                            }
-                                        },
+                        let (tx_event, mut rx_event) = channel(10);
+                        tx_build
+                            .send(LoopHandlerEvent::EventStreamListener(tx_event))
+                            .expect("Unable to send a new listener to the build_loop");
+                        loop {
+                            match rx_event.recv().await {
+                                None => break,
+                                Some(event) => {
+                                    match rw.write(communicate::DEFAULT_READ_TIMEOUT, &event).await
+                                    {
+                                        Ok(_) => {}
+                                        Err(err) => {
+                                            debug!(logger, "client vanished, closing socket"; "communication_type" => format!("{:?}", communication_type), "error" => format!("{:?}", err));
+                                            // break out of the loop or the handler is not stopped
+                                            break;
+                                        }
                                     }
                                 }
                             }
-                            Err(e) => err(communication_type, e),
                         }
+                        rw.into_inner()
+                    }
+                    CommunicationType::StreamSnapshot => {
+                        let mut rw = handlers::stream_snapshot(socket);
+                        let (tx_snapshot, rx_snapshot) = oneshot::channel();
+                        tx_build
+                            .send(LoopHandlerEvent::SnapshotListener(tx_snapshot))
+                            .expect("Unable to send a new listener to the build_loop");
+
+                        match rx_snapshot.await {
+                            Err(e) => {
+                                error!(logger, "Snapshot oneshot was closed"; "error" => ?e)
+                            }
+                            Ok(snapshot) => {
+                                if let Err(_) =
+                                    rw.write(communicate::DEFAULT_READ_TIMEOUT, &snapshot).await
+                                {
+                                };
+                            }
+                        }
+
                         rw.into_inner()
                     }
                 }

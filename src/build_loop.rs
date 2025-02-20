@@ -20,8 +20,6 @@ use tokio::task::JoinHandle;
 /// Abstracting over its internal to make different serialize instances possible.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Event {
-    /// Demarks a stream of events from recent history becoming live
-    SectionEnd,
     /// A build has started
     Started {
         /// The shell.nix file for the building project
@@ -43,6 +41,13 @@ pub enum Event {
         /// The error that exited the build
         failure: BuildError,
     },
+}
+/// Build events that can happen.
+/// Abstracting over its internal to make different serialize instances possible.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EventSnapshot {
+    /// the snapshot of events
+    pub snapshot: Vec<Event>,
 }
 
 /// Description of the project change that triggered a build.

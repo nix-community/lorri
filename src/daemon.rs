@@ -3,7 +3,7 @@
 pub mod client;
 pub mod server;
 
-use crate::build_loop::{BuildLoop, Event};
+use crate::build_loop::{BuildLoop, Event, EventSnapshot};
 use crate::nix::options::NixOptions;
 use crate::ops::error::ExitError;
 use crate::project::ProjectFile;
@@ -18,11 +18,13 @@ use tokio::sync::mpsc::{
 };
 use tokio::task::JoinSet;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 /// Union of build_loop::Event and NewListener for internal use.
 pub enum LoopHandlerEvent {
     /// A new listener has joined for event streaming
-    NewListener(Sender<Event>),
+    EventStreamListener(Sender<Event>),
+    /// A new listener has requested the current snapshot
+    SnapshotListener(tokio::sync::oneshot::Sender<EventSnapshot>),
     /// Events from a BuildLoop
     BuildEvent(Event),
 }
@@ -57,11 +59,11 @@ impl Daemon {
     /// supervises.
     pub fn new(extra_nix_options: NixOptions) -> Daemon {
         let (tx_build_events, rx_build_events) = unbounded_channel();
-            Daemon {
-                tx_build_events,
-                rx_build_events,
-                extra_nix_options,
-            }
+        Daemon {
+            tx_build_events,
+            rx_build_events,
+            extra_nix_options,
+        }
     }
 
     /// Serve the daemon's RPC endpoint.
@@ -84,8 +86,7 @@ impl Daemon {
         let listener = Listener::new(&socket_path).await?;
         tokio::spawn(server.listen(listener, logger));
 
-        let build_loop_hdl =
-            tokio::task::spawn(Self::build_loop(self.rx_build_events, logger2));
+        let build_loop_hdl = tokio::task::spawn(Self::build_loop(self.rx_build_events, logger2));
 
         let tx_build_events = self.tx_build_events.clone();
         let extra_nix_options = self.extra_nix_options.clone();
@@ -110,7 +111,7 @@ impl Daemon {
         logger: slog::Logger,
     ) {
         let mut project_states: HashMap<NixFile, Event> = HashMap::new();
-        let mut event_listeners: Vec<Sender<Event>> = Vec::new();
+        let mut build_event_listeners: Vec<Sender<Event>> = Vec::new();
 
         loop {
             let Some(msg) = rx_build_events.recv().await else {
@@ -118,38 +119,32 @@ impl Daemon {
             };
             info!(logger, "build status"; "message" => ?msg);
             // blocking because we want to call `tx.blocking_send` inside `Vec::retain`
-            tokio::task::block_in_place(|| match &msg {
-                LoopHandlerEvent::BuildEvent(ev) => match ev {
-                    Event::SectionEnd => (),
-                    Event::Started { nix_file, .. }
-                    | Event::Completed { nix_file, .. }
-                    | Event::Failure { nix_file, .. } => {
-                        project_states.insert(nix_file.clone(), ev.clone());
-                        event_listeners.retain(|tx| {
-                            let keep = tx.blocking_send(ev.clone()).is_ok();
-                            debug!(logger,"Sent"; "event" => ?ev, "keep" => keep);
-                            keep
-                        })
-                    }
-                },
-                LoopHandlerEvent::NewListener(tx) => {
-                    debug!(logger, "adding listener");
-                    let keep = project_states.values().all(|event| {
-                        let keeping = tx.blocking_send(event.clone()).is_ok();
-                        debug!(logger, "Sent snapshot"; "event" => ?&event, "keep" => keeping);
-                        keeping
+            match msg {
+                LoopHandlerEvent::BuildEvent(mut event) => {
+                    let nix_file = match &mut event {
+                        Event::Started { nix_file, .. }
+                        | Event::Completed { nix_file, .. }
+                        | Event::Failure { nix_file, .. } => nix_file.clone(),
+                    };
+                    project_states.insert(nix_file.clone(), event.clone());
+                    // we have to use blocking_send here, because retain needs a sync FnMut.
+                    tokio::task::block_in_place(|| {
+                        build_event_listeners
+                            .retain(|sender| sender.blocking_send(event.clone()).is_ok())
                     });
-                    debug!(logger,"Finished snapshot"; "keep" => keep);
-                    if keep {
-                        event_listeners.push(tx.clone());
-                    }
-                    event_listeners.retain(|tx| {
-                        let keep = tx.blocking_send(Event::SectionEnd).is_ok();
-                        debug!(logger, "Sent new listener sectionend"; "keep" => keep);
-                        keep
-                    })
+                    debug!(logger,"Sent"; "event" => ?event);
                 }
-            })
+                LoopHandlerEvent::EventStreamListener(tx) => {
+                    debug!(logger, "Adding EventStreamListener");
+                    build_event_listeners.push(tx.clone());
+                }
+                LoopHandlerEvent::SnapshotListener(tx) => {
+                    debug!(logger, "Adding SnapshotListener");
+                    let states: Vec<_> = project_states.clone().into_values().collect();
+                    let _ = tx.send(EventSnapshot { snapshot: states });
+                    debug!(logger, "Sent snapshot"; "snapshot" => ?&project_states);
+                }
+            }
         }
     }
 

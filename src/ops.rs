@@ -14,8 +14,7 @@ use crate::cli::StartUserShellOptions_;
 use crate::cli::WatchOptions;
 use crate::cli::{EventKind, ShellOptions};
 use crate::constants::Paths;
-use crate::daemon::client::{self, DaemonInfo};
-use crate::daemon::Daemon;
+use crate::daemon::{client, Daemon};
 use crate::nix::options::NixOptions;
 use crate::nix::CallOpts;
 use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
@@ -36,13 +35,18 @@ use std::{collections::HashSet, env, fs::File, time::SystemTime};
 
 use anyhow::Context;
 
+use crate::daemon::client::Timeout;
 use crate::project::{Project, ProjectFile};
+use crate::socket::communicate;
 use itertools::Itertools;
 use serde_json::json;
 use serde_json::Value;
 use slog::{debug, info, warn};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{channel, unbounded_channel};
+
+const CLIENT_TIMEOUT_DURATION_SHORT: Timeout = Timeout::from_millis(50);
+const CLIENT_TIMEOUT_DURATION: Timeout = Timeout::from_millis(500);
 
 /// Set up necessary directories or fail.
 pub fn get_paths() -> Result<crate::constants::Paths, error::ExitError> {
@@ -102,17 +106,18 @@ pub async fn op_direnv<W: std::io::Write>(
     let ping_sent = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
         debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
+
         // TODO: maybe ping should indeed return something so we can at least check whether it parses the message and the version is right. Right now this collapses all of that into a bool …
-        match client::create::<client::Ping>(paths, client::Timeout::from_millis(500), logger)
+        match client::create::<communicate::Ping>(paths, CLIENT_TIMEOUT_DURATION_SHORT, logger)
             .await
             .map_err(ExitError::from)
         {
             Err(_) => false,
             Ok(mut client) => {
                 let res = client
-                    .write(&client::Ping {
+                    .write(&communicate::Ping {
                         project_file: project.file.clone(),
-                        rebuild: client::Rebuild::OnlyIfNotYetWatching,
+                        rebuild: communicate::Rebuild::OnlyIfNotYetWatching,
                     })
                     .await
                     .is_ok();
@@ -233,20 +238,23 @@ pub async fn op_info(
 ) -> Result<(), ExitError> {
     let root_paths = project.root_paths();
     let OutputPath { shell_gc_root } = &root_paths;
-    let daemon_status =
-        match client::create::<client::DaemonInfo>(paths, client::Timeout::from_millis(50), logger)
-            .await
-        {
-            Err(init_error) => format!("`lorri daemon` is not up: {}", init_error),
-            Ok(mut client) => {
-                let res = match client.communicate(&DaemonInfo {}).await {
-                    Ok(_) => "`lorri daemon` is running".to_string(),
-                    Err(err) => format!("Problem connecting to the `lorri daemon`: {}", err),
-                };
-                client.shutdown().await;
-                res
-            }
-        };
+    let daemon_status = match client::create::<communicate::DaemonInfo>(
+        paths,
+        CLIENT_TIMEOUT_DURATION_SHORT,
+        logger,
+    )
+    .await
+    {
+        Err(init_error) => format!("`lorri daemon` is not up: {}", init_error),
+        Ok(mut client) => {
+            let res = match client.communicate(&communicate::DaemonInfo {}).await {
+                Ok(_) => "`lorri daemon` is running".to_string(),
+                Err(err) => format!("Problem connecting to the `lorri daemon`: {}", err),
+            };
+            client.shutdown().await;
+            res
+        }
+    };
 
     let gc_root = if root_paths.all_exist() {
         format!("{}", shell_gc_root.0.display())
@@ -329,11 +337,11 @@ pub async fn op_ping(
     project_file: ProjectFile,
     logger: &slog::Logger,
 ) -> Result<(), ExitError> {
-    let mut client = client::create(paths, client::Timeout::from_millis(500), logger).await?;
+    let mut client = client::create(paths, CLIENT_TIMEOUT_DURATION_SHORT, logger).await?;
     client
-        .write(&client::Ping {
+        .write(&communicate::Ping {
             project_file,
-            rebuild: client::Rebuild::Always,
+            rebuild: communicate::Rebuild::Always,
         })
         .await?;
     client.shutdown().await;
@@ -620,93 +628,97 @@ PS1="(lorri) ${PS1}"
 /// details.
 pub async fn op_stream_events(
     paths: &Paths,
-    kind: EventKind,
+    event_kind: EventKind,
     logger: &slog::Logger,
 ) -> Result<(), ExitError> {
     {
-        let address = get_paths()?.daemon_socket_file().clone();
-        debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
-        let logger2 = logger.clone();
-        let paths2 = (*paths).clone();
-        // This async will not block when it is dropped,
-        // since it only reads messages and don’t want to block exit in the Snapshot case.
-        let mut client = client::create::<client::StreamEvents>(
-            &paths2,
+        // A snapshot was requested, so send it
+        match event_kind {
+            EventKind::Snapshot | EventKind::All => {
+                // we just connect twice to the socket here, it’s fine, no need to overthink.
+                let mut client = client::create::<communicate::EventSnapshot>(
+                    paths,
+                    CLIENT_TIMEOUT_DURATION,
+                    logger,
+                )
+                .await?;
+                let snapshot = client.read().await?;
+                client.shutdown().await;
+
+                for ev in snapshot.snapshot {
+                    let json: serde_json::Value = build_event_to_json(ev);
+                    serialize_build_event_to_json(&json).await;
+                }
+                tokio::io::stdout()
+                    .flush()
+                    .await
+                    .expect("couldn’t flush snapshot");
+            }
+            EventKind::Live => {}
+        }
+
+        // if we only wanted the snapshot, stop here
+        if let EventKind::Snapshot = event_kind {
+            return Ok(());
+        }
+
+        let mut client = client::create::<communicate::StreamEvents>(
+            paths,
             // infinite timeout because we are listening indefinitely
             client::Timeout::Infinite,
-            &logger2,
+            logger,
         )
         .await?;
 
-        client.write(&client::StreamEvents {}).await?;
-        let mut snapshot_done = false;
-        let res = loop {
-            let res = client.read().await?;
+        loop {
+            let ev = client.read().await?;
+            let json: serde_json::Value = build_event_to_json(ev);
+            serialize_build_event_to_json(&json).await;
+            tokio::io::stdout()
+                .flush()
+                .await
+                .expect("couldn’t flush serialized event");
+        }
+    }
+}
 
-            match res {
-                Event::SectionEnd => {
-                    debug!(logger, "SectionEnd");
-                    match kind {
-                        // If we only want the snapshot, quit the program
-                        EventKind::Snapshot => break Ok(()),
-                        // Else we now start sending the incremental data
-                        _ => {
-                            snapshot_done = true;
-                        }
-                    }
-                }
-                ev => match (snapshot_done, &kind) {
-                    (_, EventKind::All)
-                    | (false, EventKind::Snapshot)
-                    | (true, EventKind::Live) => {
-                        let json: serde_json::Value = match ev {
-                            Event::SectionEnd => json!({"SectionEnd":{}}),
-                            Event::Started { nix_file, reason } => json!({
-                              "Started": {
-                                  "nix_file": nix_file.to_json_value(),
-                                  "reason": match reason {
-                                      Reason::PingReceived => json!({"PingReceived": {}}),
-                                      Reason::FilesChanged(files) => json!({"FilesChanged": files.iter().map(|p| path_to_json_string(p)).collect::<Vec<serde_json::Value>>()})
-                                  }
-                              }
-                            }),
-                            Event::Completed {
-                                nix_file,
-                                rooted_output_paths,
-                            } => json!({
-                              "Completed": {
-                                "nix_file": nix_file.to_json_value(),
-                                "rooted_output_paths": {
-                                    "shell_gc_root": rooted_output_paths.shell_gc_root.0.to_json_value()
-                                }
-                              }
-                            }),
-                            Event::Failure { nix_file, failure } => json!({
-                              "Failure": {
-                                "nix_file": nix_file.to_json_value(),
-                                "failure": { "message": format!("{}",  failure) }
-                              }
-                            }),
-                        };
+async fn serialize_build_event_to_json(json: &Value) {
+    let mut vec = serde_json::to_vec(&json).expect("couldn't serialize event");
+    vec.extend_from_slice("\n".as_bytes());
+    tokio::io::stdout()
+        .write_all(&vec)
+        .await
+        .expect("couldn’t write serialized event");
+}
 
-                        let mut vec = serde_json::to_vec(&json).expect("couldn't serialize event");
-                        vec.extend_from_slice("\n".as_bytes());
-                        tokio::io::stdout()
-                            .write_all(&vec)
-                            .await
-                            .expect("couldn’t write serialized event");
-                        tokio::io::stdout()
-                            .flush()
-                            .await
-                            .expect("couldn’t flush serialized event");
-                    }
-                    _ => (),
-                },
+fn build_event_to_json(ev: Event) -> Value {
+    match ev {
+        Event::Started { nix_file, reason } => json!({
+          "Started": {
+              "nix_file": nix_file.to_json_value(),
+              "reason": match reason {
+                  Reason::PingReceived => json!({"PingReceived": {}}),
+                  Reason::FilesChanged(files) => json!({"FilesChanged": files.iter().map(|p| path_to_json_string(p)).collect::<Vec<serde_json::Value>>()})
+              }
+          }
+        }),
+        Event::Completed {
+            nix_file,
+            rooted_output_paths,
+        } => json!({
+          "Completed": {
+            "nix_file": nix_file.to_json_value(),
+            "rooted_output_paths": {
+                "shell_gc_root": rooted_output_paths.shell_gc_root.0.to_json_value()
             }
-        };
-
-        client.shutdown().await;
-        res
+          }
+        }),
+        Event::Failure { nix_file, failure } => json!({
+          "Failure": {
+            "nix_file": nix_file.to_json_value(),
+            "failure": { "message": format!("{}",  failure) }
+          }
+        }),
     }
 }
 
