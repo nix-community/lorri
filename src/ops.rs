@@ -10,9 +10,9 @@ use crate::builder;
 use crate::builder::OutputPath;
 use crate::cas::ContentAddressable;
 use crate::cli;
-use crate::cli::ShellOptions;
 use crate::cli::StartUserShellOptions_;
 use crate::cli::WatchOptions;
+use crate::cli::{EventKind, ShellOptions};
 use crate::constants::Paths;
 use crate::daemon::client::{self, DaemonInfo};
 use crate::daemon::Daemon;
@@ -24,16 +24,15 @@ use crate::path_to_json_string;
 use crate::socket::path::SocketPath;
 use crate::AbsPathBuf;
 use std::ffi::OsStr;
+use std::fs::remove_dir_all;
 use std::io::{Error, Write};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
-use std::str::FromStr;
 use std::time::Duration;
 use std::time::Instant;
 use std::{collections::HashSet, env, fs::File, time::SystemTime};
-use std::{fmt::Debug, fs::remove_dir_all};
 
 use anyhow::Context;
 
@@ -614,30 +613,6 @@ PS1="(lorri) ${PS1}"
         _ => {}
     }
     cmd
-}
-
-/// Options for the kinds of events to report
-#[derive(Debug, Clone)]
-pub enum EventKind {
-    /// Report only live events - those that happen after invocation
-    Live,
-    /// Report events recorded for projects up until invocation
-    Snapshot,
-    /// Report all events
-    All,
-}
-
-impl FromStr for EventKind {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "all" => Ok(EventKind::All),
-            "live" => Ok(EventKind::Live),
-            "snapshot" => Ok(EventKind::Snapshot),
-            _ => Err(format!("{} not in all,live,snapshot", s)),
-        }
-    }
 }
 
 /// Run to output a stream of build events in a machine-parseable form.

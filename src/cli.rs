@@ -13,7 +13,7 @@ use std::{convert::TryFrom, path::PathBuf, str::FromStr, time::Duration};
 use crate::{project::ProjectFile, AbsDirPathBuf, AbsPathBuf, Installable};
 use clap::{
     error::{ContextKind, ContextValue},
-    Parser, Subcommand,
+    Parser, Subcommand, ValueEnum,
 };
 
 #[derive(Parser, Debug)]
@@ -416,6 +416,17 @@ pub enum Internal_ {
     StreamEvents_(StreamEvents_),
 }
 
+/// Options for the kinds of events to report
+#[derive(Debug, Clone, ValueEnum)]
+pub enum EventKind {
+    /// Report only live events - those that happen after invocation
+    Live,
+    /// Report events recorded for projects up until invocation
+    Snapshot,
+    /// Report all events
+    All,
+}
+
 /// Send a message with a lorri project.
 ///
 /// Pinging with a project tells the daemon that the project was recently interacted with.
@@ -433,7 +444,7 @@ pub struct Ping_ {
 pub struct StreamEvents_ {
     #[arg(long, default_value = "all")]
     /// The kind of events to report
-    pub kind: crate::ops::EventKind,
+    pub kind: EventKind,
 }
 
 /// A stub struct to represent how what we want to upgrade to.
