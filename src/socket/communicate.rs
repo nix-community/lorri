@@ -41,6 +41,8 @@ pub enum CommunicationType {
     Ping,
     /// Stream events that happen in the daemon to the client, as they happen.
     StreamEvents,
+    /// Return a snapshot of the stream events that already happened.
+    StreamSnapshot,
 }
 
 /// No message can be sent through this socket end (empty type).
@@ -90,16 +92,23 @@ impl Handler for Ping {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StreamEvents {}
 
-// #[derive(Serialize, Deserialize, Debug)]
-// pub struct Event {
-//     pub event: Event,
-// }
-
 impl Handler for StreamEvents {
     type Resp = build_loop::Event;
 
     fn communication_type() -> CommunicationType {
         CommunicationType::StreamEvents
+    }
+}
+
+/// A snapshot of build events that already happened.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct EventSnapshot {}
+
+impl Handler for EventSnapshot {
+    type Resp = build_loop::EventSnapshot;
+
+    fn communication_type() -> CommunicationType {
+        CommunicationType::StreamSnapshot
     }
 }
 
@@ -209,6 +218,12 @@ pub mod listener {
         pub fn stream_events(
             socket: UnixStream,
         ) -> ReadWriter<StreamEvents, <StreamEvents as Handler>::Resp> {
+            ReadWriter::new(socket)
+        }
+        /// Snapshot of build events that already happened
+        pub fn stream_snapshot(
+            socket: UnixStream,
+        ) -> ReadWriter<NoMessage, <EventSnapshot as Handler>::Resp> {
             ReadWriter::new(socket)
         }
     }
