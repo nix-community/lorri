@@ -84,7 +84,7 @@ pub enum ReadError {
     #[error("The read timed out ({0})")]
     Timeout(Timeout),
     /// end of file read
-    #[error("EOF on ReadWriter")]
+    #[error("EOF on Reader")]
     EndOfFile,
 }
 

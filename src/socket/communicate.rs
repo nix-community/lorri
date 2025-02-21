@@ -326,7 +326,11 @@ pub mod client {
         /// TODO: remove the split between new() and connect(), and then remove `Error::NotConnected`
         ///
         /// Don’t forget to call `shutdown()` after finishing with communication.
-        pub async fn connect(self, socket_path: &SocketPath) -> Result<Client<R, W>, InitError> {
+        pub async fn connect(
+            self,
+            socket_path: &SocketPath,
+            initial_connect: Timeout,
+        ) -> Result<Client<R, W>, InitError> {
             // TODO: check if the file exists and is a socket
 
             // - connect to `socket_path`
@@ -339,12 +343,7 @@ pub mod client {
             // - wait for server to acknowledge connect
             let mut rw = ReadWriter::new(socket);
             let (_, _): (Timeout, listener::ConnectionAccepted) = rw
-                .communicate(
-                    // The first connection does not use the read/write timeout
-                    // because we never want to block indefinitely on the daemon on first connect
-                    Timeout::from_millis(1000),
-                    &self.comm_type,
-                )
+                .communicate(initial_connect, &self.comm_type)
                 .await
                 .map_err(InitError::ServerHandshake)?;
 
