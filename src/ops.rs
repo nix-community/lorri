@@ -108,7 +108,7 @@ pub async fn op_direnv<W: std::io::Write>(
         debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
 
         // TODO: maybe ping should indeed return something so we can at least check whether it parses the message and the version is right. Right now this collapses all of that into a bool …
-        match client::create::<communicate::Ping>(paths, CLIENT_TIMEOUT_DURATION_SHORT, logger)
+        match client::create::<communicate::Ping>(paths, CLIENT_TIMEOUT_DURATION_SHORT, None, logger)
             .await
             .map_err(ExitError::from)
         {
@@ -241,6 +241,7 @@ pub async fn op_info(
     let daemon_status = match client::create::<communicate::DaemonInfo>(
         paths,
         CLIENT_TIMEOUT_DURATION_SHORT,
+        Some(CLIENT_TIMEOUT_DURATION_SHORT),
         logger,
     )
     .await
@@ -337,7 +338,7 @@ pub async fn op_ping(
     project_file: ProjectFile,
     logger: &slog::Logger,
 ) -> Result<(), ExitError> {
-    let mut client = client::create(paths, CLIENT_TIMEOUT_DURATION_SHORT, logger).await?;
+    let mut client = client::create(paths, CLIENT_TIMEOUT_DURATION_SHORT, None, logger).await?;
     client
         .write(&communicate::Ping {
             project_file,
@@ -639,6 +640,7 @@ pub async fn op_stream_events(
                 let mut client = client::create::<communicate::EventSnapshot>(
                     paths,
                     CLIENT_TIMEOUT_DURATION,
+                    None,
                     logger,
                 )
                 .await?;
@@ -666,6 +668,7 @@ pub async fn op_stream_events(
             paths,
             // infinite timeout because we are listening indefinitely
             client::Timeout::Infinite,
+            None,
             logger,
         )
         .await?;

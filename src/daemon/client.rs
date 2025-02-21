@@ -14,6 +14,7 @@ pub use crate::socket::read_writer::Timeout;
 pub async fn create<H>(
     paths: &Paths,
     timeout: Timeout,
+    initial_connect: Option<Timeout>,
     logger: &slog::Logger,
 ) -> Result<Client<<H as Handler>::Resp, H>, InitError>
 where
@@ -23,7 +24,12 @@ where
     debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
 
     let client = communicate::client::new::<H>(timeout)
-        .connect(&SocketPath::from(address))
+        .connect(
+            &SocketPath::from(address),
+            // The first connection does not use the read/write timeout
+            // because we never want to block indefinitely on the daemon on first connect
+            initial_connect.unwrap_or(Timeout::from_millis(1000)),
+        )
         .await?;
 
     Ok(client)
