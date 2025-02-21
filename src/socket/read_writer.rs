@@ -5,17 +5,39 @@ use std::future::IntoFuture;
 use std::marker::PhantomData;
 use std::time::Duration;
 use thiserror::Error;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
+use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::UnixStream;
 
 /// Wrapper around a socket that can send and receive structured messages.
 ///
 /// `timeout` arguments set the socket timeout before reading/writing.
 pub struct ReadWriter<R, W> {
-    // where R: serde::Deserialize {
-    socket: Option<UnixStream>,
+    read_end: Option<Lines<BufReader<OwnedReadHalf>>>,
+    write_end: Option<OwnedWriteHalf>,
     phantom_r: PhantomData<R>,
     phantom_w: PhantomData<W>,
+}
+
+/// The internal state of a `ReadWriter`, can be used to re-cast it.
+pub struct ReadWriterState {
+    read_end: Option<Lines<BufReader<OwnedReadHalf>>>,
+    write_end: Option<OwnedWriteHalf>,
+}
+
+impl ReadWriterState {
+    /// Shut down this state, disconnect from socket.
+    /// Any disconnect errors are ignored.
+    pub async fn shutdown(self) {
+        if let Err(_) = self.into_inner_forget_buf().shutdown().await {};
+    }
+
+    /// return original stream; ATTN: drops anything that we already read into this BufReader
+    pub fn into_inner_forget_buf(self) -> UnixStream {
+        let r = self.read_end.unwrap().into_inner().into_inner();
+        let w = self.write_end.unwrap();
+        r.reunite(w).unwrap()
+    }
 }
 
 /// A (possible) timeout.
@@ -129,16 +151,31 @@ impl<'a, R, W> ReadWriter<R, W> {
     // TODO: &mut UnixStream
     /// Create from a unix socket.
     pub fn new(socket: UnixStream) -> ReadWriter<R, W> {
+        let (read_end, write_end) = socket.into_split();
         ReadWriter {
-            socket: Some(socket),
+            read_end: Some(BufReader::new(read_end).lines()),
+            write_end: Some(write_end),
             phantom_r: PhantomData,
             phantom_w: PhantomData,
         }
     }
 
-    /// return original stream
-    pub fn into_inner(self) -> UnixStream {
-        self.socket.unwrap()
+    /// Turn a state into back into a ReadWriter unsafely.
+    pub fn from_state_unsafe(read_writer_state: ReadWriterState) -> ReadWriter<R, W> {
+        ReadWriter {
+            read_end: read_writer_state.read_end,
+            write_end: read_writer_state.write_end,
+            phantom_r: PhantomData,
+            phantom_w: PhantomData,
+        }
+    }
+
+    /// Extract the state, without dropping anything we already read from the unix socket.
+    pub fn into_inner_state(self) -> ReadWriterState {
+        ReadWriterState {
+            write_end: self.write_end,
+            read_end: self.read_end,
+        }
     }
 
     /// Send a message to the other side and wait for a reply.
@@ -188,10 +225,9 @@ impl<'a, R, W> ReadWriter<R, W> {
     where
         R: serde::de::DeserializeOwned,
     {
-        let sock = self.socket.take().unwrap();
-        let mut take = BufReader::new(sock.take(1_000_000)).lines();
-        let x = timeout.with(take.next_line()).await;
-        self.socket = Some(take.into_inner().into_inner().into_inner());
+        let mut sock = self.read_end.take().unwrap();
+        let x = timeout.with(sock.next_line()).await;
+        self.read_end = Some(sock);
         match x {
             Err(d) => Err(ReadError::Timeout(Timeout::D(d))),
             Ok((Ok(Some(line)), timeout)) => match serde_json::de::from_str(&line) {
@@ -209,7 +245,7 @@ impl<'a, R, W> ReadWriter<R, W> {
         W: serde::Serialize,
     {
         let mut line = serde_json::to_vec(mes).map_err(WriteError::Serialize)?;
-        let mut sock = self.socket.take().unwrap();
+        let mut sock = self.write_end.take().unwrap();
         line.extend_from_slice("\n".as_bytes());
         let res = match timeout.with(sock.write_all(&line)).await {
             Err(d) => Err(WriteError::Timeout(Timeout::D(d))),
@@ -218,7 +254,7 @@ impl<'a, R, W> ReadWriter<R, W> {
         };
 
         sock.flush().await.map_err(WriteError::IO)?;
-        self.socket = Some(sock);
+        self.write_end = Some(sock);
         res
     }
 }
