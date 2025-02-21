@@ -108,9 +108,14 @@ pub async fn op_direnv<W: std::io::Write>(
         debug!(logger, "connecting to socket"; "socket" => address.as_path().display());
 
         // TODO: maybe ping should indeed return something so we can at least check whether it parses the message and the version is right. Right now this collapses all of that into a bool …
-        match client::create::<communicate::Ping>(paths, CLIENT_TIMEOUT_DURATION_SHORT, None, logger)
-            .await
-            .map_err(ExitError::from)
+        match client::create::<communicate::Ping>(
+            paths,
+            CLIENT_TIMEOUT_DURATION_SHORT,
+            None,
+            logger,
+        )
+        .await
+        .map_err(ExitError::from)
         {
             Err(_) => false,
             Ok(mut client) => {
@@ -637,7 +642,7 @@ pub async fn op_stream_events(
         match event_kind {
             EventKind::Snapshot | EventKind::All => {
                 // we just connect twice to the socket here, it’s fine, no need to overthink.
-                let mut client = client::create::<communicate::EventSnapshot>(
+                let mut client = client::create::<communicate::StreamSnapshot>(
                     paths,
                     CLIENT_TIMEOUT_DURATION,
                     None,

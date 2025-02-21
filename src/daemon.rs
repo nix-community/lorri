@@ -117,7 +117,6 @@ impl Daemon {
             let Some(msg) = rx_build_events.recv().await else {
                 break;
             };
-            info!(logger, "build status"; "message" => ?msg);
             // blocking because we want to call `tx.blocking_send` inside `Vec::retain`
             match msg {
                 LoopHandlerEvent::BuildEvent(mut event) => {
@@ -126,6 +125,7 @@ impl Daemon {
                         | Event::Completed { nix_file, .. }
                         | Event::Failure { nix_file, .. } => nix_file.clone(),
                     };
+                    info!(logger, "build status"; "event" => ?event);
                     project_states.insert(nix_file.clone(), event.clone());
                     // we have to use blocking_send here, because retain needs a sync FnMut.
                     tokio::task::block_in_place(|| {

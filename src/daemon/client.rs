@@ -16,7 +16,7 @@ pub async fn create<H>(
     timeout: Timeout,
     initial_connect: Option<Timeout>,
     logger: &slog::Logger,
-) -> Result<Client<<H as Handler>::Resp, H>, InitError>
+) -> Result<Client<<H as Handler>::Response, H>, InitError>
 where
     H: Handler,
 {
