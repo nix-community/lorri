@@ -14,37 +14,52 @@ use std::{env, mem, panic};
 
 use anyhow::anyhow;
 use backtrace::Backtrace;
+use nix::sys::signal::SigHandler::SigIgn;
+use nix::sys::signal::{signal, Signal};
 
 const TRIVIAL_SHELL_SRC: &str = include_str!("./trivial-shell.nix");
 const DEFAULT_ENVRC: &str = include_str!("./default-envrc");
 
-#[tokio::main]
-async fn main() {
+fn main() {
     setup_panic();
 
-    let exit_code = {
-        let opts = Arguments::parse();
-
-        let verbosity = match opts.verbosity {
-            // -v flag was given 0 times
-            0 => Verbosity::DefaultInfo,
-            // -v flag was specified one or more times, we log everything
-            _n => Verbosity::Debug,
-        };
-
-        // This logger is asynchronous. It is guaranteed to be flushed upon destruction. By tying
-        // its lifetime to this smaller scope, we ensure that it is destroyed before
-        // 'std::process::exit' gets called.
-        let logger = logging::root(verbosity);
-        debug!(logger, "input options"; "options" => ?opts);
-
-        match run_command(&logger, opts).await {
-            Err(err) => {
-                error!(logger, "{}", err.message());
-                err.exitcode()
-            }
-            Ok(()) => 0,
+    // Ignore SIGPIPE, otherwise we get SIGPIPE panics if a client disconnects from out daemon.
+    // When ignoring SIGPIPE, an `Err` is returned instead of the signal panic.
+    unsafe {
+        if let Err(e) = signal(Signal::SIGPIPE, SigIgn) {
+            writeln!(std::io::stderr(), "could not setup SIGPIPE ignore: {e}").unwrap();
         }
+    }
+
+    let exit_code = {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("unable to start tokio runtime")
+            .block_on(async {
+                let opts = Arguments::parse();
+
+                let verbosity = match opts.verbosity {
+                    // -v flag was given 0 times
+                    0 => Verbosity::DefaultInfo,
+                    // -v flag was specified one or more times, we log everything
+                    _n => Verbosity::Debug,
+                };
+
+                // This logger is asynchronous. It is guaranteed to be flushed upon destruction. By tying
+                // its lifetime to this smaller scope, we ensure that it is destroyed before
+                // 'std::process::exit' gets called.
+                let logger = logging::root(verbosity);
+                debug!(logger, "input options"; "options" => ?opts);
+
+                match run_command(&logger, opts).await {
+                    Err(err) => {
+                        error!(logger, "{}", err.message());
+                        err.exitcode()
+                    }
+                    Ok(()) => 0,
+                }
+            })
     };
 
     std::process::exit(exit_code);

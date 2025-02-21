@@ -117,7 +117,6 @@ impl Daemon {
             let Some(msg) = rx_build_events.recv().await else {
                 break;
             };
-            // blocking because we want to call `tx.blocking_send` inside `Vec::retain`
             match msg {
                 LoopHandlerEvent::BuildEvent(mut event) => {
                     let nix_file = match &mut event {
@@ -139,7 +138,7 @@ impl Daemon {
                     build_event_listeners.push(tx.clone());
                 }
                 LoopHandlerEvent::SnapshotListener(tx) => {
-                    debug!(logger, "Adding SnapshotListener");
+                    debug!(logger, "Answering SnapshotListener");
                     let states: Vec<_> = project_states.clone().into_values().collect();
                     let _ = tx.send(EventSnapshot { snapshot: states });
                     debug!(logger, "Sent snapshot"; "snapshot" => ?&project_states);
