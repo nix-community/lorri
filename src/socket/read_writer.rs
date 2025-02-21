@@ -13,16 +13,16 @@ use tokio::net::UnixStream;
 ///
 /// `timeout` arguments set the socket timeout before reading/writing.
 pub struct ReadWriter<R, W> {
-    read_end: Option<Lines<BufReader<OwnedReadHalf>>>,
-    write_end: Option<OwnedWriteHalf>,
+    read_end: Lines<BufReader<OwnedReadHalf>>,
+    write_end: OwnedWriteHalf,
     phantom_r: PhantomData<R>,
     phantom_w: PhantomData<W>,
 }
 
 /// The internal state of a `ReadWriter`, can be used to re-cast it.
 pub struct ReadWriterState {
-    read_end: Option<Lines<BufReader<OwnedReadHalf>>>,
-    write_end: Option<OwnedWriteHalf>,
+    read_end: Lines<BufReader<OwnedReadHalf>>,
+    write_end: OwnedWriteHalf,
 }
 
 impl ReadWriterState {
@@ -34,8 +34,8 @@ impl ReadWriterState {
 
     /// return original stream; ATTN: drops anything that we already read into this BufReader
     pub fn into_inner_forget_buf(self) -> UnixStream {
-        let r = self.read_end.unwrap().into_inner().into_inner();
-        let w = self.write_end.unwrap();
+        let r = self.read_end.into_inner().into_inner();
+        let w = self.write_end;
         r.reunite(w).unwrap()
     }
 }
@@ -153,8 +153,8 @@ impl<'a, R, W> ReadWriter<R, W> {
     pub fn new(socket: UnixStream) -> ReadWriter<R, W> {
         let (read_end, write_end) = socket.into_split();
         ReadWriter {
-            read_end: Some(BufReader::new(read_end).lines()),
-            write_end: Some(write_end),
+            read_end: BufReader::new(read_end).lines(),
+            write_end,
             phantom_r: PhantomData,
             phantom_w: PhantomData,
         }
@@ -225,9 +225,8 @@ impl<'a, R, W> ReadWriter<R, W> {
     where
         R: serde::de::DeserializeOwned,
     {
-        let mut sock = self.read_end.take().unwrap();
+        let sock = &mut self.read_end;
         let x = timeout.with(sock.next_line()).await;
-        self.read_end = Some(sock);
         match x {
             Err(d) => Err(ReadError::Timeout(Timeout::D(d))),
             Ok((Ok(Some(line)), timeout)) => match serde_json::de::from_str(&line) {
@@ -245,7 +244,7 @@ impl<'a, R, W> ReadWriter<R, W> {
         W: serde::Serialize,
     {
         let mut line = serde_json::to_vec(mes).map_err(WriteError::Serialize)?;
-        let mut sock = self.write_end.take().unwrap();
+        let sock = &mut self.write_end;
         line.extend_from_slice("\n".as_bytes());
         let res = match timeout.with(sock.write_all(&line)).await {
             Err(d) => Err(WriteError::Timeout(Timeout::D(d))),
@@ -254,7 +253,6 @@ impl<'a, R, W> ReadWriter<R, W> {
         };
 
         sock.flush().await.map_err(WriteError::IO)?;
-        self.write_end = Some(sock);
         res
     }
 }
