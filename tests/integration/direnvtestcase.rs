@@ -70,7 +70,8 @@ impl DirenvTestCase {
         let cachedir = AbsPathBuf::new(cachedir_tmp.path().to_owned()).unwrap();
 
         let cas = ContentAddressable::new(cachedir.join("cas")).unwrap();
-        let project = Project::new(project_file, &cachedir.join("gc_roots")).unwrap();
+        let project =
+            Project::new_and_gc_nix_files(project_file, &cachedir.join("gc_roots")).unwrap();
 
         DirenvTestCase {
             projectdir,

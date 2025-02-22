@@ -81,7 +81,10 @@ impl Project {
     /// Construct a `Project` from nix file path
     /// and the base GC root directory
     /// (as returned by `Paths.gc_root_dir()`),
-    pub fn new(file: ProjectFile, gc_root_dir: &AbsPathBuf) -> std::io::Result<Project> {
+    pub fn new_and_gc_nix_files(
+        file: ProjectFile,
+        gc_root_dir: &AbsPathBuf,
+    ) -> std::io::Result<Project> {
         let hash = format!(
             "{:x}",
             md5::compute(file.as_absolute_path().as_os_str().as_bytes())
