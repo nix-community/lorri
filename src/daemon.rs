@@ -170,7 +170,7 @@ impl Daemon {
             else {
                 break;
             };
-            let project = crate::project::Project::new(project_file, gc_root_dir)
+            let project = crate::project::Project::new_and_gc_nix_files(project_file, gc_root_dir)
                 // TODO: the project needs to create its gc root dir
                 .unwrap();
 

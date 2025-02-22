@@ -86,7 +86,7 @@ pub fn is_file_in_current_directory(name: &Path) -> anyhow::Result<Option<AbsPat
 }
 
 fn create_project(paths: &constants::Paths, shell_nix: ProjectFile) -> Result<Project, ExitError> {
-    Project::new(shell_nix, paths.gc_root_dir()).map_err(|err| {
+    Project::new_and_gc_nix_files(shell_nix, paths.gc_root_dir()).map_err(|err| {
         ExitError::temporary(anyhow::anyhow!(err).context("Could not set up project paths"))
     })
 }
