@@ -4,11 +4,14 @@ use thiserror::Error;
 
 use crate::builder::{OutputPath, RootedPath};
 use crate::nix::StorePath;
-use crate::{AbsPathBuf, Installable, NixFile};
+use crate::ops::error::ExitError;
+use crate::{ops, AbsPathBuf, Installable, NixFile};
+use slog::debug;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::SystemTime;
 
 /// A “project” knows how to handle the lorri state
 /// for a given nix file.
@@ -229,4 +232,94 @@ impl AddRootError {
             msg: format!("Could not determine a filename for {}", path.display()),
         }
     }
+}
+
+/// Represents a gc root along with some metadata, used for json output of lorri gc info
+#[derive(Serialize)]
+pub struct GcRootInfo {
+    /// directory where root is stored
+    pub gc_dir: AbsPathBuf,
+    /// nix file from which the root originates. If None, then the root is considered dead.
+    pub nix_file: Option<PathBuf>,
+    /// timestamp of the last build
+    pub timestamp: SystemTime,
+    /// whether `nix_file` still exists
+    pub alive: bool,
+}
+
+impl GcRootInfo {
+    /// Format for printing to stdout
+    pub fn format_pretty_oneline(&self) -> String {
+        let target = match &self.nix_file {
+            Some(p) => p.display().to_string(),
+            None => "(?)".to_owned(),
+        };
+        let age = match self.timestamp.elapsed() {
+            Err(_) => "future".to_owned(),
+            Ok(d) => {
+                let days = d.as_secs() / (24 * 60 * 60);
+                format!("{} days ago", days)
+            }
+        };
+        let alive = if self.alive { "" } else { "[dead]" };
+        format!(
+            "{} -> {} {} ({})",
+            self.gc_dir.display(),
+            target,
+            alive,
+            age
+        )
+    }
+}
+
+/// Returns a list of existing gc roots along with some metadata
+pub fn list_roots(logger: &slog::Logger) -> Result<Vec<GcRootInfo>, ExitError> {
+    let paths = ops::get_paths()?;
+    let mut res = Vec::new();
+    let gc_root_dir = paths.gc_root_dir();
+    for entry in std::fs::read_dir(gc_root_dir)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            debug!(
+                logger,
+                "Skipping {} which should be a directory",
+                entry.path().display()
+            );
+            continue;
+        }
+        let gc_dir = AbsPathBuf::new(entry.path()).expect("entry.path() should always be absolute");
+        let gc_root_dir = gc_dir.join("gc_root");
+        if !std::fs::metadata(&gc_root_dir).map_or(false, |m| m.is_dir()) {
+            debug!(
+                logger,
+                "Skipping {} which should be a directory",
+                gc_root_dir.display()
+            );
+            continue;
+        };
+        let timestamp = match std::fs::symlink_metadata(gc_root_dir.join("shell_gc_root")) {
+            Err(_) => {
+                // no gc root, so nothing to report
+                continue;
+            }
+            Ok(m) => m.modified().unwrap_or(std::time::UNIX_EPOCH),
+        };
+        let nix_file_symlink = gc_root_dir.join("nix_file");
+        let nix_file = std::fs::read_link(nix_file_symlink);
+        let alive = match &nix_file {
+            Err(_) => false,
+            Ok(path) => match std::fs::metadata(path) {
+                Ok(m) => m.is_file(),
+                Err(_) => false,
+            },
+        };
+        let nix_file = nix_file.ok();
+        res.push(GcRootInfo {
+            gc_dir,
+            nix_file,
+            timestamp,
+            alive,
+        });
+    }
+    Ok(res)
 }
