@@ -100,8 +100,8 @@ pub async fn op_direnv<W: std::io::Write>(
 ) -> Result<(), ExitError> {
     check_direnv_version()?;
 
-    let root_paths = project.root_paths();
-    let paths_are_cached: bool = root_paths.all_exist();
+    let root_path = project.root_path();
+    let paths_are_cached: bool = root_path.exists();
 
     let ping_sent = {
         let address = crate::ops::get_paths()?.daemon_socket_file().clone();
@@ -173,7 +173,7 @@ watch_file "{}"
 watch_file "$EVALUATION_ROOT"
 
 {}"#,
-        root_paths.shell_gc_root.display(),
+        root_path.display_shell_gc_root(),
         crate::ops::get_paths()?
             .daemon_socket_file()
             .as_path()
@@ -241,8 +241,7 @@ pub async fn op_info(
     project: Project,
     logger: &slog::Logger,
 ) -> Result<(), ExitError> {
-    let root_paths = project.root_paths();
-    let OutputPath { shell_gc_root } = &root_paths;
+    let root_path = project.root_path();
     let daemon_status = match client::create::<communicate::DaemonInfo>(
         paths,
         CLIENT_TIMEOUT_DURATION_SHORT,
@@ -262,8 +261,8 @@ pub async fn op_info(
         }
     };
 
-    let gc_root = if root_paths.all_exist() {
-        format!("{}", shell_gc_root.0.display())
+    let gc_root = if root_path.exists() {
+        format!("{}", root_path.display_shell_gc_root())
     } else {
         "GC roots do not exist. Has the project been built with lorri yet?".to_string()
     };
@@ -390,13 +389,13 @@ pub async fn op_shell(
             "`lorri shell` requires the `SHELL` environment variable to be set"
         ))
     })?;
-    let root_paths = project.root_paths();
-    let cached = if !root_paths.all_exist() {
+    let root_path = project.root_path();
+    let cached = if !root_path.exists() {
         Err(ExitError::temporary(anyhow::anyhow!(
             "project has not previously been built successfully",
         )))
     } else {
-        Ok(root_paths.shell_gc_root.0.as_path().to_owned())
+        Ok(root_path)
     };
     let mut bash_cmd = bash_cmd(
         if opts.cached {
@@ -439,7 +438,7 @@ async fn build_root(
     cached: bool,
     cas: &ContentAddressable,
     logger: &slog::Logger,
-) -> Result<PathBuf, ExitError> {
+) -> Result<OutputPath, ExitError> {
     let logger2 = logger.clone();
     let progress_thread = tokio::spawn(async move {
         // Keep track of the start time to display a hint to the user that they can use `--cached`,
@@ -495,20 +494,14 @@ async fn build_root(
         })?
         .result;
 
-    Ok(project
-        .create_roots(run_result)
-        .map_err(|e| {
-            ExitError::temporary(anyhow::Error::new(e).context("rooting the environment failed"))
-        })?
-        .shell_gc_root
-        .0
-        .as_path()
-        .to_owned())
+    project.create_roots(run_result).map_err(|e| {
+        ExitError::temporary(anyhow::Error::new(e).context("rooting the environment failed"))
+    })
 }
 
 /// Instantiates a `Command` to start bash.
 pub async fn bash_cmd(
-    project_root: PathBuf,
+    project_root: OutputPath,
     cas: &ContentAddressable,
     logger: &slog::Logger,
 ) -> Result<Command, ExitError> {
@@ -518,7 +511,7 @@ pub async fn bash_cmd(
 EVALUATION_ROOT="{}"
 
 {}"#,
-            project_root.display(),
+            project_root.display_shell_gc_root(),
             include_str!("./ops/direnv/envrc.bash")
         ))
         .expect("failed to write shell output");
@@ -712,12 +705,12 @@ fn build_event_to_json(ev: Event) -> Value {
         }),
         Event::Completed {
             nix_file,
-            rooted_output_paths,
+            rooted_output_paths: rooted_output_path,
         } => json!({
           "Completed": {
             "nix_file": nix_file.to_json_value(),
             "rooted_output_paths": {
-                "shell_gc_root": rooted_output_paths.shell_gc_root.0.to_json_value()
+                "shell_gc_root": rooted_output_path.to_json_value()
             }
           }
         }),

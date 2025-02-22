@@ -5,9 +5,9 @@ async fn trivial_old_style() -> std::io::Result<()> {
     let (testcase, res) = DirenvTestCase::with_shell_eval("basic").await;
 
     assert!(
-        res.all_exist(),
+        res.exists(),
         "no build output (build-0) in {}.\nContents of {}\n{}",
-        res.shell_gc_root.display(),
+        res.display_shell_gc_root(),
         testcase.cachedir.path().display(),
         std::str::from_utf8(
             &std::process::Command::new("ls")

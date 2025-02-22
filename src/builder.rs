@@ -14,6 +14,7 @@ use crate::watch::WatchPathBuf;
 use crate::{osstrlines, AbsDirPathBuf, Installable};
 use crate::{DrvFile, NixFile};
 use regex::Regex;
+use serde_json::json;
 use slog::{debug, trace};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
@@ -822,7 +823,32 @@ impl NixDevParser {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputPath {
     /// Shell path modified to work as a gc root
-    pub shell_gc_root: RootPath,
+    shell_gc_root: RootPath,
+}
+
+impl OutputPath {
+    /// create new output path
+    pub fn new(shell_gc_root: RootPath) -> Self {
+        OutputPath { shell_gc_root }
+    }
+    /// Check whether all all GC roots exist.
+    pub fn exists(&self) -> bool {
+        let crate::builder::OutputPath { shell_gc_root } = self;
+
+        shell_gc_root.0.as_path().exists()
+    }
+    /// Display the shell_gc_root path
+    pub fn display_shell_gc_root(&self) -> std::path::Display {
+        return self.shell_gc_root.display();
+    }
+    /// Create a nested json structure.
+    pub fn to_json_value(&self) -> serde_json::Value {
+        json!(
+            {
+                "shell_gc_root": self.shell_gc_root.0.to_json_value()
+            }
+        )
+    }
 }
 
 #[cfg(test)]
