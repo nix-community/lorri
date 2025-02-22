@@ -6,7 +6,6 @@ pub mod error;
 use crate::build_loop::BuildLoop;
 use crate::build_loop::Event;
 use crate::build_loop::Reason;
-use crate::builder;
 use crate::builder::OutputPath;
 use crate::cas::ContentAddressable;
 use crate::cli;
@@ -21,7 +20,7 @@ use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
 use crate::ops::error::ExitError;
 use crate::path_to_json_string;
 use crate::socket::path::SocketPath;
-use crate::AbsPathBuf;
+use crate::{builder, project};
 use std::ffi::OsStr;
 use std::fs::remove_dir_all;
 use std::io::{Error, Write};
@@ -31,12 +30,12 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 use std::time::Instant;
-use std::{collections::HashSet, env, fs::File, time::SystemTime};
+use std::{collections::HashSet, env, fs::File};
 
 use anyhow::Context;
 
 use crate::daemon::client::Timeout;
-use crate::project::{Project, ProjectFile};
+use crate::project::{GcRootInfo, Project, ProjectFile};
 use crate::socket::communicate;
 use itertools::Itertools;
 use serde_json::json;
@@ -774,98 +773,9 @@ async fn main_run_once(
     }
 }
 
-#[derive(Serialize)]
-/// Represents a gc root along with some metadata, used for json output of lorri gc info
-struct GcRootInfo {
-    /// directory where root is stored
-    gc_dir: AbsPathBuf,
-    /// nix file from which the root originates. If None, then the root is considered dead.
-    nix_file: Option<PathBuf>,
-    /// timestamp of the last build
-    timestamp: SystemTime,
-    /// whether `nix_file` still exists
-    alive: bool,
-}
-
-impl GcRootInfo {
-    fn format_pretty_oneline(&self) -> String {
-        let target = match &self.nix_file {
-            Some(p) => p.display().to_string(),
-            None => "(?)".to_owned(),
-        };
-        let age = match self.timestamp.elapsed() {
-            Err(_) => "future".to_owned(),
-            Ok(d) => {
-                let days = d.as_secs() / (24 * 60 * 60);
-                format!("{} days ago", days)
-            }
-        };
-        let alive = if self.alive { "" } else { "[dead]" };
-        format!(
-            "{} -> {} {} ({})",
-            self.gc_dir.display(),
-            target,
-            alive,
-            age
-        )
-    }
-}
-
-/// Returns a list of existing gc roots along with some metadata
-fn list_roots(logger: &slog::Logger) -> Result<Vec<GcRootInfo>, ExitError> {
-    let paths = get_paths()?;
-    let mut res = Vec::new();
-    let gc_root_dir = paths.gc_root_dir();
-    for entry in std::fs::read_dir(gc_root_dir)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
-            debug!(
-                logger,
-                "Skipping {} which should be a directory",
-                entry.path().display()
-            );
-            continue;
-        }
-        let gc_dir = AbsPathBuf::new(entry.path()).expect("entry.path() should always be absolute");
-        let gc_root_dir = gc_dir.join("gc_root");
-        if !std::fs::metadata(&gc_root_dir).map_or(false, |m| m.is_dir()) {
-            debug!(
-                logger,
-                "Skipping {} which should be a directory",
-                gc_root_dir.display()
-            );
-            continue;
-        };
-        let timestamp = match std::fs::symlink_metadata(gc_root_dir.join("shell_gc_root")) {
-            Err(_) => {
-                // no gc root, so nothing to report
-                continue;
-            }
-            Ok(m) => m.modified().unwrap_or(std::time::UNIX_EPOCH),
-        };
-        let nix_file_symlink = gc_root_dir.join("nix_file");
-        let nix_file = std::fs::read_link(nix_file_symlink);
-        let alive = match &nix_file {
-            Err(_) => false,
-            Ok(path) => match std::fs::metadata(path) {
-                Ok(m) => m.is_file(),
-                Err(_) => false,
-            },
-        };
-        let nix_file = nix_file.ok();
-        res.push(GcRootInfo {
-            gc_dir,
-            nix_file,
-            timestamp,
-            alive,
-        });
-    }
-    Ok(res)
-}
-
 /// Print or remove gc roots depending on cli options.
 pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions) -> Result<(), ExitError> {
-    let infos = list_roots(logger)?;
+    let infos = project::list_roots(logger)?;
     match opts.action {
         cli::GcSubcommand::Info => {
             if opts.json {
