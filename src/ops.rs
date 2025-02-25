@@ -786,7 +786,7 @@ pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions, paths: &Paths) -> Resu
                                 "gc_dir": info.gc_dir.to_json_string(),
                                 "nix_file": info.nix_file.to_json_string(),
                                 "timestamp": info.timestamp,
-                                "alive": info.alive
+                                "alive": info.project_file_exists
                             })
                         })
                         .collect::<Vec<_>>(),
@@ -808,7 +808,7 @@ pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions, paths: &Paths) -> Resu
             let to_remove: Vec<(GcRootInfo, Project)> = infos
                 .into_iter()
                 .filter(|(info, _project)| {
-                    all || !info.alive
+                    all || !info.project_file_exists
                         || files_to_remove.contains(info.nix_file.as_path())
                         || older_than.map_or(false, |limit| {
                             match info.timestamp {
@@ -849,7 +849,7 @@ pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions, paths: &Paths) -> Resu
                                     "nix_file": info.nix_file.to_json_string(),
                                     // we use the Serialize instance for SystemTime
                                     "timestamp": info.timestamp,
-                                    "alive": info.alive
+                                    "alive": info.project_file_exists
                                 }
                             }),
                             Ok(info) => json!({
@@ -859,7 +859,7 @@ pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions, paths: &Paths) -> Resu
                                     "nix_file": info.nix_file.to_json_string(),
                                     // we use the Serialize instance for SystemTime
                                     "timestamp": info.timestamp,
-                                    "alive": info.alive
+                                    "alive": info.project_file_exists
                                 }
                             }),
                         })

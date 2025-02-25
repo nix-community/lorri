@@ -380,7 +380,7 @@ pub fn list_roots(
                 gc_dir: project.project_root_dir.clone(),
                 nix_file: project.project_file.as_nix_file().0,
                 timestamp,
-                alive,
+                project_file_exists: alive,
             },
             project,
         ));
@@ -389,7 +389,6 @@ pub fn list_roots(
 }
 
 /// Represents a gc root along with some metadata, used for json output of lorri gc info
-#[derive(Serialize)]
 pub struct GcRootInfo {
     /// directory where root is stored
     pub gc_dir: AbsPathBuf,
@@ -398,7 +397,7 @@ pub struct GcRootInfo {
     /// timestamp of the last build
     pub timestamp: Option<SystemTime>,
     /// whether `nix_file` still exists
-    pub alive: bool,
+    pub project_file_exists: bool,
 }
 
 impl GcRootInfo {
@@ -410,7 +409,11 @@ impl GcRootInfo {
             Some(Err(_)) => "future".to_string(),
             Some(Ok(d)) => pretty_time_ago(d),
         };
-        let alive = if self.alive { "" } else { "[dead]" };
+        let alive = if self.project_file_exists {
+            ""
+        } else {
+            "[gone]"
+        };
         format!(
             "{} -> {} {} ({})",
             self.gc_dir.display(),
