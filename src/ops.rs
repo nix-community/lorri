@@ -34,7 +34,7 @@ use std::{collections::HashSet, env, fs::File};
 use anyhow::Context;
 
 use crate::daemon::client::Timeout;
-use crate::project::{GcRootInfo, Project, ProjectFile};
+use crate::project::{GcRootInfo, ListRootsSort, Project, ProjectFile};
 use crate::socket::communicate;
 use itertools::Itertools;
 use serde_json::{json, Value};
@@ -773,9 +773,9 @@ async fn main_run_once(
 
 /// Print or remove gc roots depending on cli options.
 pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions, paths: &Paths) -> Result<(), ExitError> {
-    let infos = project::list_roots(logger, paths)?;
     match opts.action {
         cli::GcSubcommand::Info => {
+            let infos = project::list_roots(logger, paths, ListRootsSort::MoreRecentLast)?;
             if opts.json {
                 serde_json::to_writer(
                     std::io::stdout(),
@@ -805,6 +805,7 @@ pub fn op_gc(logger: &slog::Logger, opts: cli::GcOptions, paths: &Paths) -> Resu
             dry_run,
         } => {
             let files_to_remove: HashSet<PathBuf> = shell_file.into_iter().collect();
+            let infos = project::list_roots(logger, paths, ListRootsSort::NoSorting)?;
             let to_remove: Vec<(GcRootInfo, Project)> = infos
                 .into_iter()
                 .filter(|(info, _project)| {
