@@ -6,6 +6,13 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
+	version = 1111;
+	changes = ''
+	  `lorri gc info`: print “gone” instead of “dead”. Order output
+	  by most recently built.
+	'';
+      }
+      {
 	version = 1107;
 	changes = ''
 	  `lorri gc info`: print elapsed time down to the second,

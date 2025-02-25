@@ -7,7 +7,7 @@ use crate::builder::{OutputPath, RootedPath};
 use crate::constants::Paths;
 use crate::nix::StorePath;
 use crate::ops::error::ExitError;
-use crate::{pretty_time_ago, AbsPathBuf, Installable, NixFile};
+use crate::{pretty_time_ago, AbsPathBuf, Installable, NixFile, TimeAgo};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -318,10 +318,20 @@ impl AddRootError {
     }
 }
 
+/// How the list_roots result should be sorted
+#[derive(Debug, Clone, Copy)]
+pub enum ListRootsSort {
+    /// Return in arbitrary order
+    NoSorting,
+    /// Return most recent items last, sort secondary by project_file path name
+    MoreRecentLast,
+}
+
 /// Returns a list of existing gc roots along with some metadata
 pub fn list_roots(
     logger: &slog::Logger,
     paths: &Paths,
+    list_roots_sort: ListRootsSort,
 ) -> Result<Vec<(GcRootInfo, Project)>, ExitError> {
     let mut res = Vec::new();
     let gc_root_dir_iter = std::fs::read_dir(paths.gc_root_dir()).map_err(|e| {
@@ -384,6 +394,18 @@ pub fn list_roots(
             },
             project,
         ));
+    }
+    match list_roots_sort {
+        ListRootsSort::NoSorting => {}
+        ListRootsSort::MoreRecentLast => {
+            let now = SystemTime::now();
+            res.sort_by_key(|r| {
+                (
+                    r.0.timestamp.map(|t| TimeAgo::from_system_time(now, t)),
+                    r.1.project_file.as_nix_file().as_absolute_path().to_owned(),
+                )
+            })
+        }
     }
     Ok(res)
 }
