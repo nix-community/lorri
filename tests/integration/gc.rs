@@ -98,10 +98,10 @@ derivation {
     let backup_file = project.join("shell.nix.bak");
     std::fs::rename(&nix_file, &backup_file).expect("rename");
     assert!(std::fs::metadata(&nix_file_symlink).is_err());
-    // it should be labeled as dead, but not removed by --print-roots
+    // it should be labeled as gone, but not removed by --print-roots
     let out = run_lorri(vec!["gc", "info"]).unwrap();
     assert!(&out.contains(&subdir.display().to_string()));
-    assert!(out.contains("[dead]"));
+    assert!(out.contains("[gone]"));
     // now remove it
     let out = run_lorri(vec!["gc", "--json", "rm"]).unwrap();
     assert!(&out.contains(&subdir.display().to_string()));
