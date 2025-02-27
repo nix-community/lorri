@@ -299,7 +299,7 @@ async fn instrumented_instantiation(
         .take()
         .expect("we must be able to access the stderr of nix-instantiate");
 
-    let stderr_results = tokio::spawn(async move {
+    let stderr_results = tokio::task::spawn_local(async move {
         let mut lines = osstrlines::Lines::from(BufReader::new(stderr));
         let mut res = vec![];
         loop {
@@ -312,7 +312,7 @@ async fn instrumented_instantiation(
         Ok(res)
     });
 
-    let build_products = tokio::spawn(async move {
+    let build_products = tokio::task::spawn_local(async move {
         let mut lines = osstrlines::Lines::from(BufReader::new(stdout));
         let mut res = vec![];
         loop {
@@ -457,9 +457,9 @@ async fn execute<OF: 'static, EF: 'static, F: 'static, O: 'static, F2: 'static>(
 ) -> Result<(O, Vec<LogDatum>), BuildError>
 where
     OF: Send + FnOnce(ChildStdout) -> F,
-    F: Future<Output = O> + Send,
+    F: Future<Output = O>,
     O: Send,
-    F2: Future<Output = Result<Vec<LogDatum>, std::io::Error>> + Send,
+    F2: Future<Output = Result<Vec<LogDatum>, std::io::Error>>,
     EF: Send + FnOnce(ChildStderr) -> F2,
 {
     cmd.stderr(Stdio::piped());
@@ -474,11 +474,11 @@ where
 
     // 1. spawn a stderr handling thread
     let stderr_handle = nix_proc.stderr.take().expect("failed to take stderr");
-    let stderr_thread = tokio::spawn(async move { stderr_fn(stderr_handle).await });
+    let stderr_thread = tokio::task::spawn_local(async move { stderr_fn(stderr_handle).await });
 
     // 2. spawn a stdout handling thread (?)
     let stdout_handle = nix_proc.stdout.take().expect("failed to take stdout");
-    let stdout_thread = tokio::spawn(async move { stdout_fn(stdout_handle).await });
+    let stdout_thread = tokio::task::spawn_local(async move { stdout_fn(stdout_handle).await });
 
     // 3. wait on the process
     let nix_proc_result = nix_proc.wait().await?;
@@ -856,7 +856,7 @@ mod tests {
     use super::*;
     use crate::cas::ContentAddressable;
     use crate::nix::options::NixOptions;
-    use crate::AbsPathBuf;
+    use crate::{lorri_runtime_block_on, AbsPathBuf};
     use std::path::PathBuf;
 
     /// Parsing of `LogDatum`.
@@ -913,14 +913,16 @@ derivation {{
 
     /// Some nix builds can output non-UTF-8 encoded text
     /// (arbitrary binary output). We should not crash in that case.
-    #[tokio::test]
-    async fn non_utf8_nix_output() -> std::io::Result<()> {
-        let tmp = tempfile::tempdir()?;
-        let cas = ContentAddressable::new(crate::AbsPathBuf::new(tmp.path().to_owned()).unwrap())?;
+    #[test]
+    fn non_utf8_nix_output() -> std::io::Result<()> {
+        lorri_runtime_block_on(async {
+            let tmp = tempfile::tempdir()?;
+            let cas =
+                ContentAddressable::new(crate::AbsPathBuf::new(tmp.path().to_owned()).unwrap())?;
 
-        let inner_drv = drv(
-            "dep",
-            r#"
+            let inner_drv = drv(
+                "dep",
+                r#"
 args = [
     "-c"
     ''
@@ -929,57 +931,61 @@ args = [
     echo > $out
     ''
 ];"#,
-        );
+            );
 
-        let nix_drv = format!(
-            r##"
+            let nix_drv = format!(
+                r##"
 let dep = {};
 in {}
 "##,
-            inner_drv,
-            drv("shell", "inherit dep;")
-        );
+                inner_drv,
+                drv("shell", "inherit dep;")
+            );
 
-        print!("{}", nix_drv);
+            print!("{}", nix_drv);
 
-        // build, because instantiate doesn’t return the build output (obviously …)
-        instantiate_and_build(
-            &crate::NixFile::from(cas.file_from_string(&nix_drv)?),
-            &cas,
-            &NixOptions::empty(),
-            &crate::logging::test_logger("non_utf8_nix_output"),
-        )
-        .await
-        .expect("should not crash!");
-        Ok(())
+            // build, because instantiate doesn’t return the build output (obviously …)
+            instantiate_and_build(
+                &crate::NixFile::from(cas.file_from_string(&nix_drv)?),
+                &cas,
+                &NixOptions::empty(),
+                &crate::logging::test_logger("non_utf8_nix_output"),
+            )
+            .await
+            .expect("should not crash!");
+            Ok(())
+        })
     }
 
     /// If the build fails, we shouldn’t crash in the process.
-    #[tokio::test]
-    async fn gracefully_handle_failing_build() -> std::io::Result<()> {
-        let tmp = tempfile::tempdir()?;
-        let cas = ContentAddressable::new(crate::AbsPathBuf::new(tmp.path().to_owned()).unwrap())?;
+    #[test]
+    fn gracefully_handle_failing_build() -> std::io::Result<()> {
+        lorri_runtime_block_on(async {
+            let tmp = tempfile::tempdir()?;
+            let cas =
+                ContentAddressable::new(crate::AbsPathBuf::new(tmp.path().to_owned()).unwrap())?;
 
-        let d = crate::NixFile::from(cas.file_from_string(&drv(
-            "shell",
-            &format!("dep = {};", drv("dep", r#"args = [ "-c" "exit 1" ];"#)),
-        ))?);
+            let d = crate::NixFile::from(cas.file_from_string(&drv(
+                "shell",
+                &format!("dep = {};", drv("dep", r#"args = [ "-c" "exit 1" ];"#)),
+            ))?);
 
-        if let Err(BuildError::Exit { .. }) = instantiate_and_build(
-            &d,
-            &cas,
-            &NixOptions::empty(),
-            &crate::logging::test_logger("gracefully_handle_failing_build"),
-        )
-        .await
-        {
-        } else {
-            assert!(
-                false,
-                "builder::run should have failed with BuildError::Exit"
-            );
-        }
-        Ok(())
+            if let Err(BuildError::Exit { .. }) = instantiate_and_build(
+                &d,
+                &cas,
+                &NixOptions::empty(),
+                &crate::logging::test_logger("gracefully_handle_failing_build"),
+            )
+            .await
+            {
+            } else {
+                assert!(
+                    false,
+                    "builder::run should have failed with BuildError::Exit"
+                );
+            }
+            Ok(())
+        })
     }
 
     // TODO: builtins.fetchTarball and the like? What happens with those?
@@ -989,17 +995,18 @@ in {}
     /// watch those recursively, which leads to a lot of wasted resources
     /// and often exhausts the amount of available file handles
     /// (especially on macOS).
-    #[tokio::test]
-    async fn no_unnecessary_files_or_directories_watched() -> std::io::Result<()> {
-        let root_tmp = tempfile::tempdir()?;
-        let cas_tmp = tempfile::tempdir()?;
-        let root = root_tmp.path();
-        let shell = root.join("shell.nix");
-        std::fs::write(
-            &shell,
-            drv(
-                "shell",
-                r##"
+    #[test]
+    fn no_unnecessary_files_or_directories_watched() -> std::io::Result<()> {
+        lorri_runtime_block_on(async {
+            let root_tmp = tempfile::tempdir()?;
+            let cas_tmp = tempfile::tempdir()?;
+            let root = root_tmp.path();
+            let shell = root.join("shell.nix");
+            std::fs::write(
+                &shell,
+                drv(
+                    "shell",
+                    r##"
 # The `foo/default.nix` is implicitely imported
 # (we only want to watch that one, not the whole directory)
 foo = import ./foo;
@@ -1008,54 +1015,56 @@ foo = import ./foo;
 # when the user updates it.
 dir-as-source = ./dir;
 "##,
-            ),
-        )?;
+                ),
+            )?;
 
-        // ./foo
-        // ./foo/default.nix
-        // ./foo/bar <- should not be watched
-        // ./foo/baz <- should be watched
-        // ./dir <- should be watched, because imported as source
-        let foo = root.join("foo");
-        std::fs::create_dir(&foo)?;
-        let dir = root.join("dir");
-        std::fs::create_dir(dir)?;
-        let foo_default = &foo.join("default.nix");
-        std::fs::write(foo_default, "import ./baz")?;
-        let foo_bar = &foo.join("bar");
-        std::fs::write(foo_bar, "This file should not be watched")?;
-        let foo_baz = &foo.join("baz");
-        std::fs::write(foo_baz, "\"This file should be watched\"")?;
+            // ./foo
+            // ./foo/default.nix
+            // ./foo/bar <- should not be watched
+            // ./foo/baz <- should be watched
+            // ./dir <- should be watched, because imported as source
+            let foo = root.join("foo");
+            std::fs::create_dir(&foo)?;
+            let dir = root.join("dir");
+            std::fs::create_dir(dir)?;
+            let foo_default = &foo.join("default.nix");
+            std::fs::write(foo_default, "import ./baz")?;
+            let foo_bar = &foo.join("bar");
+            std::fs::write(foo_bar, "This file should not be watched")?;
+            let foo_baz = &foo.join("baz");
+            std::fs::write(foo_baz, "\"This file should be watched\"")?;
 
-        let cas =
-            ContentAddressable::new(crate::AbsPathBuf::new(cas_tmp.path().join("cas")).unwrap())?;
+            let cas = ContentAddressable::new(
+                crate::AbsPathBuf::new(cas_tmp.path().join("cas")).unwrap(),
+            )?;
 
-        let inst_info = instrumented_instantiation(
-            &NixFile::from(AbsPathBuf::new(shell).unwrap()),
-            &cas,
-            &NixOptions::empty(),
-            &crate::logging::test_logger("no_unnecessary_files_or_directories_watched"),
-        )
-        .await
-        .unwrap();
-        let ends_with = |end| {
-            inst_info
-                .referenced_paths
-                .iter()
-                .any(|p| p.as_ref().ends_with(end))
-        };
-        assert!(
-            ends_with("foo/default.nix"),
-            "foo/default.nix should be watched!"
-        );
-        assert!(!ends_with("foo/bar"), "foo/bar should not be watched!");
-        assert!(ends_with("foo/baz"), "foo/baz should be watched!");
-        assert!(ends_with("dir"), "dir should be watched!");
-        assert!(
-            !ends_with("foo"),
-            "No imported directories must exist in watched paths: {:#?}",
-            inst_info.referenced_paths
-        );
-        Ok(())
+            let inst_info = instrumented_instantiation(
+                &NixFile::from(AbsPathBuf::new(shell).unwrap()),
+                &cas,
+                &NixOptions::empty(),
+                &crate::logging::test_logger("no_unnecessary_files_or_directories_watched"),
+            )
+            .await
+            .unwrap();
+            let ends_with = |end| {
+                inst_info
+                    .referenced_paths
+                    .iter()
+                    .any(|p| p.as_ref().ends_with(end))
+            };
+            assert!(
+                ends_with("foo/default.nix"),
+                "foo/default.nix should be watched!"
+            );
+            assert!(!ends_with("foo/bar"), "foo/bar should not be watched!");
+            assert!(ends_with("foo/baz"), "foo/baz should be watched!");
+            assert!(ends_with("dir"), "dir should be watched!");
+            assert!(
+                !ends_with("foo"),
+                "No imported directories must exist in watched paths: {:#?}",
+                inst_info.referenced_paths
+            );
+            Ok(())
+        })
     }
 }

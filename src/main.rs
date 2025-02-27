@@ -1,11 +1,11 @@
 use clap::Parser;
 use lorri::cli::{Arguments, Command, Internal_, Verbosity};
-use lorri::ops;
 use lorri::ops::error::ExitError;
 use lorri::project::{Project, ProjectFile};
 use lorri::sqlite::Sqlite;
 use lorri::AbsPathBuf;
 use lorri::{logging, AbsDirPathBuf};
+use lorri::{lorri_runtime_block_on, ops};
 use slog::{debug, error, o};
 use std::fmt::Write as FmtWrite;
 use std::io::Write;
@@ -33,34 +33,30 @@ fn main() {
     }
 
     let exit_code = {
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("unable to start tokio runtime")
-            .block_on(async {
-                let opts = Arguments::parse();
+        lorri_runtime_block_on(async {
+            let opts = Arguments::parse();
 
-                let verbosity = match opts.verbosity {
-                    // -v flag was given 0 times
-                    0 => Verbosity::DefaultInfo,
-                    // -v flag was specified one or more times, we log everything
-                    _n => Verbosity::Debug,
-                };
+            let verbosity = match opts.verbosity {
+                // -v flag was given 0 times
+                0 => Verbosity::DefaultInfo,
+                // -v flag was specified one or more times, we log everything
+                _n => Verbosity::Debug,
+            };
 
-                // This logger is asynchronous. It is guaranteed to be flushed upon destruction. By tying
-                // its lifetime to this smaller scope, we ensure that it is destroyed before
-                // 'std::process::exit' gets called.
-                let logger = logging::root(verbosity);
-                debug!(logger, "input options"; "options" => ?opts);
+            // This logger is asynchronous. It is guaranteed to be flushed upon destruction. By tying
+            // its lifetime to this smaller scope, we ensure that it is destroyed before
+            // 'std::process::exit' gets called.
+            let logger = logging::root(verbosity);
+            debug!(logger, "input options"; "options" => ?opts);
 
-                match run_command(&logger, opts).await {
-                    Err(err) => {
-                        error!(logger, "{}", err.message());
-                        err.exitcode()
-                    }
-                    Ok(()) => 0,
+            match run_command(&logger, opts).await {
+                Err(err) => {
+                    error!(logger, "{}", err.message());
+                    err.exitcode()
                 }
-            })
+                Ok(()) => 0,
+            }
+        })
     };
 
     std::process::exit(exit_code);

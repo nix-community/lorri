@@ -130,7 +130,7 @@ impl BuildLoop {
         }
         let mk_not_building = || BuildFuture {
             is_building: false,
-            join_hdl: tokio::spawn(pending()),
+            join_hdl: tokio::task::spawn_local(pending()),
         };
         let mk_is_building = |dat| BuildFuture {
             is_building: true,
@@ -247,7 +247,7 @@ impl BuildLoop {
                 let cas = dat.cas.clone();
                 let extra_nix_options = dat.extra_nix_options.clone();
                 let logger2 = dat.logger.clone();
-                tokio::task::spawn(async move {
+                tokio::task::spawn_local(async move {
                     builder::instantiate_and_build(&nix_file, &cas, &extra_nix_options, &logger2)
                         .await
                 })
@@ -255,7 +255,7 @@ impl BuildLoop {
             project::ProjectFile::FlakeNix(i) => {
                 let logger = dat.logger.clone();
                 let installable = i.clone();
-                tokio::task::spawn(async move { builder::flake(&installable, &logger).await })
+                tokio::task::spawn_local(async move { builder::flake(&installable, &logger).await })
             }
         }
     }
