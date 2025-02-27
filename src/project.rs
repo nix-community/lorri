@@ -8,7 +8,7 @@ use crate::constants::Paths;
 use crate::nix::StorePath;
 use crate::ops::error::ExitError;
 use crate::sqlite::Sqlite;
-use crate::{pretty_time_ago, AbsPathBuf, Installable, NixFile, TimeAgo};
+use crate::{pretty_time_ago, AbsPathBuf, NixFile, TimeAgo};
 use slog::warn;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
@@ -42,6 +42,16 @@ pub enum ProjectFile {
     /// A Flake installable - captures the flake target itself (e.g. .#)
     /// and the context directory to resolve it from
     FlakeNix(Installable),
+}
+
+/// An installable flake
+#[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
+pub struct Installable {
+    /// The directory used to resolve a flakeref in the the Nix installable, if present
+    pub context: AbsPathBuf, // XXX Would like an AbsDir
+    /// A nix "installable" c.f. https://nixos.org/manual/nix/stable/command-ref/new-cli/nix#installables
+    /// A flakeref in the installable is resolved relative to the `context` directory
+    pub installable: String,
 }
 
 impl ProjectFile {

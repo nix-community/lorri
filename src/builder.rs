@@ -9,9 +9,9 @@
 
 use crate::cas::ContentAddressable;
 use crate::nix::{options::NixOptions, StorePath};
-use crate::project::RootPath;
+use crate::project::{Installable, RootPath};
 use crate::watch::WatchPathBuf;
-use crate::{osstrlines, AbsDirPathBuf, Installable};
+use crate::{osstrlines, AbsDirPathBuf};
 use crate::{DrvFile, NixFile};
 use regex::Regex;
 use serde_json::json;
