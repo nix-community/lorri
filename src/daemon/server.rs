@@ -93,10 +93,10 @@ impl Server {
                                         debug!(logger, "client vanished, closing socket"; "communication_type" => format!("{:?}", communication_type), "error" => format!("{:?}", err));
                                     }
                                 }
-                                rw.into_inner_state().into_inner_forget_buf()
                             }
-                            Err(_) => todo!(),
+                            Err(r) => err(communication_type, r),
                         }
+                        rw.into_inner_state().into_inner_forget_buf()
                     }
                     CommunicationType::Ping => {
                         let mut rw =
