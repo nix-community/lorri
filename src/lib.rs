@@ -184,16 +184,6 @@ impl AsRef<Path> for AbsPathBuf {
     }
 }
 
-/// An installable flake
-#[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
-pub struct Installable {
-    /// The directory used to resolve a flakeref in the the Nix installable, if present
-    pub context: AbsPathBuf, // XXX Would like an AbsDir
-    /// A nix "installable" c.f. https://nixos.org/manual/nix/stable/command-ref/new-cli/nix#installables
-    /// A flakeref in the installable is resolved relative to the `context` directory
-    pub installable: String,
-}
-
 /// A .nix file.
 ///
 /// Is guaranteed to have an absolute path by construction. We normalize its path, but do not resolve symlinks.

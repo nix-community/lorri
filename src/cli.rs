@@ -10,7 +10,8 @@
 
 use std::{convert::TryFrom, path::PathBuf, str::FromStr, time::Duration};
 
-use crate::{project::ProjectFile, AbsDirPathBuf, AbsPathBuf, Installable};
+use crate::project::Installable;
+use crate::{project::ProjectFile, AbsDirPathBuf, AbsPathBuf};
 use clap::{
     error::{ContextKind, ContextValue},
     Parser, Subcommand, ValueEnum,
