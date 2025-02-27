@@ -38,7 +38,7 @@ impl Server {
             // so that we can accept multiple clients simultaneously
             let conn = listener.accept().await;
 
-            tokio::spawn(async move {
+            tokio::task::spawn_local(async move {
                 match conn {
                     Ok(connection) => {
                         let mut sock = self2.clone().handle_client(connection, &logger2).await;

@@ -1,29 +1,31 @@
 use crate::direnvtestcase::{DirenvTestCase, DirenvValue};
+use lorri::lorri_runtime_block_on;
 
-#[tokio::test]
-async fn trivial_old_style() -> std::io::Result<()> {
-    let (testcase, res) = DirenvTestCase::with_shell_eval("basic").await;
+#[test]
+fn trivial_old_style() -> std::io::Result<()> {
+    lorri_runtime_block_on(async {
+        let (testcase, res) = DirenvTestCase::with_shell_eval("basic").await;
 
-    assert!(
-        res.exists(),
-        "no build output (build-0) in {}.\nContents of {}\n{}",
-        res.display_shell_gc_root(),
-        testcase.cachedir.path().display(),
-        std::str::from_utf8(
-            &std::process::Command::new("ls")
-                .args(["-la", "--recursive"])
-                .args([testcase.cachedir.path().as_os_str()])
-                .output()?
-                .stdout
-        )
-        .unwrap()
-    );
+        assert!(
+            res.exists(),
+            "no build output (build-0) in {}.\nContents of {}\n{}",
+            res.display_shell_gc_root(),
+            testcase.cachedir.path().display(),
+            std::str::from_utf8(
+                &std::process::Command::new("ls")
+                    .args(["-la", "--recursive"])
+                    .args([testcase.cachedir.path().as_os_str()])
+                    .output()?
+                    .stdout
+            )
+            .unwrap()
+        );
 
-    let env = testcase.get_direnv_variables();
-    assert_eq!(env.await.get_env("MARKER"), DirenvValue::Value("present"));
-    Ok(())
+        let env = testcase.get_direnv_variables();
+        assert_eq!(env.await.get_env("MARKER"), DirenvValue::Value("present"));
+        Ok(())
+    })
 }
-
 // TODO: flaky on Ubuntu CI and failing on MacOS
 //
 // Ubuntu CI error:

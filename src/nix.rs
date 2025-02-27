@@ -1,7 +1,7 @@
 //! Execute Nix commands using a builder-pattern abstraction.
 //! ```rust
 //! extern crate lorri;
-//! use lorri::nix;
+//! use lorri::{lorri_runtime_block_on, nix};
 //! use serde_derive::Deserialize;
 //!
 //! #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -10,7 +10,7 @@
 //!     contributions: usize
 //! }
 //!
-//! let output: Result<Vec<Author>, _> = tokio::runtime::Runtime::new().unwrap().block_on(async {
+//! let output: Result<Vec<Author>, _> = lorri_runtime_block_on(async {
 //! nix::CallOpts::expression(r#"
 //!   { name }:
 //!   {
@@ -115,8 +115,8 @@ impl<'a> CallOpts<'a> {
     ///
     /// ```rust
     /// extern crate lorri;
-    /// use lorri::nix;
-    /// let output: Result<u8, _> = tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// use lorri::{lorri_runtime_block_on, nix};
+    /// let output: Result<u8, _> = lorri_runtime_block_on(async {
     /// nix::CallOpts::expression("let x = 5; in x")
     ///     .value().await
     /// });
@@ -159,8 +159,8 @@ impl<'a> CallOpts<'a> {
     ///
     /// ```rust
     /// extern crate lorri;
-    /// use lorri::nix;
-    /// let output: Result<u8, _> = tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// use lorri::{lorri_runtime_block_on, nix};
+    /// let output: Result<u8, _> = lorri_runtime_block_on(async {
     /// nix::CallOpts::expression("let x = 5; in { a = x; }")
     ///     .attribute("a")
     ///     .value().await
@@ -186,8 +186,8 @@ impl<'a> CallOpts<'a> {
     ///
     /// ```rust
     /// extern crate lorri;
-    /// use lorri::nix;
-    /// let output: Result<String, _> = tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// use lorri::{lorri_runtime_block_on, nix};
+    /// let output: Result<String, _> = lorri_runtime_block_on(async {
     ///   nix::CallOpts::expression(r#"{ name }: "Hello, ${name}!""#)
     ///     .argstr("name", "Jill")
     ///     .value().await
@@ -210,7 +210,7 @@ impl<'a> CallOpts<'a> {
     ///
     /// ```rust
     /// extern crate lorri;
-    /// use lorri::nix;
+    /// use lorri::{lorri_runtime_block_on, nix};
     /// use serde_derive::Deserialize;
     ///
     /// #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -219,7 +219,7 @@ impl<'a> CallOpts<'a> {
     ///     contributions: usize
     /// }
     ///
-    /// let output: Result<Vec<Author>, _> = tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let output: Result<Vec<Author>, _> = lorri_runtime_block_on(async {
     /// nix::CallOpts::expression(r#"
     ///   { name }:
     ///   {
@@ -262,12 +262,12 @@ impl<'a> CallOpts<'a> {
     ///
     /// ```rust
     /// extern crate lorri;
-    /// use lorri::nix;
+    /// use lorri::{lorri_runtime_block_on, nix};
     /// use std::path::{Path, PathBuf};
     /// # use std::env;
     /// # env::set_var("NIX_PATH", "nixpkgs=./nix/bogus-nixpkgs/");
     ///
-    /// let (location, gc_root) = tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let (location, gc_root) = lorri_runtime_block_on(async {
     /// nix::CallOpts::expression(r#"
     ///             import <nixpkgs> {}
     /// "#)
@@ -293,13 +293,13 @@ impl<'a> CallOpts<'a> {
     ///
     /// ```rust
     /// extern crate lorri;
-    /// use lorri::nix;
+    /// use lorri::{lorri_runtime_block_on, nix};
     /// use lorri::builder::BuildError;
     /// use std::path::{Path, PathBuf};
     /// # use std::env;
     /// # env::set_var("NIX_PATH", "nixpkgs=./nix/bogus-nixpkgs/");
     ///
-    /// let paths = tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let paths = lorri_runtime_block_on(async {
     /// nix::CallOpts::expression(r#"
     ///             { inherit (import <nixpkgs> {}) hello git; }
     /// "#)
@@ -339,12 +339,12 @@ impl<'a> CallOpts<'a> {
     ///
     /// ```rust
     /// extern crate lorri;
-    /// use lorri::nix;
+    /// use lorri::{lorri_runtime_block_on, nix};
     /// use std::path::{Path, PathBuf};
     /// # use std::env;
     /// # env::set_var("NIX_PATH", "nixpkgs=./nix/bogus-nixpkgs/");
     ///
-    /// let (paths, gc_root) = tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let (paths, gc_root) = lorri_runtime_block_on(async {
     /// nix::CallOpts::expression(r#"
     ///             { inherit (import <nixpkgs> {}) hello git; }
     /// "#)
@@ -415,7 +415,7 @@ impl<'a> CallOpts<'a> {
     where
         S: Send + Fn(BufReader<ChildStdout>) -> F,
         T: Send,
-        F: Future<Output = T> + Send,
+        F: Future<Output = T>,
     {
         cmd.stderr(Stdio::piped());
         cmd.stdout(Stdio::piped());
@@ -429,7 +429,7 @@ impl<'a> CallOpts<'a> {
         // 1. spawn a stderr handling thread
         let (stderr_tx, stderr_rx) = channel();
         let stderr_handle: ChildStderr = nix_proc.stderr.take().expect("failed to take stderr");
-        let stderr_thread = tokio::spawn(async move {
+        let stderr_thread = tokio::task::spawn_local(async move {
             let mut reader = osstrlines::Lines::from(BufReader::new(stderr_handle));
             loop {
                 match reader.next().await {
@@ -446,7 +446,7 @@ impl<'a> CallOpts<'a> {
         // 2. spawn a stdout handling thread (?)
         let stdout_handle: ChildStdout = nix_proc.stdout.take().expect("failed to take stdout");
         let stdout_thread =
-            tokio::spawn(async move { stdout_fn(BufReader::new(stdout_handle)).await });
+            tokio::task::spawn_local(async move { stdout_fn(BufReader::new(stdout_handle)).await });
 
         // 3. wait on the process
         let nix_proc_result = nix_proc.wait().await?;

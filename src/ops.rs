@@ -439,7 +439,7 @@ async fn build_root(
     logger: &slog::Logger,
 ) -> Result<OutputPath, ExitError> {
     let logger2 = logger.clone();
-    let progress_thread = tokio::spawn(async move {
+    let progress_thread = tokio::task::spawn_local(async move {
         // Keep track of the start time to display a hint to the user that they can use `--cached`,
         // but only if a cached version of the environment exists
         let mut start = if cached { Some(Instant::now()) } else { None };
@@ -947,7 +947,7 @@ async fn main_run_forever(
     let logger2 = logger.clone();
     let cas2 = cas.clone();
     // TODO: add the ability to pass extra_nix_options to watch
-    let build_loop = tokio::task::spawn(async move {
+    let build_loop = tokio::task::spawn_local(async move {
         match BuildLoop::new(project, NixOptions::empty(), cas2, logger2) {
             Ok(bl) => bl.forever(tx_build_results, rx_ping).await,
             Err(e) => Err(ExitError::temporary(e)),
@@ -961,7 +961,7 @@ async fn main_run_forever(
         .expect("could not send ping to build_loop");
 
     let logger2 = logger.clone();
-    let print_build_message = tokio::task::spawn(async move {
+    let print_build_message = tokio::task::spawn_local(async move {
         loop {
             let Some(msg) = rx_build_results.recv().await else {
                 break;

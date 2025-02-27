@@ -86,9 +86,10 @@ impl Daemon {
 
         let server = server::Server::new(tx_activity, self.tx_build_events.clone());
         let listener = Listener::new(&socket_path).await?;
-        tokio::spawn(server.listen(listener, logger));
+        tokio::task::spawn_local(server.listen(listener, logger));
 
-        let build_loop_hdl = tokio::task::spawn(Self::build_loop(self.rx_build_events, logger2));
+        let build_loop_hdl =
+            tokio::task::spawn_local(Self::build_loop(self.rx_build_events, logger2));
 
         let tx_build_events = self.tx_build_events.clone();
         let extra_nix_options = self.extra_nix_options.clone();
@@ -116,7 +117,7 @@ impl Daemon {
         logger: slog::Logger,
     ) {
         let mut project_states: HashMap<NixFile, Event> = HashMap::new();
-        let mut build_event_listeners: Vec<Sender<Event>> = Vec::new();
+        let mut build_event_listeners: Vec<Option<Sender<Event>>> = Vec::new();
 
         loop {
             let Some(msg) = rx_build_events.recv().await else {
@@ -131,16 +132,22 @@ impl Daemon {
                     };
                     info!(logger, "build status"; "event" => ?event);
                     project_states.insert(nix_file.clone(), event.clone());
-                    // we have to use blocking_send here, because retain needs a sync FnMut.
-                    tokio::task::block_in_place(|| {
-                        build_event_listeners
-                            .retain(|sender| sender.blocking_send(event.clone()).is_ok())
-                    });
+                    // send to all listeners & remove any listeners that are closed automatically
+                    for listener in build_event_listeners.iter_mut() {
+                        if let Some(l) = listener {
+                            if l.send(event.clone()).await.is_err() {
+                                // we have to jump through this Some/None hoop
+                                // because we can’t send().await inside vec.retain() directly
+                                *listener = None
+                            }
+                        }
+                    }
+                    build_event_listeners.retain(|l| l.is_some());
                     debug!(logger,"Sent"; "event" => ?event);
                 }
                 LoopHandlerEvent::EventStreamListener(tx) => {
                     debug!(logger, "Adding EventStreamListener");
-                    build_event_listeners.push(tx.clone());
+                    build_event_listeners.push(Some(tx.clone()));
                 }
                 LoopHandlerEvent::SnapshotListener(tx) => {
                     debug!(logger, "Answering SnapshotListener");
@@ -210,7 +217,7 @@ impl Daemon {
 
                     match BuildLoop::new(project, extra_nix_options, cas2, logger) {
                         Ok(build_loop) => {
-                            let _ = join_set.spawn(async move {
+                            let _ = join_set.spawn_local(async move {
                                 build_loop.forever(tx_build_events, rx_ping).await
                             });
                         }
