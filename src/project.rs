@@ -294,24 +294,24 @@ impl Project {
                 .file_name()
                 .ok_or_else(|| AddRootError::naming(store_path.as_path()))?
                 .into();
-            self.create_root(base_name, store_path)?;
+            self.create_root(store_path, self.gc_root(&base_name))?;
         }
-        self.create_root(Self::SHELL_GC_ROOT.into(), rooted_path.path)
+        self.create_root(rooted_path.path, self.gc_root(&Self::SHELL_GC_ROOT.into()))
     }
 
     /// Takes the given [StorePath] and creates a nix GC root in our gc_roots cache directory,
     /// under the project hash, i.e. `~/.cache/lorri/gc_roots/<project.hash>/<base_name>`
     fn create_root(
         &self,
-        base_name: PathBuf,
         store_path: StorePath,
+        lorri_gc_root: AbsPathBuf,
     ) -> Result<OutputPath, AddRootError> {
         // nix-store --add-root /tmp/test-root --realise
         let mut cmd = Command::new("nix-store");
         cmd.args([
             OsStr::new("--realise"),
             OsStr::new("--add-root"),
-            self.gc_root(&base_name).as_path().as_os_str(),
+            lorri_gc_root.as_path().as_os_str(),
             store_path.as_path().as_os_str(),
         ])
         .stdin(Stdio::null())
@@ -326,7 +326,7 @@ impl Project {
             return Err(AddRootError::nix_failed(store_path.as_path()));
         }
 
-        Ok(OutputPath::new(RootPath(self.gc_root(&base_name))))
+        Ok(OutputPath::new(RootPath(lorri_gc_root)))
     }
 
     /// Removes this project from lorri. Removes the GC root and consumes the project.
