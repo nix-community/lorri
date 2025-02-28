@@ -9,7 +9,7 @@
 
 use crate::cas::ContentAddressable;
 use crate::nix::{options::NixOptions, StorePath};
-use crate::project::{Installable, RootPath};
+use crate::project::{FlakeOutput, RootPath};
 use crate::watch::WatchPathBuf;
 use crate::{osstrlines, AbsDirPathBuf};
 use crate::{DrvFile, NixFile};
@@ -504,7 +504,7 @@ where
 
 /// Builds the devShell of a flake
 pub async fn flake(
-    installable: &Installable,
+    installable: &FlakeOutput,
     logger: &slog::Logger,
 ) -> Result<RunResult, BuildError> {
     let gc_root_dir = tempfile::TempDir::new()?;
