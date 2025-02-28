@@ -187,14 +187,11 @@ impl Project {
         })
     }
 
-    /// If the hash for our gc directory is already known, create a project by resolving the nix file via its symlink.
+    /// If the path of our gc directory is already known, create a project by resolving the nix file via its symlink.
     fn new_internal_from_existing_gc_dir(
-        hash: String,
-        gc_root_dir: &AbsPathBuf,
+        project_root_dir: AbsPathBuf,
         conn: Sqlite,
     ) -> Result<Project, anyhow::Error> {
-        let project_root_dir = gc_root_dir.join(&hash);
-
         let nix_file_symlink = project_root_dir.join("gc_root").join("nix_file");
         let link = std::fs::read_link(&nix_file_symlink).map_err(|e| {
             anyhow::Error::new(e).context(format!("Cannot fs::read_link {nix_file_symlink:?}"))
@@ -411,21 +408,19 @@ fn list_roots_impl(
         res
     };
     for project_gc_root_dir in project_gc_root_dirs {
-        let hash = project_gc_root_dir
-            .file_name()
-            .to_string_lossy()
-            .into_owned();
         let project = match Project::new_internal_from_existing_gc_dir(
-            hash.clone(),
-            paths.gc_root_dir(),
+            AbsPathBuf::new(project_gc_root_dir.path())
+                .expect(
+                    &format!("project_gc_root_dir must be absolute, because it inherits from `paths.gc_root_dir()`, which is an AbsPathBuf: {}",
+                                 project_gc_root_dir.path().display())
+                ),
             conn.clone(),
         ) {
             Err(e) => {
                 warn!(
                     logger,
-                    "Could not create project for hash {} in root dir {}, skipping: {}",
-                    &hash,
-                    paths.gc_root_dir().display(),
+                    "Could not create project for gc_root_dir {}, skipping: {}",
+                    &project_gc_root_dir.path().display(),
                     e
                 );
                 continue;
