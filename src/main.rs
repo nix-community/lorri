@@ -1,22 +1,18 @@
+use backtrace::Backtrace;
 use clap::Parser;
 use lorri::cli::{Arguments, Command, Internal_, Verbosity};
+use lorri::logging;
 use lorri::ops::error::ExitError;
 use lorri::project::{Project, ProjectFile};
 use lorri::sqlite::Sqlite;
-use lorri::AbsPathBuf;
-use lorri::{logging, AbsDirPathBuf};
 use lorri::{lorri_runtime_block_on, ops};
+use nix::sys::signal::SigHandler::SigIgn;
+use nix::sys::signal::{signal, Signal};
 use slog::{debug, error, o};
 use std::fmt::Write as FmtWrite;
 use std::io::Write;
 use std::panic::PanicHookInfo;
-use std::path::Path;
 use std::{env, mem, panic};
-
-use anyhow::anyhow;
-use backtrace::Backtrace;
-use nix::sys::signal::SigHandler::SigIgn;
-use nix::sys::signal::{signal, Signal};
 
 const TRIVIAL_SHELL_SRC: &str = include_str!("./trivial-shell.nix");
 const DEFAULT_ENVRC: &str = include_str!("./default-envrc");
@@ -60,26 +56,6 @@ fn main() {
     };
 
     std::process::exit(exit_code);
-}
-
-/// Search for `name` in the current directory.
-/// If `name` is an absolute path and a file, it returns the file.
-/// If it doesn’t exist, returns `None`.
-pub fn is_file_in_current_directory(name: &Path) -> anyhow::Result<Option<AbsPathBuf>> {
-    let path = AbsDirPathBuf::current_dir()
-        .unwrap_or_else(|orig| {
-            panic!(
-                "Expected `env::current_dir` to return an absolute path, but was {}",
-                orig
-            )
-        })
-        .relative_to(name.to_path_buf())
-        .map_err(|p| anyhow!("Current dir is not dir: {:?}", p))?;
-    Ok(if path.as_path().is_file() {
-        Some(path)
-    } else {
-        None
-    })
 }
 
 /// Run the main function of the relevant command.
@@ -161,8 +137,6 @@ async fn with_project(
 
 #[cfg(test)]
 mod tests {
-    use lorri::AbsPathBuf;
-
     use super::*;
     use std::path::{Path, PathBuf};
 
@@ -193,19 +167,16 @@ mod tests {
     }
     #[test]
     fn test_locate_config_file() {
-        let mut path = PathBuf::from("shell.nix");
-        let result = is_file_in_current_directory(&path);
-        assert_eq!(
-            result
-                .unwrap()
-                .expect("Should find the shell.nix in this projects' root"),
-            AbsPathBuf::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")))
-                .unwrap()
-                .join("shell.nix")
-        );
-        path.pop();
-        path.push("this-lorri-specific-file-probably-does-not-exist");
-        assert_eq!(None, is_file_in_current_directory(&path).unwrap());
+        let mut shell_nix = env::current_dir().unwrap().join("shell.nix");
+        assert!(shell_nix.exists());
+
+        let manifest_shell = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("shell.nix");
+        assert!(manifest_shell.exists());
+        assert_eq!(shell_nix, manifest_shell);
+        shell_nix.pop();
+        shell_nix.push("this-lorri-specific-file-probably-does-not-exist");
+
+        assert!(!shell_nix.exists());
     }
 }
 
