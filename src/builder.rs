@@ -8,7 +8,7 @@
 //! `stderr`, like which source files are used by the evaluator.
 
 use crate::cas::ContentAddressable;
-use crate::nix::{options::NixOptions, StorePath};
+use crate::nix::{options::NixOptions, GcRootTempDir, StorePath};
 use crate::project::{FlakeOutput, RootPath};
 use crate::watch::WatchPathBuf;
 use crate::{osstrlines, AbsDirPathBuf};
@@ -221,7 +221,7 @@ struct RootedDrv {
 #[derive(Debug)]
 pub struct RootedPath {
     /// The handle to a temporary directory keeping `.path` alive.
-    pub gc_handle: crate::nix::GcRootTempDir,
+    pub gc_handle: GcRootTempDir,
     /// The realized store path
     pub path: StorePath,
     /// For flakes, we need to pin the profile path as well
@@ -409,13 +409,6 @@ async fn build(drv_path: DrvFile, logger: &slog::Logger) -> Result<BuildOutput, 
         },
     })
 }
-
-/// Opaque type to keep a temporary GC root directory alive.
-/// Once it is dropped, the GC root is removed.
-/// Copied from `nix`, because the type should stay opaque.
-#[derive(Debug)]
-#[allow(dead_code)]
-struct GcRootTempDir(tempfile::TempDir);
 
 /// The result of a single instantiation and build.
 #[derive(Debug)]
@@ -636,7 +629,7 @@ pub async fn flake(
         .clone();
 
     let result = RootedPath {
-        gc_handle: gc_root_dir.into(),
+        gc_handle: GcRootTempDir(gc_root_dir),
         path: StorePath::from(store_path),
         flake_profile_path: Some(StorePath::from(profile_root)),
     };
