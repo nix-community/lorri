@@ -27,9 +27,6 @@ pub struct Project {
     // Directory in which this project’s info is stored.
     project_root_dir: AbsPathBuf,
 
-    /// Hash of the nix file’s absolute path.
-    hash: String,
-
     conn: Sqlite,
 }
 
@@ -186,7 +183,6 @@ impl Project {
         Ok(Project {
             project_root_dir,
             project_file,
-            hash,
             conn,
         })
     }
@@ -231,14 +227,8 @@ impl Project {
         Ok(Project {
             project_root_dir,
             project_file,
-            hash,
             conn,
         })
-    }
-
-    /// Generate a "unique" ID for this project based on its absolute path.
-    pub fn hash(&self) -> &str {
-        &self.hash
     }
 
     /// Directory in which this project’s
