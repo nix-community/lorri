@@ -115,7 +115,7 @@ impl slog::Value for ProjectFile {
 
 impl Project {
     /// The name for the build output that's sourced in direnv to produce environment variables
-    pub const ENV_CONTEXT: &'static str = "shell_gc_root";
+    pub const SHELL_GC_ROOT: &'static str = "shell_gc_root";
 
     /// Construct a `Project` from nix file path
     /// and the base GC root directory
@@ -271,7 +271,7 @@ impl Project {
 
     /// Return the filesystem paths for these roots.
     pub fn root_path(&self) -> OutputPath {
-        OutputPath::new(RootPath(self.gc_root(&Self::ENV_CONTEXT.into())))
+        OutputPath::new(RootPath(self.gc_root(&Self::SHELL_GC_ROOT.into())))
     }
 
     /// Get the timestamp for when this project was last built, if it was.
@@ -286,18 +286,21 @@ impl Project {
     }
 
     /// Create roots to store paths.
+    /// Consumes a temporary [RootedPath] and creates a root for each path it points to.
     pub fn create_roots(&self, rooted_path: RootedPath) -> Result<OutputPath, AddRootError> {
-        for path in rooted_path.extra_paths {
-            let base = path
+        if let Some(store_path) = rooted_path.flake_profile_path {
+            let base_name = store_path
                 .as_path()
                 .file_name()
-                .ok_or_else(|| AddRootError::naming(path.as_path()))?
+                .ok_or_else(|| AddRootError::naming(store_path.as_path()))?
                 .into();
-            self.create_root(base, path)?;
+            self.create_root(base_name, store_path)?;
         }
-        self.create_root(Self::ENV_CONTEXT.into(), rooted_path.path)
+        self.create_root(Self::SHELL_GC_ROOT.into(), rooted_path.path)
     }
 
+    /// Takes the given [StorePath] and creates a nix GC root in our gc_roots cache directory,
+    /// under the project hash, i.e. `~/.cache/lorri/gc_roots/<project.hash>/<base_name>`
     fn create_root(
         &self,
         base_name: PathBuf,

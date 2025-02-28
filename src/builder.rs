@@ -216,7 +216,7 @@ struct RootedDrv {
 /// Represents a path which is temporarily rooted in a temporary directory.
 ///
 /// Users are required to keep the gc_handle value alive for as long as
-/// StorePath is alive, _or_ re-root the StorePath using project::Roots
+/// StorePath is alive, _or_ re-root the StorePath using [Project::create_roots]
 /// before dropping gc_handle.
 #[derive(Debug)]
 pub struct RootedPath {
@@ -224,8 +224,8 @@ pub struct RootedPath {
     pub gc_handle: crate::nix::GcRootTempDir,
     /// The realized store path
     pub path: StorePath,
-    /// Other GC root files that need pinning
-    pub extra_paths: Vec<StorePath>,
+    /// For flakes, we need to pin the profile path as well
+    pub flake_profile_path: Option<StorePath>,
 }
 
 struct InstantiateOutput {
@@ -405,7 +405,7 @@ async fn build(drv_path: DrvFile, logger: &slog::Logger) -> Result<BuildOutput, 
         output: RootedPath {
             gc_handle,
             path,
-            extra_paths: vec![],
+            flake_profile_path: None,
         },
     })
 }
@@ -638,7 +638,7 @@ pub async fn flake(
     let result = RootedPath {
         gc_handle: gc_root_dir.into(),
         path: StorePath::from(store_path),
-        extra_paths: vec![profile_root.into()],
+        flake_profile_path: Some(StorePath::from(profile_root)),
     };
 
     Ok(RunResult {
