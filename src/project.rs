@@ -41,12 +41,20 @@ pub enum ProjectFile {
     ShellNix(NixFile),
     /// A Flake installable - captures the flake target itself (e.g. .#)
     /// and the context directory to resolve it from
-    FlakeNix(Installable),
+    FlakeNix(FlakeOutput),
 }
 
-/// An installable flake
+/// A shell for a flake does not just call the `flake.nix`, but each flake can have multiple
+/// outputs which are referred to by `installable”.
+///
+/// TODO: this does not really correspond to all the things that can point to flakes,
+/// The nix installable syntax can do way more things than just combine a flake.nix and directory.
+/// For more information:
+/// https://nix.dev/manual/nix/2.26/command-ref/new-cli/nix.html?highlight=installable#installables
+/// If we implement it in a more generic fashion, how should we do the mapping from installable
+/// to build output? Should we try and normalize the installable?
 #[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
-pub struct Installable {
+pub struct FlakeOutput {
     /// The directory used to resolve a flakeref in the the Nix installable, if present
     pub context: AbsPathBuf, // XXX Would like an AbsDir
     /// A nix "installable" c.f. https://nixos.org/manual/nix/stable/command-ref/new-cli/nix#installables
@@ -58,7 +66,7 @@ impl ProjectFile {
     /// Creates a ProjectFile::FlakeNix from a context and installable
     /// c.f. https://nix.dev/manual/nix/2.18/command-ref/new-cli/nix3-flake#description
     pub fn flake(context: AbsPathBuf, installable: String) -> Self {
-        ProjectFile::FlakeNix(Installable {
+        ProjectFile::FlakeNix(FlakeOutput {
             context,
             installable,
         })
@@ -69,7 +77,7 @@ impl ProjectFile {
     /// Obviously TODO remove
     #[deprecated]
     pub fn flake_unknown_installable(context: AbsPathBuf) -> Self {
-        ProjectFile::FlakeNix(Installable {
+        ProjectFile::FlakeNix(FlakeOutput {
             context,
             installable: "#.".to_string(),
         })

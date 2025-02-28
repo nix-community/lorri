@@ -10,7 +10,7 @@
 
 use std::{convert::TryFrom, path::PathBuf, str::FromStr, time::Duration};
 
-use crate::project::Installable;
+use crate::project::FlakeOutput;
 use crate::{project::ProjectFile, AbsDirPathBuf, AbsPathBuf};
 use clap::{
     error::{ContextKind, ContextValue},
@@ -119,18 +119,21 @@ impl TryFrom<DefaultingSourceOptions> for ProjectFile {
                 Err(e)
             }
             // XXX Consider more sophisticated default - e.g. first that exists: shell.nix, flake.nix, default.nix
+            // Reads a nix filename given by the user and either returns
+            // the `NixFile` type or exists with a helpful error message
+            // that instructs the user how to write a minimal `shell.nix`.
             (None, None) => find_nix_file("shell.nix")
                 .or_else(|| find_nix_file("flake.nix"))
                 .or_else(|| find_nix_file("default.nix"))
                 .ok_or_else(|| {
                     let mut e = clap::error::Error::new(clap::error::ErrorKind::ValueValidation);
-                    e.insert(clap::error::ContextKind::Suggested, ContextValue::String(format!( "No default build sources found\n\
+                    e.insert(clap::error::ContextKind::Suggested, ContextValue::String(format!("No default build sources found\n\
                     You can use a flake.nix file or the following minimal `shell.nix` to get started:\n\n\
-                    {}", TRIVIAL_SHELL_SRC)));
+                    {}", include_str!("./trivial-shell.nix"))));
                     e
                 }),
             (Some(shell), None) => Ok(ProjectFile::ShellNix(from_current_dir(&shell)?.into())),
-            (None, Some(flake)) => Ok(ProjectFile::FlakeNix(Installable {
+            (None, Some(flake)) => Ok(ProjectFile::FlakeNix(FlakeOutput {
                 context: from_current_dir(&opts.context_dir)?,
                 installable: flake,
             })),
@@ -138,10 +141,6 @@ impl TryFrom<DefaultingSourceOptions> for ProjectFile {
     }
 }
 
-const TRIVIAL_SHELL_SRC: &str = include_str!("./trivial-shell.nix");
-/// Reads a nix filename given by the user and either returns
-/// the `NixFile` type or exists with a helpful error message
-/// that instructs the user how to write a minimal `shell.nix`.
 fn find_nix_file(shellfile: &str) -> Option<ProjectFile> {
     let path = AbsDirPathBuf::current_dir()
         .ok()?
@@ -217,7 +216,7 @@ impl TryFrom<SourceOptions> for ProjectFile {
                 Err(e)
             }
             (Some(shell), None) => Ok(ProjectFile::ShellNix(from_current_dir(&shell)?.into())),
-            (None, Some(flake)) => Ok(ProjectFile::FlakeNix(Installable {
+            (None, Some(flake)) => Ok(ProjectFile::FlakeNix(FlakeOutput {
                 context: from_current_dir(&opts.context_dir)?,
                 installable: flake,
             })),
