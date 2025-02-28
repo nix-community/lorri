@@ -102,13 +102,7 @@ impl From<OsString> for StorePath {
 /// Once it is dropped, the GC root is removed.
 #[derive(Debug)]
 #[allow(dead_code)]
-pub struct GcRootTempDir(tempfile::TempDir);
-
-impl From<tempfile::TempDir> for GcRootTempDir {
-    fn from(dir: tempfile::TempDir) -> Self {
-        Self(dir)
-    }
-}
+pub struct GcRootTempDir(pub tempfile::TempDir);
 
 impl<'a> CallOpts<'a> {
     /// Create a CallOpts with the Nix expression `expr`.
