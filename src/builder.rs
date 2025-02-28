@@ -554,7 +554,30 @@ pub async fn flake(
     )
     .await?;
 
-    let referenced_paths = extract_paths(results);
+    let referenced_paths = results
+        .into_iter()
+        .filter_map(|result| match result {
+            LogDatum::CopiedSource(src) | LogDatum::ReadRecursively(src) => {
+                Some(WatchPathBuf::Recursive(src))
+            }
+            LogDatum::ReadDir(src) => Some(WatchPathBuf::Normal(src)),
+            LogDatum::NixSourceFile(mut src) => {
+                // We need to emulate nix’s `default.nix` mechanism here.
+                // That is, if the user uses something like
+                // `import ./foo`
+                // and `foo` is a directory, nix will actually import
+                // `./foo/default.nix`
+                // but still print `./foo`.
+                // Since this is the only time directories are printed,
+                // we can just manually re-implement that behavior.
+                if src.is_dir() {
+                    src.push("default.nix");
+                }
+                Some(WatchPathBuf::Normal(src))
+            }
+            LogDatum::Text(_) | LogDatum::NonUtf(_) => None,
+        })
+        .collect();
 
     let mut profile_root = profile_path;
     for _ in 1..10 {
@@ -622,33 +645,6 @@ pub async fn flake(
         referenced_paths,
         result,
     })
-}
-
-fn extract_paths(results: impl IntoIterator<Item = LogDatum>) -> Vec<WatchPathBuf> {
-    results
-        .into_iter()
-        .filter_map(|result| match result {
-            LogDatum::CopiedSource(src) | LogDatum::ReadRecursively(src) => {
-                Some(WatchPathBuf::Recursive(src))
-            }
-            LogDatum::ReadDir(src) => Some(WatchPathBuf::Normal(src)),
-            LogDatum::NixSourceFile(mut src) => {
-                // We need to emulate nix’s `default.nix` mechanism here.
-                // That is, if the user uses something like
-                // `import ./foo`
-                // and `foo` is a directory, nix will actually import
-                // `./foo/default.nix`
-                // but still print `./foo`.
-                // Since this is the only time directories are printed,
-                // we can just manually re-implement that behavior.
-                if src.is_dir() {
-                    src.push("default.nix");
-                }
-                Some(WatchPathBuf::Normal(src))
-            }
-            LogDatum::Text(_) | LogDatum::NonUtf(_) => None,
-        })
-        .collect()
 }
 
 /// Classifies the output of nix-instantiate -vv.
