@@ -187,47 +187,6 @@ impl Project {
         })
     }
 
-    /// If the path of our gc directory is already known, create a project by resolving the nix file via its symlink.
-    fn new_internal_from_existing_gc_dir(
-        project_root_dir: AbsPathBuf,
-        conn: Sqlite,
-    ) -> Result<Project, anyhow::Error> {
-        let nix_file_symlink = project_root_dir.join("gc_root").join("nix_file");
-        let link = std::fs::read_link(&nix_file_symlink).map_err(|e| {
-            anyhow::Error::new(e).context(format!("Cannot fs::read_link {nix_file_symlink:?}"))
-        })?;
-        let original_file = AbsPathBuf::new(link.clone()).expect(&format!(
-            "nix_file symlink is a relative path, this should not happen: {link:?}"
-        ));
-        let project_file = match original_file.as_path().file_name().map(OsStr::to_str) {
-            Some(Some("flake.nix")) => {
-                let p = ProjectFile::flake_unknown_installable(
-                    AbsPathBuf::new(
-                        original_file
-                            .as_path()
-                            .parent()
-                            .expect(&format!("flake.nix not in directory {original_file:?}"))
-                            .to_owned(),
-                    )
-                    .unwrap(),
-                );
-                p
-            }
-            Some(_) => ProjectFile::ShellNix(NixFile(original_file)),
-            None => {
-                panic!(
-                    "nix file does not have a file_name(), should not happen: {original_file:?}"
-                );
-            }
-        };
-
-        Ok(Project {
-            project_root_dir,
-            project_file,
-            conn,
-        })
-    }
-
     /// Directory in which this project’s
     /// garbage collection roots are stored.
     fn gc_root_path(&self) -> AbsPathBuf {
@@ -408,24 +367,53 @@ fn list_roots_impl(
         res
     };
     for project_gc_root_dir in project_gc_root_dirs {
-        let project = match Project::new_internal_from_existing_gc_dir(
-            AbsPathBuf::new(project_gc_root_dir.path())
-                .expect(
-                    &format!("project_gc_root_dir must be absolute, because it inherits from `paths.gc_root_dir()`, which is an AbsPathBuf: {}",
-                                 project_gc_root_dir.path().display())
-                ),
-            conn.clone(),
-        ) {
+        let project_root_dir = AbsPathBuf::new(project_gc_root_dir.path())
+            .expect(
+                &format!("project_gc_root_dir must be absolute, because it inherits from `paths.gc_root_dir()`, which is an AbsPathBuf: {}",
+                         project_gc_root_dir.path().display())
+            );
+        let nix_file_symlink = project_root_dir.join("gc_root").join("nix_file");
+        let link = match std::fs::read_link(&nix_file_symlink) {
+            Ok(a) => a,
             Err(e) => {
                 warn!(
                     logger,
-                    "Could not create project for gc_root_dir {}, skipping: {}",
+                    "Could not create project for gc_root_dir {}, skipping: Cannot fs::read_link {}: {}",
                     &project_gc_root_dir.path().display(),
+                    nix_file_symlink.display(),
                     e
                 );
                 continue;
             }
-            Ok(p) => p,
+        };
+        let original_file = AbsPathBuf::new(link.clone()).expect(&format!(
+            "nix_file symlink is a relative path, this should not happen: {link:?}"
+        ));
+        let project_file = match original_file.as_path().file_name().map(OsStr::to_str) {
+            Some(Some("flake.nix")) => {
+                let p = ProjectFile::flake_unknown_installable(
+                    AbsPathBuf::new(
+                        original_file
+                            .as_path()
+                            .parent()
+                            .expect(&format!("flake.nix not in directory {original_file:?}"))
+                            .to_owned(),
+                    )
+                    .unwrap(),
+                );
+                p
+            }
+            Some(_) => ProjectFile::ShellNix(NixFile(original_file)),
+            None => {
+                panic!(
+                    "nix file does not have a file_name(), should not happen: {original_file:?}"
+                );
+            }
+        };
+        let project = Project {
+            project_root_dir,
+            project_file,
+            conn: conn.clone(),
         };
         let timestamp = project.last_built_timestamp();
 
