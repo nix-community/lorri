@@ -318,13 +318,19 @@ pub enum ListRootsSort {
     MoreRecentLast,
 }
 
-/// Returns a list of existing gc roots along with some metadata
-fn list_roots_impl(
+struct ListRoots {
+    project: Project,
+    timestamp: Option<SystemTime>,
+    project_file_exists: bool,
+}
+
+/// List roots for doing the sqlite migration
+pub fn list_roots_migration(
     logger: &slog::Logger,
     paths: &Paths,
     conn: Sqlite,
     list_roots_sort: ListRootsSort,
-) -> Result<Vec<ListRoots>, ExitError> {
+) -> Result<Vec<ListRootsMigration>, ExitError> {
     let mut res = Vec::new();
     let gc_root_dir_iter = std::fs::read_dir(paths.gc_root_dir()).map_err(|e| {
         ExitError::environment_problem(
@@ -398,7 +404,7 @@ fn list_roots_impl(
         };
         let project = Project {
             project_root_dir,
-            project_file,
+            project_file: project_file.clone(),
             conn: conn.clone(),
         };
         // Get the timestamp for when this project was last built, if it was.
@@ -410,7 +416,7 @@ fn list_roots_impl(
             Ok(m) => m.modified().map_or(None, Some),
         };
 
-        let project_file_exists = project.project_file.as_absolute_path().is_file();
+        let project_file_exists = project_file.as_absolute_path().is_file();
         res.push(ListRoots {
             project,
             timestamp,
@@ -433,23 +439,7 @@ fn list_roots_impl(
             })
         }
     }
-    Ok(res)
-}
-
-struct ListRoots {
-    project: Project,
-    timestamp: Option<SystemTime>,
-    project_file_exists: bool,
-}
-
-/// List roots for doing the sqlite migration
-pub fn list_roots_migration(
-    logger: &slog::Logger,
-    paths: &Paths,
-    conn: Sqlite,
-    list_roots_sort: ListRootsSort,
-) -> Result<Vec<ListRootsMigration>, ExitError> {
-    Ok(list_roots_impl(logger, paths, conn, list_roots_sort)?
+    Ok(res
         .into_iter()
         .map(
             |ListRoots {
@@ -486,7 +476,115 @@ pub fn list_roots_gc(
     conn: Sqlite,
     list_roots_sort: ListRootsSort,
 ) -> Result<Vec<(GcRootInfo, Project)>, ExitError> {
-    Ok(list_roots_impl(logger, paths, conn, list_roots_sort)?
+    let mut res = Vec::new();
+    let gc_root_dir_iter = std::fs::read_dir(paths.gc_root_dir()).map_err(|e| {
+        ExitError::environment_problem(
+            anyhow::anyhow!(e).context("Cannot read lorri gc root directory"),
+        )
+    })?;
+    let project_gc_root_dirs = {
+        let mut res = vec![];
+        for entry in gc_root_dir_iter {
+            match entry {
+                Err(e) => {
+                    warn!(logger, "Cannot read gc project directory: {}", e)
+                }
+                Ok(entry) => {
+                    if let Ok(ft) = entry.file_type() {
+                        if ft.is_dir() {
+                            res.push(entry);
+                            continue;
+                        }
+                    }
+                    warn!(
+                        logger,
+                        "Skipping {} which should be a directory",
+                        entry.path().display()
+                    );
+                }
+            }
+        }
+        res
+    };
+    for project_gc_root_dir in project_gc_root_dirs {
+        let project_root_dir = AbsPathBuf::new(project_gc_root_dir.path())
+            .expect(
+                &format!("project_gc_root_dir must be absolute, because it inherits from `paths.gc_root_dir()`, which is an AbsPathBuf: {}",
+                         project_gc_root_dir.path().display())
+            );
+        let nix_file_symlink = project_root_dir.join("gc_root").join("nix_file");
+        let link = match std::fs::read_link(&nix_file_symlink) {
+            Ok(a) => a,
+            Err(e) => {
+                warn!(
+                    logger,
+                    "Could not create project for gc_root_dir {}, skipping: Cannot fs::read_link {}: {}",
+                    &project_gc_root_dir.path().display(),
+                    nix_file_symlink.display(),
+                    e
+                );
+                continue;
+            }
+        };
+        let original_file = AbsPathBuf::new(link.clone()).expect(&format!(
+            "nix_file symlink is a relative path, this should not happen: {link:?}"
+        ));
+        let project_file = match original_file.as_path().file_name().map(OsStr::to_str) {
+            Some(Some("flake.nix")) => ProjectFile::flake_unknown_installable(
+                AbsPathBuf::new(
+                    original_file
+                        .as_path()
+                        .parent()
+                        .expect(&format!("flake.nix not in directory {original_file:?}"))
+                        .to_owned(),
+                )
+                .unwrap(),
+            ),
+            Some(_) => ProjectFile::ShellNix(NixFile(original_file)),
+            None => {
+                panic!(
+                    "nix file does not have a file_name(), should not happen: {original_file:?}"
+                );
+            }
+        };
+        let project = Project {
+            project_root_dir,
+            project_file: project_file.clone(),
+            conn: conn.clone(),
+        };
+        // Get the timestamp for when this project was last built, if it was.
+        let timestamp = match std::fs::symlink_metadata(project.shell_gc_root()) {
+            Err(_) => {
+                // no gc root, so nothing to report
+                None
+            }
+            Ok(m) => m.modified().map_or(None, Some),
+        };
+
+        let project_file_exists = project_file.as_absolute_path().is_file();
+        res.push(ListRoots {
+            project,
+            timestamp,
+            project_file_exists,
+        });
+    }
+    match list_roots_sort {
+        ListRootsSort::NoSorting => {}
+        ListRootsSort::MoreRecentLast => {
+            let now = SystemTime::now();
+            res.sort_by_key(|r| {
+                (
+                    r.timestamp.map(|t| TimeAgo::from_system_time(now, t)),
+                    r.project
+                        .project_file
+                        .as_nix_file()
+                        .as_absolute_path()
+                        .to_owned(),
+                )
+            })
+        }
+    }
+    Ok(res
         .into_iter()
         .map(
             |ListRoots {
