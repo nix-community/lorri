@@ -11,7 +11,7 @@ use crate::cas::ContentAddressable;
 use crate::nix::{options::NixOptions, GcRootTempDir, StorePath};
 use crate::project::{FlakeOutput, RootPath};
 use crate::watch::WatchPathBuf;
-use crate::{osstrlines, AbsDirPathBuf};
+use crate::{osstrlines, AbsPathBuf};
 use crate::{DrvFile, NixFile};
 use regex::Regex;
 use serde_json::json;
@@ -714,8 +714,8 @@ where
 }
 
 struct NixDevParser {
-    flake_rees: HashMap<String, (Regex, AbsDirPathBuf)>,
-    tree_rees: HashMap<String, (Regex, AbsDirPathBuf)>,
+    flake_rees: HashMap<String, (Regex, AbsPathBuf)>,
+    tree_rees: HashMap<String, (Regex, AbsPathBuf)>,
     logger: slog::Logger,
 }
 
@@ -762,10 +762,7 @@ impl NixDevParser {
             if let Some(matches) = re.captures(line) {
                 debug!(self.logger, "tree match"; "re" => ?re, "line" => ?line, "matches" => ?matches);
                 return LogDatum::ReadRecursively(
-                    path.relative_to(PathBuf::from(&matches["file"]))
-                        .expect("paths to join")
-                        .as_path()
-                        .to_path_buf(),
+                    path.join(&matches["file"]).as_path().to_path_buf(),
                 );
             }
         }
@@ -799,7 +796,7 @@ impl NixDevParser {
                 flake_name,
                 (
                     re,
-                    AbsDirPathBuf::new(source_path.into())
+                    AbsPathBuf::new(source_path.into())
                         .expect("flake name to include absolute path"),
                 ),
             );
