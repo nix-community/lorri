@@ -8,14 +8,14 @@
 //
 // See MAINTAINERS.md for details on internal and non-internal commands.
 
-use std::{convert::TryFrom, path::PathBuf, str::FromStr, time::Duration};
-
 use crate::project::FlakeOutput;
-use crate::{project::ProjectFile, AbsDirPathBuf, AbsPathBuf};
+use crate::{project::ProjectFile, AbsPathBuf};
 use clap::{
     error::{ContextKind, ContextValue},
     Parser, Subcommand, ValueEnum,
 };
+use std::path::Path;
+use std::{convert::TryFrom, path::PathBuf, str::FromStr, time::Duration};
 
 #[derive(Parser, Debug)]
 #[command(name = "lorri", version)]
@@ -91,16 +91,14 @@ pub struct DefaultingSourceOptions {
 }
 
 fn from_current_dir(rel: &PathBuf) -> Result<AbsPathBuf, clap::Error> {
-    AbsDirPathBuf::current_dir()?
-        .relative_to(rel.clone())
-        .map_err(|err| {
-            let mut e = clap::error::Error::new(clap::error::ErrorKind::ValueValidation);
-            e.insert(
-                clap::error::ContextKind::InvalidValue,
-                ContextValue::String(format!("could not make {:?} absolute: {:?}", rel, err)),
-            );
-            e
-        })
+    AbsPathBuf::new_from_current_directory(rel).map_err(|err| {
+        let mut e = clap::error::Error::new(clap::error::ErrorKind::ValueValidation);
+        e.insert(
+            clap::error::ContextKind::InvalidValue,
+            ContextValue::String(format!("could not make {:?} absolute: {:?}", rel, err)),
+        );
+        e
+    })
 }
 
 impl TryFrom<DefaultingSourceOptions> for ProjectFile {
@@ -122,9 +120,9 @@ impl TryFrom<DefaultingSourceOptions> for ProjectFile {
             // Reads a nix filename given by the user and either returns
             // the `NixFile` type or exists with a helpful error message
             // that instructs the user how to write a minimal `shell.nix`.
-            (None, None) => find_nix_file("shell.nix")
-                .or_else(|| find_nix_file("flake.nix"))
-                .or_else(|| find_nix_file("default.nix"))
+            (None, None) => find_nix_file(&PathBuf::from("shell.nix"))
+                .or_else(|| find_nix_file(&PathBuf::from("flake.nix")))
+                .or_else(|| find_nix_file(&PathBuf::from("default.nix")))
                 .ok_or_else(|| {
                     let mut e = clap::error::Error::new(clap::error::ErrorKind::ValueValidation);
                     e.insert(clap::error::ContextKind::Suggested, ContextValue::String(format!("No default build sources found\n\
@@ -141,11 +139,8 @@ impl TryFrom<DefaultingSourceOptions> for ProjectFile {
     }
 }
 
-fn find_nix_file(shellfile: &str) -> Option<ProjectFile> {
-    let path = AbsDirPathBuf::current_dir()
-        .ok()?
-        .relative_to(shellfile.into())
-        .ok()?;
+fn find_nix_file(shellfile: &Path) -> Option<ProjectFile> {
+    let path = AbsPathBuf::new_from_current_directory(shellfile).ok()?;
     if !path.as_path().is_file() {
         return None;
     };
