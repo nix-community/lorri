@@ -215,17 +215,6 @@ impl Project {
         OutputPath::new(RootPath(self.shell_gc_root()))
     }
 
-    /// Get the timestamp for when this project was last built, if it was.
-    pub fn last_built_timestamp(&self) -> Option<SystemTime> {
-        match std::fs::symlink_metadata(self.shell_gc_root()) {
-            Err(_) => {
-                // no gc root, so nothing to report
-                None
-            }
-            Ok(m) => m.modified().map_or(None, Some),
-        }
-    }
-
     /// Create roots to store paths.
     /// Consumes a temporary [RootedPath] and creates a root for each path it points to.
     pub fn create_roots(&self, rooted_path: RootedPath) -> Result<OutputPath, AddRootError> {
@@ -390,19 +379,16 @@ fn list_roots_impl(
             "nix_file symlink is a relative path, this should not happen: {link:?}"
         ));
         let project_file = match original_file.as_path().file_name().map(OsStr::to_str) {
-            Some(Some("flake.nix")) => {
-                let p = ProjectFile::flake_unknown_installable(
-                    AbsPathBuf::new(
-                        original_file
-                            .as_path()
-                            .parent()
-                            .expect(&format!("flake.nix not in directory {original_file:?}"))
-                            .to_owned(),
-                    )
-                    .unwrap(),
-                );
-                p
-            }
+            Some(Some("flake.nix")) => ProjectFile::flake_unknown_installable(
+                AbsPathBuf::new(
+                    original_file
+                        .as_path()
+                        .parent()
+                        .expect(&format!("flake.nix not in directory {original_file:?}"))
+                        .to_owned(),
+                )
+                .unwrap(),
+            ),
             Some(_) => ProjectFile::ShellNix(NixFile(original_file)),
             None => {
                 panic!(
@@ -415,7 +401,14 @@ fn list_roots_impl(
             project_file,
             conn: conn.clone(),
         };
-        let timestamp = project.last_built_timestamp();
+        // Get the timestamp for when this project was last built, if it was.
+        let timestamp = match std::fs::symlink_metadata(project.shell_gc_root()) {
+            Err(_) => {
+                // no gc root, so nothing to report
+                None
+            }
+            Ok(m) => m.modified().map_or(None, Some),
+        };
 
         let project_file_exists = project.project_file.as_absolute_path().is_file();
         res.push(ListRoots {
