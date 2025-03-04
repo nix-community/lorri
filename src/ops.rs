@@ -887,7 +887,7 @@ pub fn write_gc_rm_json<W: Write>(
                 "error": err,
                 // The root we tried to remove
                 "root": {
-                    "gc_dir": info.gc_dir,
+                    "gc_dir": info.gc_dir.to_json_string(),
                     "nix_file": info.nix_file.to_json_string(),
                     // we use the Serialize instance for SystemTime
                     "timestamp": info.timestamp,
@@ -897,7 +897,7 @@ pub fn write_gc_rm_json<W: Write>(
             Ok(info) => json!({
                 "error": null,
                 "root": {
-                    "gc_dir": info.gc_dir,
+                    "gc_dir": info.gc_dir.to_json_string(),
                     "nix_file": info.nix_file.to_json_string(),
                     // we use the Serialize instance for SystemTime
                     "timestamp": info.timestamp,
