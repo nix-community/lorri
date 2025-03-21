@@ -817,7 +817,7 @@ impl OutputPath {
     pub fn new(shell_gc_root: RootPath) -> Self {
         OutputPath { shell_gc_root }
     }
-    /// Check whether all all GC roots exist.
+    /// Check whether all GC roots exist.
     pub fn exists(&self) -> bool {
         let crate::builder::OutputPath { shell_gc_root } = self;
 

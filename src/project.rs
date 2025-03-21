@@ -11,10 +11,11 @@ use crate::sqlite::Sqlite;
 use crate::{pretty_time_ago, AbsPathBuf, NixFile, TimeAgo};
 use slog::warn;
 use std::ffi::OsStr;
+use std::ops::Add;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use tokio_rusqlite::named_params;
 
 /// A “project” knows how to handle the lorri state
@@ -329,7 +330,6 @@ pub fn list_roots_migration(
     logger: &slog::Logger,
     paths: &Paths,
     conn: Sqlite,
-    list_roots_sort: ListRootsSort,
 ) -> Result<Vec<ListRootsMigration>, ExitError> {
     let mut res = Vec::new();
     let gc_root_dir_iter = std::fs::read_dir(paths.gc_root_dir()).map_err(|e| {
@@ -416,46 +416,16 @@ pub fn list_roots_migration(
             Ok(m) => m.modified().map_or(None, Some),
         };
 
-        let project_file_exists = project_file.as_absolute_path().is_file();
-        res.push(ListRoots {
-            project,
+        res.push(ListRootsMigration {
+            nix_file: project.project_file.as_nix_file(),
+            is_flake: match project.project_file {
+                ProjectFile::ShellNix(_) => false,
+                ProjectFile::FlakeNix(_) => true,
+            },
             timestamp,
-            project_file_exists,
         });
     }
-    match list_roots_sort {
-        ListRootsSort::NoSorting => {}
-        ListRootsSort::MoreRecentLast => {
-            let now = SystemTime::now();
-            res.sort_by_key(|r| {
-                (
-                    r.timestamp.map(|t| TimeAgo::from_system_time(now, t)),
-                    r.project
-                        .project_file
-                        .as_nix_file()
-                        .as_absolute_path()
-                        .to_owned(),
-                )
-            })
-        }
-    }
-    Ok(res
-        .into_iter()
-        .map(
-            |ListRoots {
-                 project, timestamp, ..
-             }| {
-                ListRootsMigration {
-                    nix_file: project.project_file.as_nix_file(),
-                    is_flake: match project.project_file {
-                        ProjectFile::ShellNix(_) => false,
-                        ProjectFile::FlakeNix(_) => true,
-                    },
-                    timestamp,
-                }
-            },
-        )
-        .collect())
+    Ok(res)
 }
 
 /// Result of [list_roots_migration]
@@ -470,104 +440,78 @@ pub struct ListRootsMigration {
 }
 
 /// Returns a list of existing gc roots along with some metadata
-pub fn list_roots_gc(
-    logger: &slog::Logger,
+pub async fn list_roots_gc(
     paths: &Paths,
-    conn: Sqlite,
+    conn2: Sqlite,
     list_roots_sort: ListRootsSort,
 ) -> Result<Vec<(GcRootInfo, Project)>, ExitError> {
-    let mut res = Vec::new();
-    let gc_root_dir_iter = std::fs::read_dir(paths.gc_root_dir()).map_err(|e| {
-        ExitError::environment_problem(
-            anyhow::anyhow!(e).context("Cannot read lorri gc root directory"),
-        )
-    })?;
-    let project_gc_root_dirs = {
-        let mut res = vec![];
-        for entry in gc_root_dir_iter {
-            match entry {
-                Err(e) => {
-                    warn!(logger, "Cannot read gc project directory: {}", e)
-                }
-                Ok(entry) => {
-                    if let Ok(ft) = entry.file_type() {
-                        if ft.is_dir() {
-                            res.push(entry);
-                            continue;
-                        }
-                    }
-                    warn!(
-                        logger,
-                        "Skipping {} which should be a directory",
-                        entry.path().display()
-                    );
-                }
-            }
-        }
-        res
-    };
-    for project_gc_root_dir in project_gc_root_dirs {
-        let project_root_dir = AbsPathBuf::new(project_gc_root_dir.path())
-            .expect(
-                &format!("project_gc_root_dir must be absolute, because it inherits from `paths.gc_root_dir()`, which is an AbsPathBuf: {}",
-                         project_gc_root_dir.path().display())
-            );
-        let nix_file_symlink = project_root_dir.join("gc_root").join("nix_file");
-        let link = match std::fs::read_link(&nix_file_symlink) {
-            Ok(a) => a,
-            Err(e) => {
-                warn!(
-                    logger,
-                    "Could not create project for gc_root_dir {}, skipping: Cannot fs::read_link {}: {}",
-                    &project_gc_root_dir.path().display(),
-                    nix_file_symlink.display(),
-                    e
-                );
-                continue;
-            }
-        };
-        let original_file = AbsPathBuf::new(link.clone()).expect(&format!(
-            "nix_file symlink is a relative path, this should not happen: {link:?}"
-        ));
-        let project_file = match original_file.as_path().file_name().map(OsStr::to_str) {
-            Some(Some("flake.nix")) => ProjectFile::flake_unknown_installable(
-                AbsPathBuf::new(
-                    original_file
-                        .as_path()
-                        .parent()
-                        .expect(&format!("flake.nix not in directory {original_file:?}"))
-                        .to_owned(),
+    let gc_root_dir = paths.gc_root_dir().clone();
+    let projects: Vec<_> = conn2
+        .clone()
+        .in_transaction(move |conn| -> Result<Vec<_>, ExitError> {
+            let mut projects = Vec::new();
+            let mut prepare = conn
+                .prepare(
+                    r"SELECT nix_file, last_updated, is_flake, flake_installable FROM gc_roots",
                 )
-                .unwrap(),
-            ),
-            Some(_) => ProjectFile::ShellNix(NixFile(original_file)),
-            None => {
-                panic!(
-                    "nix file does not have a file_name(), should not happen: {original_file:?}"
-                );
-            }
-        };
-        let project = Project {
-            project_root_dir,
-            project_file: project_file.clone(),
-            conn: conn.clone(),
-        };
-        // Get the timestamp for when this project was last built, if it was.
-        let timestamp = match std::fs::symlink_metadata(project.shell_gc_root()) {
-            Err(_) => {
-                // no gc root, so nothing to report
-                None
-            }
-            Ok(m) => m.modified().map_or(None, Some),
-        };
+                .expect("prepare select");
+            let mut rows = prepare.query([])?;
+            while let Some(row) = rows.next()? {
+                let nix_file = AbsPathBuf::from_sql(row.get_ref_unwrap("nix_file"))
+                    .expect("nix_file symlink is a relative path, this should not happen");
 
-        let project_file_exists = project_file.as_absolute_path().is_file();
-        res.push(ListRoots {
-            project,
-            timestamp,
-            project_file_exists,
-        });
-    }
+                let last_updated_usize: Option<u64> = row.get("last_updated").expect("get");
+                let last_updated: Option<SystemTime> =
+                    last_updated_usize.map(|u| SystemTime::UNIX_EPOCH.add(Duration::from_secs(u)));
+                let is_flake: bool = row.get("is_flake").expect("get");
+
+                if is_flake {
+                    let flake_dir = AbsPathBuf::new(
+                        nix_file
+                            .as_path()
+                            .parent()
+                            .expect(&format!("flake.nix not in directory {nix_file:?}"))
+                            .to_owned(),
+                    )
+                    .expect("nix_file was absolute, so its parent has to be as well");
+                    let flake_installable: String = row.get("flake_installable").expect("get");
+                    if flake_installable != "" {
+                        projects.push((
+                            last_updated,
+                            Project::new_internal(
+                                ProjectFile::flake(flake_dir, flake_installable),
+                                &gc_root_dir,
+                                conn2.clone(),
+                            )?,
+                        ))
+                    }
+                } else {
+                    projects.push((
+                        last_updated,
+                        Project::new_internal(
+                            ProjectFile::ShellNix(NixFile(nix_file)),
+                            &gc_root_dir,
+                            conn2.clone(),
+                        )?,
+                    ))
+                }
+            }
+
+            Ok(projects)
+        })
+        .await?;
+
+    let mut res: Vec<ListRoots> = projects
+        .into_iter()
+        .map(|(timestamp, project)| {
+            let project_file_exists = project.project_file.as_absolute_path().is_file();
+            ListRoots {
+                project,
+                timestamp,
+                project_file_exists,
+            }
+        })
+        .collect();
     match list_roots_sort {
         ListRootsSort::NoSorting => {}
         ListRootsSort::MoreRecentLast => {

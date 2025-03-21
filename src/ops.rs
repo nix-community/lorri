@@ -783,7 +783,7 @@ pub async fn op_gc(
     let conn = Sqlite::new_connection(&paths.sqlite_db).await;
     match opts.action {
         cli::GcSubcommand::Info => {
-            let infos = project::list_roots_gc(logger, paths, conn, ListRootsSort::MoreRecentLast)?;
+            let infos = project::list_roots_gc(paths, conn, ListRootsSort::MoreRecentLast).await?;
             if opts.json {
                 write_gc_info_json(&infos, std::io::stdout())
                     .expect("could not serialize gc roots");
@@ -799,7 +799,7 @@ pub async fn op_gc(
         } => {
             let files_to_remove: HashSet<PathBuf> = shell_file.into_iter().collect();
             let infos =
-                project::list_roots_gc(logger, paths, conn.clone(), ListRootsSort::NoSorting)?;
+                project::list_roots_gc(paths, conn.clone(), ListRootsSort::NoSorting).await?;
             let to_remove = gc_find_roots_to_remove(all, older_than, files_to_remove, infos);
             if dry_run {
                 if to_remove.len() > 0 {

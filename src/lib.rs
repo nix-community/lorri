@@ -30,8 +30,8 @@ pub mod socket;
 pub mod sqlite;
 pub mod watch;
 
-use anyhow::Context;
-use rusqlite::types::ToSqlOutput;
+use anyhow::{anyhow, Context};
+use rusqlite::types::{ToSqlOutput, ValueRef};
 use std::cmp::Reverse;
 use std::env;
 use std::ffi::OsStr;
@@ -150,6 +150,16 @@ impl AbsPathBuf {
             None => ToSqlOutput::from(self.as_path().as_os_str().as_bytes().to_owned()),
             Some(str) => ToSqlOutput::from(str),
         }
+    }
+
+    /// Read the absolute path buf from a sqlite string and re-check
+    /// that it is an absolute path that exists on the file system.
+    pub fn from_sql(val: ValueRef<'_>) -> anyhow::Result<AbsPathBuf> {
+        // NB: the sql column can be TEXT for easier representation,
+        // but file paths can be arbitrary BLOBs, so we need to use as_bytes to read them.
+        let blob = val.as_bytes().context("path not a blob")?;
+        AbsPathBuf::new(PathBuf::from(OsStr::from_bytes(blob)))
+            .map_err(|p| anyhow!("not an absolute path: {}", p.display()))
     }
 
     /// Joins a path to the end of this absolute path.
