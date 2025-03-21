@@ -21,7 +21,7 @@ use tokio_rusqlite::named_params;
 
 /// ProjectFile describes the build source Nix file for a watched project
 /// Could be a shell.nix (or similar) or a Flake description
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ProjectFile {
     /// A shell.nix (or default.nix etc)
     ShellNix(NixFile),
@@ -189,6 +189,16 @@ impl Project {
         })
     }
 
+    /// Create project, only for tests
+    #[cfg(test)]
+    pub fn new_internal_for_tests(
+        project_file: ProjectFile,
+        gc_root_dir: &AbsPathBuf,
+        conn: Sqlite,
+    ) -> std::io::Result<Project> {
+        Self::new_internal(project_file, gc_root_dir, conn)
+    }
+
     /// Directory in which this project’s
     /// garbage collection roots are stored.
     fn gc_root_path(&self) -> AbsPathBuf {
@@ -197,7 +207,7 @@ impl Project {
 
     /// final path in the `self.gc_root_path` directory,
     /// the symlink which points to the lorri-keep-env-hack-nix-shell drv (see ./logged-evaluation.nix)
-    fn shell_gc_root(&self) -> AbsPathBuf {
+    pub fn shell_gc_root(&self) -> AbsPathBuf {
         self.gc_root_path().join("shell_gc_root")
     }
 
@@ -208,7 +218,7 @@ impl Project {
 
     /// A symlink from our gc_root_path directory back to the nix file which created this project.
     /// Used to implement garbage collection.
-    fn nix_file_backlink(&self) -> AbsPathBuf {
+    pub fn nix_file_backlink(&self) -> AbsPathBuf {
         self.gc_root_path().join("nix_file")
     }
 
@@ -219,14 +229,16 @@ impl Project {
 
     /// Create roots to store paths.
     /// Consumes a temporary [RootedPath] and creates a root for each path it points to.
+    /// Creates a nix GC root in our gc_roots cache directory,
+    /// under the project hash, e.g. `~/.cache/lorri/gc_roots/<project.hash>/<gc_root_name>`
     pub fn create_roots(&self, rooted_path: RootedPath) -> Result<OutputPath, BuildError> {
         let gc_root = match rooted_path.flake_profile_path {
             Some(store_path) => {
-                Project::create_root(&store_path, &self.flake_profile_gc_root())?;
+                Project::create_indirect_root(&store_path, &self.flake_profile_gc_root())?;
                 self.flake_profile_gc_root()
             }
             None => {
-                Project::create_root(&rooted_path.path, &self.shell_gc_root())?;
+                Project::create_indirect_root(&rooted_path.path, &self.shell_gc_root())?;
                 self.shell_gc_root()
             }
         };
@@ -234,15 +246,19 @@ impl Project {
         Ok(OutputPath::new(RootPath(gc_root)))
     }
 
-    /// Takes the given [StorePath] and creates a nix GC root in our gc_roots cache directory,
-    /// under the project hash, e.g. `~/.cache/lorri/gc_roots/<project.hash>/<gc_root_name>`
-    fn create_root(store_path: &StorePath, lorri_gc_root: &AbsPathBuf) -> Result<(), BuildError> {
+    // Run `nix-store --realize --add-root indirect_root_symlink store_path`,
+    // i.e. create an indirect GC root pointing to the store path and keeping it alive.
+    // Once `indirect_root_symlink` is deleted, nix will be able to GC the store path again.
+    fn create_indirect_root(
+        store_path: &StorePath,
+        indirect_root_symlink: &AbsPathBuf,
+    ) -> Result<(), BuildError> {
         // nix-store --add-root /tmp/test-root --realise
         let mut cmd = Command::new("nix-store");
         let cmd = cmd.args([
             OsStr::new("--realise"),
             OsStr::new("--add-root"),
-            lorri_gc_root.as_path().as_os_str(),
+            indirect_root_symlink.as_path().as_os_str(),
             store_path.as_path().as_os_str(),
         ]);
         let out = cmd.output().map_err(|e| BuildError::spawn_sync(cmd, e))?;
@@ -453,17 +469,19 @@ pub async fn list_roots_gc(
                             .to_owned(),
                     )
                     .expect("nix_file was absolute, so its parent has to be as well");
-                    let flake_installable: String = row.get("flake_installable").expect("get");
-                    if flake_installable != "" {
-                        projects.push((
-                            last_updated,
-                            Project::new_internal(
-                                ProjectFile::flake(flake_dir, flake_installable),
-                                &gc_root_dir,
-                                conn2.clone(),
-                            )?,
-                        ))
-                    }
+                    let flake_installable: String = row
+                        .get::<_, Option<String>>("flake_installable")
+                        .expect("get")
+                        .unwrap_or("".to_string());
+                    let project_file = if flake_installable != "" {
+                        ProjectFile::flake(flake_dir, flake_installable)
+                    } else {
+                        ProjectFile::flake_unknown_installable(flake_dir)
+                    };
+                    projects.push((
+                        last_updated,
+                        Project::new_internal(project_file, &gc_root_dir, conn2.clone())?,
+                    ));
                 } else {
                     projects.push((
                         last_updated,
@@ -609,7 +627,7 @@ mod tests {
 
         // now root the store path
         let gc_root = AbsPathBuf::new(tempdir.path().join("gc_root")).unwrap();
-        Project::create_root(&store_path, &gc_root).expect("create root");
+        Project::create_indirect_root(&store_path, &gc_root).expect("create root");
 
         assert!(fs::exists(store_path.as_path()).unwrap(), "store path’d");
 
