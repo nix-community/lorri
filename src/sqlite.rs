@@ -136,3 +136,171 @@ impl Sqlite {
             .expect("executing sqlite transaction failed")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::constants::Paths;
+    use crate::logging::test_logger;
+    use crate::project::{ListRootsSort, Project, ProjectFile};
+    use crate::sqlite::Sqlite;
+    use crate::{lorri_runtime_block_on, project, AbsPathBuf, NixFile};
+    use std::collections::HashSet;
+    use std::fs;
+    use std::fs::File;
+    use std::io::{Read, Write};
+    use tempfile::tempdir;
+
+    #[test]
+    fn gc_roots_migration() {
+        lorri_runtime_block_on(async {
+            let test_dir = tempdir().expect("tmpdir");
+            let project_dir = AbsPathBuf::new(test_dir.path().join("projectdir")).unwrap();
+            fs::create_dir_all(project_dir.as_path()).unwrap();
+
+            let paths = Paths::initialize_for_tests(&test_dir).await;
+            let conn = Sqlite::new_connection(&paths.sqlite_db).await;
+
+            let flake_project_dir = AbsPathBuf::new(test_dir.path().join("flake_project")).unwrap();
+            let flake_project_file = ProjectFile::flake(
+                flake_project_dir.clone(),
+                // NB: we have an installable here, but it’s ignored during the migration
+                // because in the old storage system, the installable is not persisted between lorri invocations.
+                ".my_installable".to_string(),
+            );
+
+            // create flake gc_dir setup to migrate
+            {
+                let flake_project = Project::new_internal_for_tests(
+                    flake_project_file.clone(),
+                    &paths.gc_root_dir(),
+                    conn.clone(),
+                )
+                .expect("project");
+                let mut buf = [0u8; 100];
+                {
+                    let mut urandom = File::open("/dev/urandom").expect("urandom");
+                    urandom.read_exact(&mut buf).expect("read urandom");
+                }
+                let flake_file = flake_project_dir.join("flake.nix");
+                fs::create_dir_all(flake_project_dir.clone()).unwrap();
+                File::create(&flake_file)
+                    .expect("nix_file")
+                    .write_all(&buf)
+                    .expect("nix_file write");
+                // now create the backlink
+                std::os::unix::fs::symlink(
+                    &flake_file,
+                    flake_project.nix_file_backlink().as_path(),
+                )
+                .expect("backlink");
+            }
+
+            // create non-flake setup
+            let nix_shell_project_dir =
+                AbsPathBuf::new(test_dir.path().join("nix_shell_project")).unwrap();
+            let nix_shell_file = nix_shell_project_dir.join("shell.nix");
+            let nix_shell_project_file =
+                ProjectFile::ShellNix(NixFile::from(nix_shell_file.clone()));
+            {
+                let nix_shell_project = Project::new_internal_for_tests(
+                    nix_shell_project_file.clone(),
+                    &paths.gc_root_dir(),
+                    conn.clone(),
+                )
+                .expect("project");
+                let mut buf = [0u8; 100];
+                {
+                    let mut urandom = File::open("/dev/urandom").expect("urandom");
+                    urandom.read_exact(&mut buf).expect("read urandom");
+                }
+                fs::create_dir_all(nix_shell_project_dir.clone()).unwrap();
+                File::create(&nix_shell_file)
+                    .expect("nix_file")
+                    .write_all(&buf)
+                    .expect("nix_file write");
+                // now create the backlink
+                std::os::unix::fs::symlink(
+                    &nix_shell_file,
+                    nix_shell_project.nix_file_backlink().as_path(),
+                )
+                .expect("backlink");
+
+                // we add a “build” symlink (pointing to nothing), so we can check that
+                // migration correctly reads the timestamp from the symlink
+                std::os::unix::fs::symlink("/dev/null", nix_shell_project.shell_gc_root())
+                    .expect("shell_gc_root");
+            }
+
+            let before_migration = project::list_roots_migration(
+                &test_logger("gc_roots_migration"),
+                &paths,
+                conn.clone(),
+            )
+            .expect("list_roots_migration")
+            .into_iter()
+            .map(|m| m.nix_file.as_absolute_path().to_owned())
+            .collect::<HashSet<_>>();
+
+            // check that before migration we have exactly these roots when listing the gc dir
+            assert_eq!(
+                before_migration,
+                HashSet::from([
+                    flake_project_file.as_absolute_path(),
+                    nix_shell_project_file.as_absolute_path()
+                ])
+            );
+
+            // now do the migration
+            conn.migrate_gc_roots(&test_logger("migrate db"), &paths, conn.clone())
+                .await
+                .expect("migration");
+
+            // listing after migration, from db
+            let after = project::list_roots_gc(&paths, conn.clone(), ListRootsSort::NoSorting)
+                .await
+                .expect("list_roots_gc");
+            let after_migration = after
+                .iter()
+                .map(|m| m.0.nix_file.as_path().to_owned())
+                .collect::<HashSet<_>>();
+
+            assert_eq!(before_migration, after_migration);
+
+            // witness that the installable of the flake input was not preserved
+            let x = after
+                .iter()
+                .find(|m| m.0.nix_file.as_path() == flake_project_file.as_absolute_path())
+                .expect("has flake");
+
+            assert_eq!(
+                x.1.project_file,
+                ProjectFile::flake(flake_project_dir, "#.".to_string())
+            );
+
+            // and it’s a flake
+            match x.1.project_file {
+                ProjectFile::FlakeNix(_) => {}
+                ProjectFile::ShellNix(_) => {
+                    panic!("is not a flake!")
+                }
+            }
+
+            // make sure that the timestamp is read from shell_gc_root symlink and in the database
+            let y = after
+                .iter()
+                .find(|m| m.0.nix_file.as_path() == nix_shell_project_file.as_absolute_path())
+                .expect("has nix shell file");
+            assert!(y.0.timestamp.is_some(), "no timestamp in shell file");
+
+            // and it’s not a flake
+            match y.1.project_file {
+                ProjectFile::FlakeNix(_) => {
+                    panic!("is a flake!")
+                }
+                ProjectFile::ShellNix(_) => {}
+            }
+
+            drop(test_dir);
+        })
+    }
+}
