@@ -125,12 +125,16 @@ async fn with_project(
     logger: &slog::Logger,
     project_file: &ProjectFile,
 ) -> Result<(Project, slog::Logger), ExitError> {
-    let project =
-        Project::new_and_gc_nix_files(conn, project_file.clone(), ops::get_paths()?.gc_root_dir())
-            .await
-            .map_err(|err| {
-                ExitError::temporary(anyhow::anyhow!(err).context("Could not set up project paths"))
-            })?;
+    let project = Project::new_and_gc_nix_files(
+        conn,
+        logger.clone(),
+        project_file.clone(),
+        ops::get_paths()?.gc_root_dir(),
+    )
+    .await
+    .map_err(|err| {
+        ExitError::temporary(anyhow::anyhow!(err).context("Could not set up project paths"))
+    })?;
     let logger = logger.new(o!("nix_file" => project_file.clone()));
     Ok((project, logger))
 }

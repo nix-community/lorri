@@ -110,7 +110,6 @@ impl Paths {
     }
 
     /// Initialize a `Paths` struct from a tempdir, for use in tests
-    #[cfg(test)]
     pub async fn initialize_for_tests(tempdir: &TempDir) -> Self {
         let gc_root_dir = AbsPathBuf::new(tempdir.path().join("gc_root_dir")).expect("gc_root_dir");
         fs::create_dir_all(gc_root_dir.as_path())
