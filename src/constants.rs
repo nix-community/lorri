@@ -3,7 +3,9 @@
 use crate::cas::ContentAddressable;
 use crate::AbsPathBuf;
 use directories::ProjectDirs;
+use tempfile::TempDir;
 use thiserror::Error;
+use tokio::fs;
 
 /// Path constants like the GC root directory.
 #[derive(Clone)]
@@ -105,6 +107,25 @@ impl Paths {
             // TODO: replace with the real path
             sqlite_db: abs_cache_dir.join("test-db.sqlite"),
         })
+    }
+
+    /// Initialize a `Paths` struct from a tempdir, for use in tests
+    #[cfg(test)]
+    pub async fn initialize_for_tests(tempdir: &TempDir) -> Self {
+        let gc_root_dir = AbsPathBuf::new(tempdir.path().join("gc_root_dir")).expect("gc_root_dir");
+        fs::create_dir_all(gc_root_dir.as_path())
+            .await
+            .expect("gc_root_dir");
+        let cas_store = AbsPathBuf::new(tempdir.path().join("cas_store")).expect("cas_store");
+        let sqlite_db = AbsPathBuf::new(tempdir.path().join("sqlite_db")).expect("sqlite_db");
+        let daemon_socket_file =
+            AbsPathBuf::new(tempdir.path().join("daemon_socket_file")).expect("daemon_socket_file");
+        Self {
+            gc_root_dir,
+            cas_store: ContentAddressable::new(cas_store).expect("content addressable"),
+            sqlite_db,
+            daemon_socket_file,
+        }
     }
 
     /// Default location in the user's XDG directories to keep

@@ -4,7 +4,7 @@
 //! the reference implementation.
 
 use std::ffi::OsString;
-use std::io::Result;
+use std::io::{BufRead, Result};
 use std::os::unix::ffi::OsStringExt;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt};
 
@@ -14,7 +14,7 @@ pub struct Lines<B> {
     buf: B,
 }
 
-impl<B: AsyncBufRead> Lines<B> {
+impl<B> Lines<B> {
     /// Returns an iterator over the lines of this reader.
     ///
     /// The iterator returned from this function will yield instances of
@@ -35,6 +35,28 @@ impl<B: AsyncBufRead + Unpin> Lines<B> {
     pub async fn next(&mut self) -> Option<Result<OsString>> {
         let mut buf = vec![];
         match self.buf.read_until(b'\n', &mut buf).await {
+            Ok(0) => None,
+            Ok(_n) => {
+                if buf.ends_with(&[b'\n']) {
+                    buf.pop();
+                    if buf.ends_with(&[b'\r']) {
+                        buf.pop();
+                    }
+                }
+                Some(Ok(OsString::from_vec(buf)))
+            }
+            Err(e) => Some(Err(e)),
+        }
+    }
+}
+
+impl<B: BufRead> Iterator for Lines<B> {
+    type Item = Result<OsString>;
+
+    /// next line
+    fn next(&mut self) -> Option<Result<OsString>> {
+        let mut buf = vec![];
+        match self.buf.read_until(b'\n', &mut buf) {
             Ok(0) => None,
             Ok(_n) => {
                 if buf.ends_with(&[b'\n']) {

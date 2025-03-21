@@ -296,6 +296,6 @@ impl BuildLoop {
     }
 
     fn root_result(&mut self, build: RootedPath) -> Result<builder::OutputPath, BuildError> {
-        self.dat.project.create_roots(build).map_err(BuildError::io)
+        self.dat.project.create_roots(build)
     }
 }

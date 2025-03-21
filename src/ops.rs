@@ -32,7 +32,7 @@ use std::time::Duration;
 use std::time::Instant;
 use std::{collections::HashSet, env, fs::File};
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 
 use crate::daemon::client::Timeout;
 use crate::project::{GcRootInfo, ListRootsSort, Project, ProjectFile};
@@ -494,7 +494,7 @@ async fn build_root(
         .result;
 
     project.create_roots(run_result).map_err(|e| {
-        ExitError::temporary(anyhow::Error::new(e).context("rooting the environment failed"))
+        ExitError::temporary(anyhow!("{}", e).context("rooting the environment failed"))
     })
 }
 
