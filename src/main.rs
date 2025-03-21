@@ -63,8 +63,7 @@ async fn run_command(orig_logger: &slog::Logger, opts: Arguments) -> Result<(), 
     let paths = ops::get_paths()?;
     let conn = Sqlite::new_connection(&paths.sqlite_db).await;
 
-    // TODO: TMP
-    conn.migrate_gc_roots(&orig_logger, &paths, conn.clone())
+    conn.migrate_gc_roots_if_necessary(&orig_logger, &paths, conn.clone())
         .await
         .unwrap();
 

@@ -14,7 +14,7 @@ pub struct Paths {
     // TODO: make SocketPath
     daemon_socket_file: AbsPathBuf,
     cas_store: ContentAddressable,
-    /// TODO: replace
+    /// path to the sqlite database file
     pub sqlite_db: AbsPathBuf,
 }
 
@@ -104,8 +104,7 @@ impl Paths {
                     err,
                 }
             })?,
-            // TODO: replace with the real path
-            sqlite_db: abs_cache_dir.join("test-db.sqlite"),
+            sqlite_db: abs_cache_dir.join("lorri.sqlite"),
         })
     }
 
@@ -116,7 +115,7 @@ impl Paths {
             .await
             .expect("gc_root_dir");
         let cas_store = AbsPathBuf::new(tempdir.path().join("cas_store")).expect("cas_store");
-        let sqlite_db = AbsPathBuf::new(tempdir.path().join("sqlite_db")).expect("sqlite_db");
+        let sqlite_db = AbsPathBuf::new(tempdir.path().join("lorri.sqlite")).expect("sqlite_db");
         let daemon_socket_file =
             AbsPathBuf::new(tempdir.path().join("daemon_socket_file")).expect("daemon_socket_file");
         Self {

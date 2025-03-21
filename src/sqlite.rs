@@ -1,7 +1,11 @@
 //! lorri data storage
+
 use crate::constants::Paths;
 use crate::ops::error::ExitError;
 use crate::{project, AbsPathBuf};
+use anyhow::Context;
+use slog::{debug, info};
+use std::fs;
 use std::time::SystemTime;
 use tokio_rusqlite::{named_params, Connection, Transaction};
 
@@ -40,68 +44,84 @@ impl Sqlite {
     }
 
     /// Migrate the GC roots into our sqlite
-    pub async fn migrate_gc_roots(
+    pub async fn migrate_gc_roots_if_necessary(
         &self,
         logger: &slog::Logger,
         paths: &Paths,
         conn: Sqlite,
     ) -> Result<(), ExitError> {
+        let count = self
+            .conn
+            .call_unwrap(|conn| {
+                let mut qry = conn
+                    .prepare("SELECT count(*) as count FROM gc_roots")
+                    .context("Cannot prepare count gc_roots")?;
+                qry.query_row([], |r| r.get::<_, i64>("count"))
+                    .context("Cannot count gc_roots")
+            })
+            .await
+            .map_err(|e| ExitError::panic(e))?;
+
+        if count != 0 {
+            debug!(logger, "Migration to sqlite already done, skipping");
+            return Ok(());
+        }
+
+        info!(
+            logger,
+            "Migrating from the old lorri directories to sqlite database at {}",
+            paths.sqlite_db.display()
+        );
         let infos = project::list_roots_migration(&logger, &paths, conn)?;
+        let infos2 = infos.clone();
 
         self.conn
             .call_unwrap(move |conn| {
-                conn.execute("DELETE FROM gc_roots", ()).unwrap();
-
                 let mut stmt = conn
                     .prepare(
                         r"INSERT OR REPLACE INTO gc_roots (nix_file, last_updated, is_flake)
                           VALUES (:nix_file, :last_updated, :is_flake)",
                     )
-                    .unwrap();
+                    .context("cannot prepare INSERT OR REPLACE gc roots")?;
 
-                for info in infos {
+                for info in infos2 {
                     let last_updated = info.timestamp.map(|t| {
                         t.duration_since(SystemTime::UNIX_EPOCH)
                             .expect("expect file timestamp to be a unix timestamp")
                             .as_secs()
                     });
 
-                    stmt.execute(named_params! {
+                    let _ = stmt
+                        .execute(named_params! {
                         ":nix_file": info.nix_file.to_sql(),
                         ":last_updated": last_updated,
-                        ":is_flake": info.is_flake
-                    })
-                    .expect("cannot insert");
+                        ":is_flake": info.is_flake})
+                        .context(format!(
+                            "cannot prepare INSERT OR REPLACE gc root for {}",
+                            info.nix_file.display()
+                        ))?;
                 }
+                Ok::<(), anyhow::Error>(())
             })
-            .await;
+            .await
+            .map_err(|e: anyhow::Error| {
+                ExitError::panic(e.context("Unable to migrate to the new sqlite database format"))
+            })?;
 
-        //         let mut stmt = conn
-        //             .prepare("SELECT nix_file, last_updated from gc_roots")
-        //             .unwrap();
-        //         let res = stmt
-        //             .query_map((), |row| {
-        //                 let nix_file =
-        //                     OsString::from_vec(row.get::<_, Vec<u8>>("nix_file").unwrap());
-        //                 let t = row.get::<_, Option<u64>>("last_updated").unwrap().map(|u| {
-        //                     SystemTime::elapsed(&(SystemTime::UNIX_EPOCH + Duration::from_secs(u)))
-        //                         .unwrap()
-        //                 });
-        //                 Ok((nix_file, t, t.map(ago)))
-        //             })
-        //             .unwrap()
-        //             .filter_map(|r| match r {
-        //                 Err(_) => None,
-        //                 Ok(r) => Some((r.0, r.1, r.2)),
-        //             })
-        //             .collect::<Vec<_>>();
-        //         Ok::<_, ExitError>(res)
-        //     })
-        //     .await?;
-        //
-        // res.sort_by_key(|r| r.1);
-        // info!(logger2, "We have these nix files: {:#?}", res);
+        // if the migration was run successfully, we can remove the nix file backlinks,
+        // as we are successfully migrated to the sqlite database
+        info!(logger, "Removing nix_file backlinks");
+        for info in infos {
+            if let Err(_) = fs::remove_file(info.nix_file_backlink.as_path()) {
+                info!(
+                    logger,
+                    "Could not delete backlink for {}, ignoring (probably not an issue)",
+                    info.nix_file_backlink.display()
+                )
+            }
+        }
 
+        info!(logger, "Finished migration to sqlite database");
         Ok(())
     }
 
@@ -167,15 +187,16 @@ mod tests {
                 // because in the old storage system, the installable is not persisted between lorri invocations.
                 ".my_installable".to_string(),
             );
+            let flake_project = Project::new_internal_for_tests(
+                flake_project_file.clone(),
+                &paths.gc_root_dir(),
+                conn.clone(),
+            )
+            .expect("project");
+            let flake_project_file_backlink = flake_project.gc_root_path().join("nix_file");
 
             // create flake gc_dir setup to migrate
             {
-                let flake_project = Project::new_internal_for_tests(
-                    flake_project_file.clone(),
-                    &paths.gc_root_dir(),
-                    conn.clone(),
-                )
-                .expect("project");
                 let mut buf = [0u8; 100];
                 {
                     let mut urandom = File::open("/dev/urandom").expect("urandom");
@@ -187,12 +208,9 @@ mod tests {
                     .expect("nix_file")
                     .write_all(&buf)
                     .expect("nix_file write");
-                // now create the backlink
-                std::os::unix::fs::symlink(
-                    &flake_file,
-                    flake_project.nix_file_backlink().as_path(),
-                )
-                .expect("backlink");
+                // create the (outdated) backlink to see whether the migration deletes it
+                std::os::unix::fs::symlink(&flake_file, &flake_project_file_backlink)
+                    .expect("backlink");
             }
 
             // create non-flake setup
@@ -201,13 +219,14 @@ mod tests {
             let nix_shell_file = nix_shell_project_dir.join("shell.nix");
             let nix_shell_project_file =
                 ProjectFile::ShellNix(NixFile::from(nix_shell_file.clone()));
+            let nix_shell_project = Project::new_internal_for_tests(
+                nix_shell_project_file.clone(),
+                &paths.gc_root_dir(),
+                conn.clone(),
+            )
+            .expect("project");
+            let nix_shell_project_file_backlink = nix_shell_project.gc_root_path().join("nix_file");
             {
-                let nix_shell_project = Project::new_internal_for_tests(
-                    nix_shell_project_file.clone(),
-                    &paths.gc_root_dir(),
-                    conn.clone(),
-                )
-                .expect("project");
                 let mut buf = [0u8; 100];
                 {
                     let mut urandom = File::open("/dev/urandom").expect("urandom");
@@ -218,12 +237,10 @@ mod tests {
                     .expect("nix_file")
                     .write_all(&buf)
                     .expect("nix_file write");
-                // now create the backlink
-                std::os::unix::fs::symlink(
-                    &nix_shell_file,
-                    nix_shell_project.nix_file_backlink().as_path(),
-                )
-                .expect("backlink");
+
+                // create the (outdated) backlink to see whether the migration deletes it
+                std::os::unix::fs::symlink(&nix_shell_file, &nix_shell_project_file_backlink)
+                    .expect("backlink");
 
                 // we add a “build” symlink (pointing to nothing), so we can check that
                 // migration correctly reads the timestamp from the symlink
@@ -251,7 +268,7 @@ mod tests {
             );
 
             // now do the migration
-            conn.migrate_gc_roots(&test_logger("migrate db"), &paths, conn.clone())
+            conn.migrate_gc_roots_if_necessary(&test_logger("migrate db"), &paths, conn.clone())
                 .await
                 .expect("migration");
 
@@ -285,6 +302,13 @@ mod tests {
                 }
             }
 
+            // and the old backlink to the nix file was deleted during migration
+            assert!(
+                !flake_project_file_backlink.as_path().exists(),
+                "backlink still there! {}",
+                flake_project_file_backlink.display()
+            );
+
             // make sure that the timestamp is read from shell_gc_root symlink and in the database
             let y = after
                 .iter()
@@ -299,6 +323,13 @@ mod tests {
                 }
                 ProjectFile::ShellNix(_) => {}
             }
+
+            // and the old backlink to the nix file was deleted during migration
+            assert!(
+                !nix_shell_project_file_backlink.as_path().exists(),
+                "backlink still there! {}",
+                nix_shell_project_file_backlink.display()
+            );
 
             drop(test_dir);
         })
