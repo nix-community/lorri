@@ -1,7 +1,7 @@
 use lorri::constants::Paths;
 use lorri::ops::{
-    gc_find_roots_to_remove, gc_remove_roots, main_run_once,
-    write_gc_info_human_readable, write_gc_info_json, write_gc_rm_json,
+    gc_find_roots_to_remove, gc_remove_roots, main_run_once, write_gc_info_human_readable,
+    write_gc_info_json, write_gc_rm_json,
 };
 use lorri::project::{list_roots_gc, ListRootsSort, Project, ProjectFile};
 use lorri::sqlite::Sqlite;
