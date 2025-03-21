@@ -100,7 +100,8 @@ derivation {
         {
             // The default GC without any options should not have anything to remove,
             // because the original nix file still exists at this point.
-            let roots = list_roots_gc(&logger, &paths, conn.clone(), ListRootsSort::NoSorting)
+            let roots = list_roots_gc(&paths, conn.clone(), ListRootsSort::NoSorting)
+                .await
                 .expect("cannot list roots");
             let to_remove = gc_find_roots_to_remove(false, None, HashSet::new(), roots);
             assert!(to_remove.len() < 1, "to_remove longer than 1 {to_remove:?}");
@@ -108,7 +109,8 @@ derivation {
 
         {
             // Meaning the root should still be listed in the call to info
-            let roots = list_roots_gc(&logger, &paths, conn.clone(), ListRootsSort::NoSorting)
+            let roots = list_roots_gc(&paths, conn.clone(), ListRootsSort::NoSorting)
+                .await
                 .expect("cannot list roots");
             let mut buf = Cursor::new(vec![]);
             write_gc_info_json(&roots, &mut buf).expect("gc info");
@@ -125,7 +127,8 @@ derivation {
 
         {
             // it should be labeled as gone, but not removed by --print-roots
-            let roots = list_roots_gc(&logger, &paths, conn.clone(), ListRootsSort::NoSorting)
+            let roots = list_roots_gc(&paths, conn.clone(), ListRootsSort::NoSorting)
+                .await
                 .expect("cannot list roots");
             let mut buf = Cursor::new(vec![]);
             write_gc_info_human_readable(&roots, &mut buf);
@@ -136,7 +139,8 @@ derivation {
 
         {
             // Now run the GC to remove the root
-            let roots = list_roots_gc(&logger, &paths, conn.clone(), ListRootsSort::NoSorting)
+            let roots = list_roots_gc(&paths, conn.clone(), ListRootsSort::NoSorting)
+                .await
                 .expect("cannot list roots");
             let to_remove = gc_find_roots_to_remove(false, None, HashSet::new(), roots);
             assert_eq!(to_remove.len(), 1, "to_remove not 1 {to_remove:?}");
@@ -149,7 +153,8 @@ derivation {
 
         {
             // run it again and make sure there is no more root to remove now
-            let roots = list_roots_gc(&logger, &paths, conn.clone(), ListRootsSort::NoSorting)
+            let roots = list_roots_gc(&paths, conn.clone(), ListRootsSort::NoSorting)
+                .await
                 .expect("cannot list roots");
             let to_remove = gc_find_roots_to_remove(false, None, HashSet::new(), roots);
             assert_eq!(to_remove.len(), 0, "to_remove not 0: {to_remove:?}");
@@ -173,7 +178,8 @@ derivation {
 
         {
             // everything back to normal
-            let roots = list_roots_gc(&logger, &paths, conn.clone(), ListRootsSort::NoSorting)
+            let roots = list_roots_gc(&paths, conn.clone(), ListRootsSort::NoSorting)
+                .await
                 .expect("cannot list roots");
             let mut buf = Cursor::new(vec![]);
             write_gc_info_json(&roots, &mut buf).expect("gc info");

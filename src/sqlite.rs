@@ -1,7 +1,6 @@
 //! lorri data storage
 use crate::constants::Paths;
 use crate::ops::error::ExitError;
-use crate::project::ListRootsSort;
 use crate::{project, AbsPathBuf};
 use std::time::SystemTime;
 use tokio_rusqlite::{named_params, Connection, Transaction};
@@ -47,7 +46,7 @@ impl Sqlite {
         paths: &Paths,
         conn: Sqlite,
     ) -> Result<(), ExitError> {
-        let infos = project::list_roots_migration(&logger, &paths, conn, ListRootsSort::NoSorting)?;
+        let infos = project::list_roots_migration(&logger, &paths, conn)?;
 
         self.conn
             .call_unwrap(move |conn| {
