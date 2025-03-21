@@ -140,9 +140,37 @@ impl BuildError {
         }
     }
 
+    /// Smart constructor for `BuildError::Spawn`
+    pub fn spawn_sync<D>(cmd: &std::process::Command, e: D) -> BuildError
+    where
+        D: fmt::Display,
+    {
+        BuildError::Spawn {
+            cmd: format!("{:?}", cmd),
+            msg: format!("{}", e),
+        }
+    }
+
     /// Smart constructor for `BuildError::Exit`
     pub fn exit(
         cmd: &Command,
+        status: ExitStatus,
+        logs: Vec<impl Into<LogLine> + Clone>,
+    ) -> BuildError {
+        assert!(
+            !status.success(),
+            "cannot create an exit error from a successful status code"
+        );
+        BuildError::Exit {
+            cmd: format!("{:?}", cmd),
+            status: status.code(),
+            logs: logs.iter().map(|l| (*l).clone().into()).collect(),
+        }
+    }
+
+    /// Smart constructor for `BuildError::Exit`
+    pub fn exit_sync(
+        cmd: &std::process::Command,
         status: ExitStatus,
         logs: Vec<impl Into<LogLine> + Clone>,
     ) -> BuildError {

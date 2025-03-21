@@ -1,20 +1,21 @@
 //! Wrap a nix file and manage corresponding state.
 
 use anyhow::Context;
-use thiserror::Error;
 
-use crate::builder::{OutputPath, RootedPath};
+use crate::builder::{BuildError, LogLine, OutputPath, RootedPath};
 use crate::constants::Paths;
 use crate::nix::StorePath;
 use crate::ops::error::ExitError;
+use crate::osstrlines::Lines;
 use crate::sqlite::Sqlite;
 use crate::{pretty_time_ago, AbsPathBuf, NixFile, TimeAgo};
 use slog::warn;
 use std::ffi::OsStr;
+use std::io::BufReader;
 use std::ops::Add;
 use std::os::unix::ffi::OsStrExt;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::PathBuf;
+use std::process::Command;
 use std::time::{Duration, SystemTime};
 use tokio_rusqlite::named_params;
 
@@ -218,41 +219,44 @@ impl Project {
 
     /// Create roots to store paths.
     /// Consumes a temporary [RootedPath] and creates a root for each path it points to.
-    pub fn create_roots(&self, rooted_path: RootedPath) -> Result<OutputPath, AddRootError> {
-        if let Some(store_path) = rooted_path.flake_profile_path {
-            self.create_root(store_path, self.flake_profile_gc_root())?;
-        }
-        self.create_root(rooted_path.path, self.shell_gc_root())
+    pub fn create_roots(&self, rooted_path: RootedPath) -> Result<OutputPath, BuildError> {
+        let gc_root = match rooted_path.flake_profile_path {
+            Some(store_path) => {
+                Project::create_root(&store_path, &self.flake_profile_gc_root())?;
+                self.flake_profile_gc_root()
+            }
+            None => {
+                Project::create_root(&rooted_path.path, &self.shell_gc_root())?;
+                self.shell_gc_root()
+            }
+        };
+
+        Ok(OutputPath::new(RootPath(gc_root)))
     }
 
     /// Takes the given [StorePath] and creates a nix GC root in our gc_roots cache directory,
     /// under the project hash, e.g. `~/.cache/lorri/gc_roots/<project.hash>/<gc_root_name>`
-    fn create_root(
-        &self,
-        store_path: StorePath,
-        lorri_gc_root: AbsPathBuf,
-    ) -> Result<OutputPath, AddRootError> {
+    fn create_root(store_path: &StorePath, lorri_gc_root: &AbsPathBuf) -> Result<(), BuildError> {
         // nix-store --add-root /tmp/test-root --realise
         let mut cmd = Command::new("nix-store");
-        cmd.args([
+        let cmd = cmd.args([
             OsStr::new("--realise"),
             OsStr::new("--add-root"),
             lorri_gc_root.as_path().as_os_str(),
             store_path.as_path().as_os_str(),
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        ]);
+        let out = cmd.output().map_err(|e| BuildError::spawn_sync(cmd, e))?;
 
-        if !cmd
-            .status()
-            .map_err(|e| AddRootError::nix_run_error(e, store_path.as_path()))?
-            .success()
-        {
-            return Err(AddRootError::nix_failed(store_path.as_path()));
+        if !out.status.success() {
+            return Err(BuildError::exit_sync(
+                cmd,
+                out.status,
+                Lines::from(BufReader::new(out.stderr.as_slice()))
+                    .filter_map(|o| o.ok().map(LogLine))
+                    .collect(),
+            ));
         }
-
-        Ok(OutputPath::new(RootPath(lorri_gc_root)))
+        Ok(())
     }
 
     /// Removes this project from lorri. Removes the GC root and consumes the project.
@@ -282,31 +286,6 @@ impl RootPath {
     /// `display` the path.
     pub fn display(&self) -> std::path::Display {
         self.0.display()
-    }
-}
-
-/// Error conditions encountered when adding roots
-#[derive(Error, Debug)]
-#[error("{msg}: {source}")]
-pub struct AddRootError {
-    #[source]
-    source: std::io::Error,
-    msg: String,
-}
-
-impl AddRootError {
-    fn nix_run_error(source: std::io::Error, path: &Path) -> AddRootError {
-        AddRootError {
-            source,
-            msg: format!("error running nix command for {}", path.display()),
-        }
-    }
-
-    fn nix_failed(path: &Path) -> AddRootError {
-        AddRootError {
-            source: std::io::Error::new(std::io::ErrorKind::Other, "nix failed"),
-            msg: format!("nix build returned non-zero status for {}", path.display()),
-        }
     }
 }
 
@@ -584,5 +563,102 @@ impl GcRootInfo {
             alive,
             age
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::nix::StorePath;
+    use crate::project::Project;
+    use crate::AbsPathBuf;
+    use std::ffi::OsStr;
+    use std::fs;
+    use std::fs::{File, OpenOptions};
+    use std::io::{Read, Write};
+    use std::path::PathBuf;
+    use std::process::Command;
+    use tempfile::tempdir;
+
+    /// Test whether the indirect root creation works, i.e. if we create an indirect root
+    /// and try to `nix gc` it, the original nix store path will be preserved, and once we clean it
+    /// up, the store path gets deleted.
+    #[test]
+    fn indirect_gc_root_persistence() {
+        let tempdir = tempdir().expect("tempdir");
+
+        // first touch a file and add it to the nix store, we are gonna root it
+        let touched = tempdir.path().join("touched");
+        {
+            let mut urandom = File::open("/dev/urandom").expect("urandom");
+            let mut buf = [0u8; 100];
+            urandom.read_exact(&mut buf).expect("urandom read");
+            drop(urandom);
+            let mut f = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&touched)
+                .expect("touch");
+            f.write_all(&buf).expect("write");
+        }
+        let out = Command::new("nix-store")
+            .args(vec![OsStr::new("--add"), touched.as_os_str()])
+            .output()
+            .expect("nix-store");
+        let store_path =
+            StorePath::from(PathBuf::from(String::from_utf8_lossy(&out.stdout).trim()));
+
+        // now root the store path
+        let gc_root = AbsPathBuf::new(tempdir.path().join("gc_root")).unwrap();
+        Project::create_root(&store_path, &gc_root).expect("create root");
+
+        assert!(fs::exists(store_path.as_path()).unwrap(), "store path’d");
+
+        // check that we cannot gc it away
+        let out = Command::new("nix-store")
+            .args(vec![
+                OsStr::new("--delete"),
+                store_path.as_path().as_os_str(),
+            ])
+            .output()
+            .expect("nix-store");
+        assert!(!out.status.success(), "{}, {:?}", out.status, out);
+
+        assert!(
+            fs::exists(store_path.as_path()).unwrap(),
+            "not rooted correctly"
+        );
+
+        // now remove the indirect root and check again
+
+        fs::remove_file(&gc_root.as_path()).expect("rm");
+
+        let out = Command::new("nix-store")
+            .args(vec![
+                OsStr::new("--delete"),
+                store_path.as_path().as_os_str(),
+            ])
+            .output()
+            .expect("nix-store");
+        if !out.status.success() {
+            let roots = Command::new("nix-store")
+                .args(vec![
+                    OsStr::new("--query"),
+                    OsStr::new("--roots"),
+                    store_path.as_path().as_os_str(),
+                ])
+                .output()
+                .unwrap();
+            print!(
+                "{}\nstderr\n{}",
+                String::from_utf8_lossy(&roots.stdout),
+                String::from_utf8_lossy(&roots.stderr)
+            )
+        }
+        assert!(out.status.success(), "{}, {:?}", out.status, out);
+
+        // now we were able to gc it
+        assert!(!fs::exists(store_path.as_path()).unwrap(), "still rooted?");
+
+        drop(tempdir)
     }
 }
