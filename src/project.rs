@@ -19,19 +19,6 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 use tokio_rusqlite::named_params;
 
-/// A “project” knows how to handle the lorri state
-/// for a given nix file.
-#[derive(Clone, Debug)]
-pub struct Project {
-    /// Absolute path to this project’s nix file.
-    pub project_file: ProjectFile,
-
-    // Directory in which this project’s info is stored.
-    project_root_dir: AbsPathBuf,
-
-    conn: Sqlite,
-}
-
 /// ProjectFile describes the build source Nix file for a watched project
 /// Could be a shell.nix (or similar) or a Flake description
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -110,6 +97,19 @@ impl slog::Value for ProjectFile {
     ) -> slog::Result {
         serializer.emit_arguments(key, &format_args!("{}", self.as_nix_file().display()))
     }
+}
+
+/// A “project” knows how to handle the lorri state
+/// for a given nix file.
+#[derive(Clone, Debug)]
+pub struct Project {
+    /// Absolute path to this project’s nix file.
+    pub project_file: ProjectFile,
+
+    // Directory in which this project’s info is stored.
+    project_root_dir: AbsPathBuf,
+
+    conn: Sqlite,
 }
 
 impl Project {
