@@ -13,6 +13,8 @@ use lorri::sqlite::Sqlite;
 use lorri::AbsPathBuf;
 use lorri::NixFile;
 
+use lorri::logging::test_logger;
+use slog::Logger;
 use std::collections::HashMap;
 use std::fs::File;
 use std::iter::FromIterator;
@@ -34,10 +36,11 @@ impl DirenvTestCase {
     pub async fn with_shell_eval(name: &str) -> (DirenvTestCase, OutputPath) {
         let test_root =
             PathBuf::from_iter([env!("CARGO_MANIFEST_DIR"), "tests", "integration", name]);
+        let logger = test_logger("with_shell_eval");
 
         let shell_file = NixFile::from(AbsPathBuf::new(test_root.join("shell.nix")).unwrap());
         let project_file = project::ProjectFile::ShellNix(shell_file);
-        let mut tc = Self::new(project_file).await;
+        let mut tc = Self::new(logger.clone(), project_file).await;
 
         match tc.evaluate().await {
             Err(err) => {
@@ -65,16 +68,21 @@ impl DirenvTestCase {
     //     }
     // }
 
-    async fn new(project_file: project::ProjectFile) -> DirenvTestCase {
+    async fn new(logger: Logger, project_file: project::ProjectFile) -> DirenvTestCase {
         let projectdir = tempdir().expect("tempfile::tempdir() failed us!");
         let cachedir_tmp = tempdir().expect("tempfile::tempdir() failed us!");
         let cachedir = AbsPathBuf::new(cachedir_tmp.path().to_owned()).unwrap();
 
         let cas = ContentAddressable::new(cachedir.join("cas")).unwrap();
         let conn = Sqlite::new_connection(&cachedir.join("sqlite")).await;
-        let project = Project::new_and_gc_nix_files(conn, project_file, &cachedir.join("gc_roots"))
-            .await
-            .unwrap();
+        let project = Project::new_and_gc_nix_files(
+            conn,
+            logger.clone(),
+            project_file,
+            &cachedir.join("gc_roots"),
+        )
+        .await
+        .unwrap();
 
         DirenvTestCase {
             projectdir,

@@ -1,7 +1,6 @@
-use directories::ProjectDirs;
-use lorri::cas::ContentAddressable;
+use lorri::constants::Paths;
 use lorri::ops::{
-    gc_find_roots_to_remove, gc_remove_roots, get_paths, main_run_once,
+    gc_find_roots_to_remove, gc_remove_roots, main_run_once,
     write_gc_info_human_readable, write_gc_info_json, write_gc_rm_json,
 };
 use lorri::project::{list_roots_gc, ListRootsSort, Project, ProjectFile};
@@ -13,8 +12,8 @@ use std::io::Cursor;
 #[test]
 fn gc() -> std::io::Result<()> {
     lorri_runtime_block_on(async {
-        let testdir = tempfile::tempdir().expect("tempdirfailed");
-        let project_dir = testdir.path().join("project");
+        let test_dir = tempfile::tempdir().expect("tempdirfailed");
+        let project_dir = test_dir.path().join("project");
         std::fs::create_dir(&project_dir).expect("mkdir project");
         let nix_file = project_dir.join("shell.nix");
         std::fs::write(
@@ -37,40 +36,28 @@ derivation {
         )
         .expect("writing builder.sh");
 
-        let home = testdir.path().join("home");
-        std::fs::create_dir(&home).expect("mkdir home");
-        let home = home.canonicalize().expect("canonicalize home");
-        std::env::set_var("HOME", home);
-        std::env::remove_var("XDG_CONFIG_HOME");
-        std::env::remove_var("XDG_CACHE_HOME");
-        std::env::set_current_dir(&project_dir).expect("cd");
-        let project_dirs = ProjectDirs::from("com.github.nix-community.lorri", "lorri", "lorri")
-            .expect("determining project directory");
-        let cache_dir = project_dirs.cache_dir();
-        std::fs::create_dir_all(cache_dir).unwrap();
-        let conn =
-            Sqlite::new_connection(&AbsPathBuf::new(cache_dir.join("db.sqlite")).unwrap()).await;
-        let gc_roots = AbsPathBuf::new(cache_dir.join("gc_roots")).unwrap();
+        let paths = Paths::initialize_for_tests(&test_dir).await;
 
-        let cas =
-            ContentAddressable::new(AbsPathBuf::new(cache_dir.join("cas")).unwrap()).expect("cas");
+        let conn = Sqlite::new_connection(&paths.sqlite_db).await;
+
         let logger = lorri::logging::test_logger("gc");
 
         // we have to re-create the Project because it sets up the GC dir correctly
         {
             let project = Project::new_and_gc_nix_files(
                 conn.clone(),
+                logger.clone(),
                 ProjectFile::ShellNix(NixFile::from(AbsPathBuf::new(nix_file.clone()).unwrap())),
-                &gc_roots,
+                &paths.gc_root_dir(),
             )
             .await
             .expect("project");
             // build the project
-            main_run_once(project, &cas, &logger)
+            main_run_once(project, &paths.cas_store(), &logger)
                 .await
                 .expect("failed running gc build");
         }
-        let mut subdirs = std::fs::read_dir(gc_roots.clone())
+        let mut subdirs = std::fs::read_dir(&paths.gc_root_dir())
             .expect("readdir")
             .collect::<Vec<_>>();
         assert_eq!(
@@ -89,13 +76,6 @@ derivation {
                 .expect("readlink gc root")
                 .starts_with("/nix/store"));
         }
-
-        let nix_file_symlink = gc_root_dir.join("nix_file");
-        assert_eq!(
-            std::fs::read_link(&nix_file_symlink).expect("readlink nix_file"),
-            nix_file
-        );
-        let paths = get_paths().unwrap();
 
         {
             // The default GC without any options should not have anything to remove,
@@ -122,7 +102,6 @@ derivation {
         let backup_file = project_dir.join("shell.nix.bak");
         {
             std::fs::rename(&nix_file, &backup_file).expect("rename");
-            assert!(std::fs::metadata(&nix_file_symlink).is_err());
         }
 
         {
@@ -166,12 +145,13 @@ derivation {
             // build the project
             let project = Project::new_and_gc_nix_files(
                 conn.clone(),
+                logger.clone(),
                 ProjectFile::ShellNix(NixFile::from(AbsPathBuf::new(nix_file.clone()).unwrap())),
-                &gc_roots,
+                &paths.gc_root_dir(),
             )
             .await
             .expect("project");
-            main_run_once(project, &cas, &logger)
+            main_run_once(project, &paths.cas_store(), &logger)
                 .await
                 .expect("failed running gc build");
         }

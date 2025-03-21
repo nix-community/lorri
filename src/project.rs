@@ -9,7 +9,7 @@ use crate::ops::error::ExitError;
 use crate::osstrlines::Lines;
 use crate::sqlite::Sqlite;
 use crate::{pretty_time_ago, AbsPathBuf, NixFile, TimeAgo};
-use slog::warn;
+use slog::{debug, warn, Logger};
 use std::ffi::OsStr;
 use std::io::BufReader;
 use std::ops::Add;
@@ -118,14 +118,19 @@ impl Project {
     /// (as returned by `Paths.gc_root_dir()`),
     pub async fn new_and_gc_nix_files(
         mut conn: Sqlite,
+        logger: Logger,
         project_file: ProjectFile,
         gc_root_dir: &AbsPathBuf,
     ) -> std::io::Result<Project> {
         let project = Self::new_internal(project_file.clone(), gc_root_dir, conn.clone())?;
-
+        let project_file = project.project_file.clone();
+        let logger2 = logger.clone();
         // Adjust the nix_file symlink to point to this project’s nix file
         conn.in_transaction(move |t| {
-            dbg!("inserting new project into db for {:?}", &project_file);
+            debug!(
+                &logger2,
+                "inserting new project into db for {:?}", &project_file
+            );
             t.execute(
                 r#"
               INSERT INTO gc_roots (nix_file, is_flake, flake_installable)
@@ -133,12 +138,12 @@ impl Project {
               ON CONFLICT (nix_file) DO NOTHING
             "#,
                 named_params!(
-                    ":nix_file": project.project_file.as_nix_file().to_sql(),
-                    ":is_flake": match project.project_file {
+                    ":nix_file": project_file.as_nix_file().to_sql(),
+                    ":is_flake": match project_file {
                         ProjectFile::ShellNix(_) => false,
                         ProjectFile::FlakeNix(_) => true
                     },
-                    ":flake_installable":  match &project.project_file {
+                    ":flake_installable":  match &project_file {
                         ProjectFile::ShellNix(_) => None,
                         // The f.context was already used by `as_nix_file()` above
                         ProjectFile::FlakeNix(ref f) => Some(f.installable.clone())
@@ -146,27 +151,47 @@ impl Project {
                 ),
             )
             .expect("cannot insert new gc roots");
-            // Adjust the nix_file symlink to point to this project’s nix file
-
-            // A symlink from our gc_root_path directory back to the nix file which created this project.
-            // Used to implement garbage collection.
-            let nix_file_symlink = project.nix_file_backlink();
-
-            let (remove, create) = match std::fs::read_link(&nix_file_symlink) {
-                Ok(path) if path == project_file.as_absolute_path() => (false, false),
-                Ok(_) => (true, true),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => (false, true),
-                Err(_) => (true, true),
-            };
-            if remove {
-                std::fs::remove_file(&nix_file_symlink)?;
-            }
-            if create {
-                std::os::unix::fs::symlink(project_file.as_absolute_path(), nix_file_symlink)?;
-            }
-            Ok(project)
+            Ok::<(), ()>(())
         })
         .await
+        .expect("new project INSERT");
+
+        Self::auto_gc_removed_project_files(&mut conn, logger).await;
+
+        Ok(project)
+    }
+
+    async fn auto_gc_removed_project_files(conn: &mut Sqlite, logger: Logger) {
+        debug!(logger, "Auto-removing all projects that don’t exist");
+
+        conn.in_transaction(move |conn| {
+            let mut prepare = conn
+                .prepare(r"SELECT nix_file FROM gc_roots")
+                .expect("prepare select");
+            let mut rows = prepare.query([])?;
+            let mut nix_files = vec![];
+            while let Some(row) = rows.next()? {
+                nix_files
+                    .push(AbsPathBuf::from_sql(row.get_ref_unwrap("nix_file")).expect("nix_file"))
+            }
+            for nix_file in nix_files {
+                if !nix_file.as_path().exists() {
+                    // symlink target is gone
+                    let _ = conn
+                        .execute(
+                            "DELETE FROM gc_roots WHERE nix_file = :nix_file",
+                            named_params! {":nix_file": nix_file.to_sql()},
+                        )
+                        .expect(&format!(
+                            "deleting nix file {}",
+                            nix_file.as_path().display()
+                        ));
+                }
+            }
+            Ok::<(), rusqlite::Error>(())
+        })
+        .await
+        .expect("select gc_root nix files");
     }
 
     fn new_internal(

@@ -185,6 +185,7 @@ impl Daemon {
             };
             let project = crate::project::Project::new_and_gc_nix_files(
                 conn.clone(),
+                logger.clone(),
                 project_file,
                 gc_root_dir,
             )
