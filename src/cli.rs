@@ -235,60 +235,6 @@ pub struct InfoOptions {
     pub source: SourceOptions,
 }
 
-/// Parses a duration from a timestamp like 30d, 2m.
-fn human_friendly_duration(s: &str) -> Result<Duration, String> {
-    let multiplier = if s.ends_with('d') {
-        24 * 60 * 60
-    } else if s.ends_with('m') {
-        30 * 24 * 60 * 60
-    } else if s.ends_with('y') {
-        365 * 24 * 60 * 60
-    } else {
-        return Err(format!(
-            "Invalid duration: «{}» should end with d, m or y.",
-            s
-        ));
-    };
-    let integer_part = match s.get(0..(s.len() - 1)) {
-        Some(x) => x,
-        None => return Err(format!("Invalid duration: «{}» has no integer part.", s)),
-    };
-    let n: Result<u64, std::num::ParseIntError> = integer_part.parse();
-    match n {
-        Ok(n) => Ok(Duration::from_secs(n * multiplier)),
-        Err(e) => Err(format!(
-            "Invalid duration: «{}» is not an integer: {}",
-            integer_part, e
-        )),
-    }
-}
-
-#[test]
-fn test_human_friendly_duration() {
-    assert_eq!(
-        human_friendly_duration("1d"),
-        Ok(Duration::from_secs(24 * 60 * 60))
-    );
-    assert_eq!(
-        human_friendly_duration("2d"),
-        Ok(Duration::from_secs(2 * 24 * 60 * 60))
-    );
-    assert_eq!(
-        human_friendly_duration("2m"),
-        Ok(Duration::from_secs(2 * 30 * 24 * 60 * 60))
-    );
-    assert_eq!(
-        human_friendly_duration("2y"),
-        Ok(Duration::from_secs(2 * 365 * 24 * 60 * 60))
-    );
-    assert!(human_friendly_duration("1").is_err());
-    assert!(human_friendly_duration("1dd").is_err());
-    assert!(human_friendly_duration("dd").is_err());
-    assert!(human_friendly_duration("d").is_err());
-    assert!(human_friendly_duration("1j").is_err());
-    assert!(human_friendly_duration("é").is_err());
-}
-
 /// Options for the `gc` subcommand.
 #[derive(Parser, Debug)]
 pub struct GcOptions {
@@ -487,4 +433,58 @@ pub struct LocalDest {
 pub struct BranchDest {
     /// the path to git branch of the upstream repository.
     pub branch: String,
+}
+
+/// Parses a duration from a timestamp like 30d, 2m.
+fn human_friendly_duration(s: &str) -> Result<Duration, String> {
+    let multiplier = if s.ends_with('d') {
+        24 * 60 * 60
+    } else if s.ends_with('m') {
+        30 * 24 * 60 * 60
+    } else if s.ends_with('y') {
+        365 * 24 * 60 * 60
+    } else {
+        return Err(format!(
+            "Invalid duration: «{}» should end with d, m or y.",
+            s
+        ));
+    };
+    let integer_part = match s.get(0..(s.len() - 1)) {
+        Some(x) => x,
+        None => return Err(format!("Invalid duration: «{}» has no integer part.", s)),
+    };
+    let n: Result<u64, std::num::ParseIntError> = integer_part.parse();
+    match n {
+        Ok(n) => Ok(Duration::from_secs(n * multiplier)),
+        Err(e) => Err(format!(
+            "Invalid duration: «{}» is not an integer: {}",
+            integer_part, e
+        )),
+    }
+}
+
+#[test]
+fn test_human_friendly_duration() {
+    assert_eq!(
+        human_friendly_duration("1d"),
+        Ok(Duration::from_secs(24 * 60 * 60))
+    );
+    assert_eq!(
+        human_friendly_duration("2d"),
+        Ok(Duration::from_secs(2 * 24 * 60 * 60))
+    );
+    assert_eq!(
+        human_friendly_duration("2m"),
+        Ok(Duration::from_secs(2 * 30 * 24 * 60 * 60))
+    );
+    assert_eq!(
+        human_friendly_duration("2y"),
+        Ok(Duration::from_secs(2 * 365 * 24 * 60 * 60))
+    );
+    assert!(human_friendly_duration("1").is_err());
+    assert!(human_friendly_duration("1dd").is_err());
+    assert!(human_friendly_duration("dd").is_err());
+    assert!(human_friendly_duration("d").is_err());
+    assert!(human_friendly_duration("1j").is_err());
+    assert!(human_friendly_duration("é").is_err());
 }
