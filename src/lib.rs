@@ -170,6 +170,14 @@ impl AbsPathBuf {
         Self::new_unchecked_normalized(&new)
     }
 
+    /// Return the ancestors of the given path, as long as they can be converted to `AbsPathBuf`s.
+    pub fn ancestors(&self) -> Vec<Self> {
+        self.0
+            .ancestors()
+            .filter_map(|a| AbsPathBuf::new(a.to_owned()).ok())
+            .collect()
+    }
+
     /// Proxy through `with_file_name` for `PathBuf`
     pub fn with_file_name<S: AsRef<OsStr>>(&self, file_name: S) -> Self {
         // replacing the file name will never make the path relative

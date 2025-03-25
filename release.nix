@@ -6,38 +6,45 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
-	version = 1111;
-	changes = ''
-	  `lorri gc info`: print “gone” instead of “dead”. Order output
-	  by most recently built.
-	'';
+        version = 1140;
+        changes = ''
+          Add initial `lorri prompt default` implementation. Will display ℓ
+          if you are in a project lorri knows about (has been evaluated before).
+        '';
       }
       {
-	version = 1107;
-	changes = ''
-	  `lorri gc info`: print elapsed time down to the second,
-	   e.g. 15 minutes ago, 10 seconds ago.
-	'';
+        version = 1111;
+        changes = ''
+          `lorri gc info`: print “gone” instead of “dead”. Order output
+          by most recently built.
+        '';
       }
       {
-	version = 1102;
-	changes = ''
-	  `Display a warning if the user uses a shell that we don’t support.
-	'';
+        version = 1107;
+        changes = ''
+          `lorri gc info`: print elapsed time down to the second,
+          e.g. 15 minutes ago, 10 seconds ago.
+        '';
       }
       {
-	version = 1076;
-	changes = ''
-	  Added `--dry-run` flag to `lorri gc rm`, to see which project roots would
-	  be removed.
-	'';
+        version = 1102;
+        changes = ''
+          `Display a warning if the user uses a shell that we don’t support.
+        '';
       }
       {
-	version = 1065;
-	changes = ''
-	  Improved the crash error message, providing an easier way to open an issue
-	  on Github by clicking a link.
-	'';
+        version = 1076;
+        changes = ''
+          Added `--dry-run` flag to `lorri gc rm`, to see which project roots would
+          be removed.
+        '';
+      }
+      {
+       	version = 1065;
+       	changes = ''
+       	  Improved the crash error message, providing an easier way to open an issue
+       	  on Github by clicking a link.
+       	'';
       }
       {
         version = 1062;

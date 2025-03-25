@@ -66,6 +66,13 @@ pub enum Command {
     /// Write bootstrap files to current directory to create a new lorri project
     Init,
 
+    /// Generate lorri status markers that can be included in your shell’s prompt
+    Prompt {
+        /// Sub-command to execute
+        #[command(subcommand)]
+        command: PromptOptions,
+    },
+
     /// Internal commands, only use to experiment with unstable features
     Internal {
         /// Sub-command to execute
@@ -433,6 +440,17 @@ pub struct LocalDest {
 pub struct BranchDest {
     /// the path to git branch of the upstream repository.
     pub branch: String,
+}
+
+/// Options for `lorri prompt`
+#[derive(Subcommand, Debug)]
+pub enum PromptOptions {
+    /// The default lorri prompt output
+    Default {
+        /// Include a leading space, so that `lorri prompt` does not take any space if it would not output anything.
+        #[arg(long)]
+        include_leading_space: bool,
+    },
 }
 
 /// Parses a duration from a timestamp like 30d, 2m.
