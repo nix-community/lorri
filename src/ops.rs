@@ -8,20 +8,28 @@ use crate::build_loop::Event;
 use crate::build_loop::Reason;
 use crate::builder::OutputPath;
 use crate::cas::ContentAddressable;
-use crate::cli;
-use crate::cli::StartUserShellOptions_;
 use crate::cli::WatchOptions;
 use crate::cli::{EventKind, ShellOptions};
+use crate::cli::{PromptOptions, StartUserShellOptions_};
 use crate::constants::Paths;
+use crate::daemon::client::Timeout;
 use crate::daemon::{client, Daemon};
 use crate::nix::options::NixOptions;
 use crate::nix::CallOpts;
 use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
 use crate::ops::error::ExitError;
 use crate::path_to_json_string;
+use crate::project::{GcRootInfo, ListRootsSort, Project, ProjectFile};
+use crate::socket::communicate;
 use crate::socket::path::SocketPath;
 use crate::sqlite::Sqlite;
 use crate::{builder, project};
+use crate::{cli, AbsPathBuf};
+use anyhow::{anyhow, Context};
+use itertools::Itertools;
+use rusqlite::{named_params, OptionalExtension};
+use serde_json::{json, Value};
+use slog::{debug, info, warn, Logger};
 use std::ffi::OsStr;
 use std::io::{Error, Write};
 use std::os::unix::process::CommandExt;
@@ -31,15 +39,6 @@ use std::process::Command;
 use std::time::Duration;
 use std::time::Instant;
 use std::{collections::HashSet, env, fs::File};
-
-use anyhow::{anyhow, Context};
-
-use crate::daemon::client::Timeout;
-use crate::project::{GcRootInfo, ListRootsSort, Project, ProjectFile};
-use crate::socket::communicate;
-use itertools::Itertools;
-use serde_json::{json, Value};
-use slog::{debug, info, warn};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{channel, unbounded_channel};
 
@@ -974,4 +973,68 @@ async fn main_run_forever(
     let res = build_loop.await.expect("unable to join");
     print_build_message.abort();
     res
+}
+
+/// `lorri prompt`
+pub async fn op_prompt(
+    opts: PromptOptions,
+    logger: &Logger,
+    mut sqlite: Sqlite,
+) -> Result<(), ExitError> {
+    match opts {
+        PromptOptions::Default {
+            include_leading_space,
+        } => {
+            let Ok(current_dir) = AbsPathBuf::new_from_current_directory(Path::new("")) else {
+                return Ok(());
+            };
+            match is_subdir_of_known_project(current_dir.clone(), &mut sqlite).await {
+                None => {
+                    debug!(logger, "did not find any lorri project in or above current working directory"; "cwd" => ?current_dir.display());
+                    Ok(())
+                }
+                Some(nix_file) => {
+                    debug!(logger, "found lorri project from current working directory"; "nix_file" => ?nix_file.display());
+                    if include_leading_space {
+                        print!(" ℓ");
+                    } else {
+                        print!("ℓ");
+                    }
+                    Ok(())
+                }
+            }
+        }
+    }
+}
+
+/// Returns whether we are in a subdirectory of a lorri project it already knows about,
+/// and if so return the shell.nix or flake.nix file this project belongs to.
+async fn is_subdir_of_known_project(path: AbsPathBuf, sqlite: &mut Sqlite) -> Option<AbsPathBuf> {
+    sqlite
+        .in_transaction(move |conn| {
+            let mut qry = conn
+                .prepare(
+                    r##"
+                SELECT nix_file FROM gc_roots
+                -- take the directory of the nix file by removing everything from the last /
+                -- replace trick from https://stackoverflow.com/questions/21388820/how-to-get-the-last-index-of-a-substring-in-sqlite
+                WHERE :path || '/' = rtrim(nix_file, replace(nix_file, '/', ''))
+               "##,
+                )
+                .expect("prepare SELECT is path prefix");
+            for ancestor in path.ancestors() {
+                let nix_path = qry
+                    .query_row(named_params! { ":path": ancestor.to_sql() }, |r| {
+                        Ok(AbsPathBuf::from_sql(r.get_ref_unwrap("nix_file")).expect("nix_file"))
+                    })
+                    .optional()
+                    .expect("SELECT is path prefix");
+                if let Some(p) = nix_path {
+                    return Ok::<Option<AbsPathBuf>, ()>(Some(p));
+                }
+            }
+            return Ok(None);
+        })
+        .await
+        .expect("Subdir check")
 }

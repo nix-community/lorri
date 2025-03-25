@@ -105,6 +105,8 @@ async fn run_command(orig_logger: &slog::Logger, opts: Arguments) -> Result<(), 
         }
         Command::Init => ops::op_init(TRIVIAL_SHELL_SRC, DEFAULT_ENVRC, orig_logger),
 
+        Command::Prompt { command } => ops::op_prompt(command, orig_logger, conn.clone()).await,
+
         Command::Internal { command } => match command {
             Internal_::Ping_(opts) => {
                 ops::op_ping(&paths, opts.source.try_into()?, orig_logger).await
