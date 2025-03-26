@@ -188,25 +188,6 @@ let
       test = writeCargo "lint-cargo-fmt" [] [ "fmt" "--" "--check" ];
     };
 
-    lint-manpage = offlineCheck.test {
-      name = "lint-manpage";
-      description = "lint the manpage";
-      test = { ok, err }: pkgs.writers.writeDash "mandoc-lint" ''
-        lint_warnings="$(
-          ${bins.mandoc} -Tlint < ${../../lorri.1} \
-            | ${bins.sed} -e '/referenced manual not found/d'
-        )"
-
-        # only succeed if theer were no warnings
-        if [ ! -z "$lint_warnings" ]; then
-          echo "$lint_warnings" >&2
-          ${err}
-        else
-          ${ok}
-        fi
-      '';
-    };
-
   };
 
   # An offline check is a check that can be run inside a nix build.

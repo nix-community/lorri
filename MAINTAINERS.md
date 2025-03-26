@@ -64,7 +64,7 @@ To cut a new release:
    update `Cargo.nix`.
 3. Go through all commits since the last release and cross-check against the
    release notes in `release.nix`. Add missing changes.
-4. With the changelog in mind, check that the [manpage](./lorri.1) is up-to-date.
+4. With the changelog in mind, check that the [manpage](./lorri.scd) is up-to-date.
 5. Create a PR with these changes and merge it. Note the hash of the merge
    commit.
 6. Tag the merge commit using `git tag --sign <version> <merge commit hash>`.
