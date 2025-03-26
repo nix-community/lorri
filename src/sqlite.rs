@@ -4,6 +4,7 @@ use crate::constants::Paths;
 use crate::ops::error::ExitError;
 use crate::{project, AbsPathBuf};
 use anyhow::Context;
+use itertools::Itertools;
 use slog::{debug, info};
 use std::fs;
 use std::time::SystemTime;
@@ -13,6 +14,17 @@ use tokio_rusqlite::{named_params, Connection, Transaction};
 #[derive(Clone, Debug)]
 pub struct Sqlite {
     conn: tokio_rusqlite::Connection,
+}
+
+/// Whether we had to migrate from the old gcroots to the sqlite database
+#[derive(Debug, PartialEq)]
+pub enum MigrateGCState {
+    /// No GCRoots exist, so we assume this is a new lorri setup
+    LorriIsFresh,
+    /// We had already migrated to sqlite
+    AlreadyMigrated,
+    /// We hadn’t migrated and the migration was finished
+    MigrationFinished,
 }
 
 impl Sqlite {
@@ -36,9 +48,9 @@ impl Sqlite {
                 );
                 "#,
             )
-            .unwrap()
+                .unwrap()
         })
-        .await;
+            .await;
 
         Sqlite { conn }
     }
@@ -49,7 +61,21 @@ impl Sqlite {
         logger: &slog::Logger,
         paths: &Paths,
         conn: Sqlite,
-    ) -> Result<(), ExitError> {
+    ) -> Result<MigrateGCState, ExitError> {
+        // Check that we already have set up something, otherwise the lorri setup is “fresh”
+        // and we don’t have to migrate anything
+        let has_gc_roots = std::fs::read_dir(paths.gc_root_dir())
+            .map(|mut dir| dir.next().is_some())
+            .unwrap_or(false);
+
+        if !has_gc_roots {
+            debug!(
+                logger,
+                "lorri hasn’t any registered GC roots yet, migration not necessary"
+            );
+            return Ok(MigrateGCState::LorriIsFresh);
+        }
+
         let count = self
             .conn
             .call_unwrap(|conn| {
@@ -64,7 +90,7 @@ impl Sqlite {
 
         if count != 0 {
             debug!(logger, "Migration to sqlite already done, skipping");
-            return Ok(());
+            return Ok(MigrateGCState::AlreadyMigrated);
         }
 
         info!(
@@ -122,7 +148,7 @@ impl Sqlite {
         }
 
         info!(logger, "Finished migration to sqlite database");
-        Ok(())
+        Ok(MigrateGCState::MigrationFinished)
     }
 
     /// Run the given code in the context of a transaction, automatically aborting the transaction if the function returns `Err`, comitting if it returns `Ok`.
@@ -162,7 +188,7 @@ mod tests {
     use crate::constants::Paths;
     use crate::logging::test_logger;
     use crate::project::{ListRootsSort, Project, ProjectFile};
-    use crate::sqlite::Sqlite;
+    use crate::sqlite::{MigrateGCState, Sqlite};
     use crate::{lorri_runtime_block_on, project, AbsPathBuf, NixFile};
     use std::collections::HashSet;
     use std::fs;
@@ -179,6 +205,16 @@ mod tests {
 
             let paths = Paths::initialize_for_tests(&test_dir).await;
             let conn = Sqlite::new_connection(&paths.sqlite_db).await;
+
+            {
+                // start by trying the migration without any gcroots
+                let no_gc_roots = conn
+                    .migrate_gc_roots_if_necessary(&test_logger("migrate db"), &paths, conn.clone())
+                    .await
+                    .expect("migration");
+
+                assert_eq!(no_gc_roots, MigrateGCState::LorriIsFresh);
+            }
 
             let flake_project_dir = AbsPathBuf::new(test_dir.path().join("flake_project")).unwrap();
             let flake_project_file = ProjectFile::flake(
@@ -267,10 +303,15 @@ mod tests {
                 ])
             );
 
-            // now do the migration
-            conn.migrate_gc_roots_if_necessary(&test_logger("migrate db"), &paths, conn.clone())
-                .await
-                .expect("migration");
+            {
+                // now do the migration
+                let migrated = conn
+                    .migrate_gc_roots_if_necessary(&test_logger("migrate db"), &paths, conn.clone())
+                    .await
+                    .expect("migration");
+
+                assert_eq!(migrated, MigrateGCState::MigrationFinished)
+            }
 
             // listing after migration, from db
             let after = project::list_roots_gc(&paths, conn.clone(), ListRootsSort::NoSorting)
@@ -330,6 +371,15 @@ mod tests {
                 "backlink still there! {}",
                 nix_shell_project_file_backlink.display()
             );
+            {
+                // Try to migrate again, this time it should not do anything
+                let no_more = conn
+                    .migrate_gc_roots_if_necessary(&test_logger("migrate db"), &paths, conn.clone())
+                    .await
+                    .expect("migration");
+
+                assert_eq!(no_more, MigrateGCState::AlreadyMigrated);
+            }
 
             drop(test_dir);
         })
