@@ -56,9 +56,10 @@ cargoLorri.override {
         pkgs.darwin.apple_sdk.frameworks.CoreServices
         pkgs.libiconv
       ];
+      nativeBuildInputs = [ pkgs.installShellFiles ];
 
-      # copy the docs to the $man and $doc outputs
       postInstall = ''
+        # copy the docs to the $man and $doc outputs
         install -Dm644 lorri.1 $man/share/man/man1/lorri.1
         install -Dm644 -t $doc/share/doc/lorri/ \
           README.md \
@@ -66,6 +67,16 @@ cargoLorri.override {
           LICENSE \
           MAINTAINERS.md
         cp -r contrib/ $doc/share/doc/lorri/contrib
+
+        # install shell completions via the internal command
+        mkdir out-completions
+        cd out-completions
+        $out/bin/lorri internal write-shell-completion-scripts
+        echo installing shell completions for ./*
+
+        # || true because installShellCompletion is buggy as hell and I don’t care
+        # (also it only supports bash/zsh/fish and not e.g. elvish, even though clap_completion does)
+        installShellCompletion ./* || true
       '';
     };
   };

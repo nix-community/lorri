@@ -586,6 +586,35 @@ rec {
         };
         resolvedDefaultFeatures = [ "color" "error-context" "help" "std" "suggestions" "usage" ];
       };
+      "clap_complete" = rec {
+        crateName = "clap_complete";
+        version = "4.5.47";
+        edition = "2021";
+        sha256 = "1dkzjgmi0c4jgq4cwvmzbaki9mxanll6d0mw5gwd8ji6x9w56vy0";
+        dependencies = [
+          {
+            name = "clap";
+            packageId = "clap";
+            usesDefaultFeatures = false;
+            features = [ "std" ];
+          }
+        ];
+        devDependencies = [
+          {
+            name = "clap";
+            packageId = "clap";
+            usesDefaultFeatures = false;
+            features = [ "std" "derive" "help" ];
+          }
+        ];
+        features = {
+          "debug" = [ "clap/debug" ];
+          "unstable-doc" = [ "unstable-dynamic" ];
+          "unstable-dynamic" = [ "dep:clap_lex" "dep:shlex" "dep:is_executable" "clap/unstable-ext" ];
+          "unstable-shell-tests" = [ "dep:completest" "dep:completest-pty" ];
+        };
+        resolvedDefaultFeatures = [ "default" ];
+      };
       "clap_derive" = rec {
         crateName = "clap_derive";
         version = "4.5.28";
@@ -1540,6 +1569,11 @@ rec {
             name = "clap";
             packageId = "clap";
             features = [ "derive" "error-context" ];
+          }
+          {
+            name = "clap_complete";
+            packageId = "clap_complete";
+            features = [ "default" ];
           }
           {
             name = "ctrlc";

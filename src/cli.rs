@@ -352,6 +352,9 @@ pub enum Internal_ {
     /// (internal) Used internally by `lorri shell`
     StartUserShell_(StartUserShellOptions_),
 
+    /// Write all shell completion scripts to the current directory.
+    WriteShellCompletionScripts,
+
     /// (plumbing) Tell the lorri daemon to care about the current directory's project
     Ping_(Ping_),
 

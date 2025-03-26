@@ -1,5 +1,8 @@
+use anyhow::Context;
 use backtrace::Backtrace;
-use clap::Parser;
+use clap::ValueEnum;
+use clap::{CommandFactory, Parser};
+use clap_complete::Generator;
 use lorri::cli::{Arguments, Command, Internal_, Verbosity};
 use lorri::logging;
 use lorri::ops::error::ExitError;
@@ -10,8 +13,10 @@ use nix::sys::signal::SigHandler::SigIgn;
 use nix::sys::signal::{signal, Signal};
 use slog::{debug, error, o};
 use std::fmt::Write as FmtWrite;
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::panic::PanicHookInfo;
+use std::path::Path;
 use std::{env, mem, panic};
 
 const TRIVIAL_SHELL_SRC: &str = include_str!("./trivial-shell.nix");
@@ -56,6 +61,33 @@ fn main() {
     };
 
     std::process::exit(exit_code);
+}
+
+fn generate_shell_completion_scripts_json() -> Result<(), ExitError> {
+    for &shell in clap_complete::Shell::value_variants() {
+        let completion_filename = shell.file_name("lorri");
+        let mut completion_script: Vec<u8> = vec![];
+        clap_complete::generate(
+            shell,
+            &mut Arguments::command(),
+            "lorri",
+            &mut completion_script,
+        );
+        {
+            let mut f = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .open(Path::new(&completion_filename))
+                .expect("cannot write shell completion");
+            f.write_all(&completion_script)
+                .context(format!(
+                    "cannot write shell completion for {completion_filename}"
+                ))
+                .map_err(ExitError::temporary)?;
+        }
+    }
+
+    Ok(())
 }
 
 /// Run the main function of the relevant command.
@@ -111,6 +143,7 @@ async fn run_command(orig_logger: &slog::Logger, opts: Arguments) -> Result<(), 
             Internal_::Ping_(opts) => {
                 ops::op_ping(&paths, opts.source.try_into()?, orig_logger).await
             }
+            Internal_::WriteShellCompletionScripts => generate_shell_completion_scripts_json(),
             Internal_::StartUserShell_(opts) => {
                 ops::op_start_user_shell(orig_logger, paths.cas_store(), opts)
             }

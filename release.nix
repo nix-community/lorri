@@ -6,6 +6,14 @@
     # Find the current version number with `git log --pretty=%h | wc -l`
     entries = [
       {
+        version = 1142;
+        changes = ''
+          Add `lorri internal write-shell-completion-scripts`.
+
+          Also install (a subset) of the completion scripts via `nix-build`.
+        '';
+      }
+      {
         version = 1140;
         changes = ''
           Add initial `lorri prompt default` implementation. Will display ℓ
