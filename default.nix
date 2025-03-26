@@ -60,6 +60,7 @@ cargoLorri.override {
 
       postInstall = ''
         # copy the docs to the $man and $doc outputs
+        ${pkgs.scdoc}/bin/scdoc < lorri.scd > lorri.1
         install -Dm644 lorri.1 $man/share/man/man1/lorri.1
         install -Dm644 -t $doc/share/doc/lorri/ \
           README.md \
