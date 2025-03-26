@@ -4,7 +4,6 @@ use crate::constants::Paths;
 use crate::ops::error::ExitError;
 use crate::{project, AbsPathBuf};
 use anyhow::Context;
-use itertools::Itertools;
 use slog::{debug, info};
 use std::fs;
 use std::time::SystemTime;
