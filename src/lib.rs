@@ -30,6 +30,8 @@ pub mod socket;
 pub mod sqlite;
 pub mod watch;
 
+mod org_nix_community_lorri;
+
 use anyhow::{anyhow, Context};
 use rusqlite::types::{ToSqlOutput, ValueRef};
 use std::cmp::Reverse;

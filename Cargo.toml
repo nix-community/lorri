@@ -47,4 +47,8 @@ itertools = "0.12.1"
 urlencoding = "2.1.3"
 os_info = { version = "3.10.0", default-features = false }
 backtrace = "0.3.74"
+varlink = { version = "11.0.1", features = ["default"] }
+
+[build-dependencies]
+varlink_generator = "10.1.0"
 

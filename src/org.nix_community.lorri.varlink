@@ -1,0 +1,4 @@
+interface org.nix-community.lorri
+
+# Ask the lorri daemon to listen to any changes and rebuild the nix environment if they happen (after evaluating once first).
+method ListenForNixChanges(nix_file: string) -> ()

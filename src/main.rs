@@ -18,6 +18,7 @@ use std::io::Write;
 use std::panic::PanicHookInfo;
 use std::path::Path;
 use std::{env, mem, panic};
+use varlink::ListenConfig;
 
 const TRIVIAL_SHELL_SRC: &str = include_str!("./trivial-shell.nix");
 const DEFAULT_ENVRC: &str = include_str!("./default-envrc");
@@ -90,6 +91,8 @@ fn generate_shell_completion_scripts_json() -> Result<(), ExitError> {
     Ok(())
 }
 
+fn main_test() {}
+
 /// Run the main function of the relevant command.
 async fn run_command(orig_logger: &slog::Logger, opts: Arguments) -> Result<(), ExitError> {
     let paths = ops::get_paths()?;
@@ -150,6 +153,7 @@ async fn run_command(orig_logger: &slog::Logger, opts: Arguments) -> Result<(), 
             Internal_::StreamEvents_(se) => {
                 ops::op_stream_events(&paths, se.kind, orig_logger).await
             }
+            Internal_::Varlink { command } => ops::op_varlink(command).await,
         },
     }
 }

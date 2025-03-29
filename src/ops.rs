@@ -8,9 +8,9 @@ use crate::build_loop::Event;
 use crate::build_loop::Reason;
 use crate::builder::OutputPath;
 use crate::cas::ContentAddressable;
-use crate::cli::WatchOptions;
 use crate::cli::{EventKind, ShellOptions};
 use crate::cli::{PromptOptions, StartUserShellOptions_};
+use crate::cli::{Varlink_, WatchOptions};
 use crate::constants::Paths;
 use crate::daemon::client::Timeout;
 use crate::daemon::{client, Daemon};
@@ -18,13 +18,14 @@ use crate::nix::options::NixOptions;
 use crate::nix::CallOpts;
 use crate::ops::direnv::{DirenvVersion, MIN_DIRENV_VERSION};
 use crate::ops::error::ExitError;
-use crate::path_to_json_string;
+use crate::org_nix_community_lorri::{Call_ListenForNixChanges, VarlinkInterface};
 use crate::project::{GcRootInfo, ListRootsSort, Project, ProjectFile};
 use crate::socket::communicate;
 use crate::socket::path::SocketPath;
 use crate::sqlite::Sqlite;
 use crate::{builder, project};
 use crate::{cli, AbsPathBuf};
+use crate::{org_nix_community_lorri, path_to_json_string};
 use anyhow::{anyhow, Context};
 use itertools::Itertools;
 use rusqlite::{named_params, OptionalExtension};
@@ -39,8 +40,9 @@ use std::process::Command;
 use std::time::Duration;
 use std::time::Instant;
 use std::{collections::HashSet, env, fs::File};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc::{channel, unbounded_channel};
+use varlink::ConnectionHandler;
 
 const CLIENT_TIMEOUT_DURATION_SHORT: Timeout = Timeout::from_millis(50);
 const CLIENT_TIMEOUT_DURATION: Timeout = Timeout::from_millis(500);
@@ -1037,4 +1039,56 @@ async fn is_subdir_of_known_project(path: AbsPathBuf, sqlite: &mut Sqlite) -> Op
         })
         .await
         .expect("Subdir check")
+}
+
+struct MyOrgExamplePing {}
+
+impl VarlinkInterface for MyOrgExamplePing {
+    fn listen_for_nix_changes(
+        &self,
+        call: &mut dyn Call_ListenForNixChanges,
+        r#nix_file: String,
+    ) -> varlink::Result<()> {
+        call.reply_method_not_implemented("listen_for_nix_changes".to_owned())
+    }
+}
+
+/// Provide the lorri varlink interface
+pub async fn op_varlink(command: Varlink_) -> Result<(), ExitError> {
+    match command {
+        Varlink_::Stdin => {
+            let iface = org_nix_community_lorri::new(Box::new(MyOrgExamplePing {}));
+            let service = std::sync::Arc::new(varlink::VarlinkService::new(
+                "org.nix-community",
+                "lorri",
+                env!("CARGO_PKG_VERSION"),
+                "https://github.com/nix-community/lorri",
+                vec![Box::new(iface)],
+            ));
+            let stdin_read = BufReader::new(tokio::io::stdin());
+            let mut stdin_lines = stdin_read.lines();
+            while let Some(mut line) = stdin_lines.next_line().await? {
+                let service2 = service.clone();
+                tokio::task::spawn_blocking(move || {
+                    let mut stdout = std::io::stdout();
+                    line.push('\0');
+                    let res = match service2.handle(&mut line.as_bytes(), &mut stdout, None) {
+                        Err(e) => {
+                            // TODO: if we do the varlink daemon, we don’t want to quit!
+
+                            Err(e).context("Cannot handle varlink input")
+                        }
+                        Ok(_) => Ok(()),
+                    };
+                    stdout.write_all(b"\n")?;
+                    res
+                })
+                .await
+                .expect("handle join")
+                .map_err(ExitError::panic)?;
+            }
+
+            Ok(())
+        }
+    }
 }

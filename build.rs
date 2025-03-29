@@ -1,11 +1,17 @@
 //! build.rs is used to generate code at build time, which is then
 //! imported elsewhere. This file is understood and executed by cargo.
+extern crate varlink_generator;
 use std::env;
 use std::fs;
 use std::path::Path;
 
 /// Write version information to $OUT_DIR/build_rev.rs, which is included in src/lib.rs.
 fn main() {
+    varlink_generator::cargo_build_tosource(
+        "src/org.nix_community.lorri.varlink",
+        /* rustfmt */ true,
+    );
+
     println!("cargo:rerun-if-env-changed=RUN_TIME_CLOSURE");
     println!("cargo:rerun-if-changed=build.rs");
 

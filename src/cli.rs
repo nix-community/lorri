@@ -365,6 +365,14 @@ pub enum Internal_ {
     /// Once it stabilizes a bit more we will start mentioning changes in the changelog,
     /// and eventually ensure backwards compat.
     StreamEvents_(StreamEvents_),
+
+    /// An experimental [varlink](https://varlink.org/) interface to lorri.
+    /// Similar to StreamEvents, we don’t want to guarantee stability yet,
+    /// once that happens it will be moved to `lorri varlink`.
+    Varlink {
+        #[command(subcommand)]
+        command: Varlink_,
+    },
 }
 
 /// Options for the kinds of events to report
@@ -398,51 +406,11 @@ pub struct StreamEvents_ {
     pub kind: EventKind,
 }
 
-/// A stub struct to represent how what we want to upgrade to.
-#[derive(Parser, Debug)]
-#[structopt(name = "basic")]
-pub struct UpgradeTo {
-    /// Where to upgrade to. If no subcommand given, `rolling-release` is assumed.
-    #[command(subcommand)]
-    pub source: Option<UpgradeSource>,
-}
-
-/// Version-specifiers of different upgrade targets.
+/// Set up varlink interface.
 #[derive(Subcommand, Debug)]
-pub enum UpgradeSource {
-    /// Upgrade to the current rolling-release version, will be
-    /// fetched from git and built locally. rolling-release is
-    /// expected to be more stable than canon. (default)
-    RollingRelease,
-
-    /// Upgrade to the current version from the canon (previously: master) branch,
-    /// which will be fetched from git and built locally.
-    Canon,
-
-    /// Alias for `canon`.
-    Master,
-
-    /// Upgrade to the specified git branch, which will be fetched
-    /// and built locally.
-    Branch(BranchDest),
-
-    /// Upgrade to a version in an arbitrary local directory.
-    Local(LocalDest),
-}
-
-/// Install an arbitrary version of lorri from a local directory.
-#[derive(Parser, Debug)]
-pub struct LocalDest {
-    /// the path to a local check out of lorri.
-    #[arg(long)]
-    pub path: PathBuf,
-}
-
-/// Install an arbitrary version of Lorri from an upstream git branch.
-#[derive(Parser, Debug)]
-pub struct BranchDest {
-    /// the path to git branch of the upstream repository.
-    pub branch: String,
+pub enum Varlink_ {
+    /// Read varlink commands from stdin and answer on stdout
+    Stdin,
 }
 
 /// Options for `lorri prompt`
