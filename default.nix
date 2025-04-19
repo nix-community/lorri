@@ -72,6 +72,8 @@ cargoLorri.override {
         # install shell completions via the internal command
         mkdir out-completions
         cd out-completions
+        # work around /homeless-shelter not being writable on darwin nix builds
+        export HOME=$(pwd)
         $out/bin/lorri internal write-shell-completion-scripts
         echo installing shell completions for ./*
 
