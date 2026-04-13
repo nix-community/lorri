@@ -1,0 +1,223 @@
+{
+  "name": "CI",
+  "on": {
+    "pull_request": {
+      "branches": [
+        "**"
+      ]
+    },
+    "push": {
+      "branches": [
+        "master"
+      ]
+    },
+    "workflow_dispatch": {}
+  },
+  "env": {
+    "LORRI_NO_INSTALL_PANIC_HANDLER": "absolutely"
+  },
+  "jobs": {
+    "j01-simple-checks": {
+      "name": "Simple Checks",
+      "runs-on": "ubuntu-latest",
+      "steps": [
+        {
+          "name": "Checkout",
+          "uses": "actions/checkout@v4"
+        },
+        {
+          "name": "Nix",
+          "uses": "cachix/install-nix-action@v26"
+        },
+        {
+          "name": "Cachix",
+          "uses": "cachix/cachix-action@v14",
+          "with": {
+            "authToken": "${{ secrets.CACHIX_AUTH_TOKEN }}",
+            "name": "nix-community"
+          }
+        },
+        {
+          "name": "Build simple checks",
+          "run": "nix-build \\\n  --out-link ./simple-tests \\\n  --arg isDevelopmentShell false \\\n  -A ci.testsuite-simple-checks \\\n  shell.nix\n"
+        },
+        {
+          "name": "Run simple checks",
+          "run": "./simple-tests\n"
+        }
+      ]
+    },
+    "j02-go-test-ubuntu-latest": {
+      "name": "Go tests (ubuntu-latest)",
+      "runs-on": "ubuntu-latest",
+      "steps": [
+        {
+          "name": "Checkout",
+          "uses": "actions/checkout@v4"
+        },
+        {
+          "name": "Nix",
+          "uses": "cachix/install-nix-action@v26"
+        },
+        {
+          "name": "Cachix",
+          "uses": "cachix/cachix-action@v14",
+          "with": {
+            "authToken": "${{ secrets.CACHIX_AUTH_TOKEN }}",
+            "name": "nix-community"
+          }
+        },
+        {
+          "name": "Build CI tests",
+          "run": "nix-build \\\n  --out-link ./ci-tests \\\n  --arg isDevelopmentShell false \\\n  -A ci.testsuite \\\n  shell.nix\n"
+        },
+        {
+          "name": "Run CI tests",
+          "run": "./ci-tests\n"
+        }
+      ]
+    },
+    "j03-nix-build_stable-ubuntu-latest": {
+      "name": "nix-build [nixos stable] (ubuntu-latest)",
+      "runs-on": "ubuntu-latest",
+      "steps": [
+        {
+          "name": "Checkout",
+          "uses": "actions/checkout@v4"
+        },
+        {
+          "name": "Nix",
+          "uses": "cachix/install-nix-action@v26"
+        },
+        {
+          "name": "Cachix",
+          "uses": "cachix/cachix-action@v14",
+          "with": {
+            "authToken": "${{ secrets.CACHIX_AUTH_TOKEN }}",
+            "name": "nix-community"
+          }
+        },
+        {
+          "name": "Build",
+          "run": "nix-build\n"
+        },
+        {
+          "name": "Install",
+          "run": "nix-env -i ./result\n"
+        }
+      ]
+    },
+    "j04-overlay-ubuntu-latest": {
+      "name": "Overlay builds (ubuntu-latest)",
+      "runs-on": "ubuntu-latest",
+      "steps": [
+        {
+          "name": "Checkout",
+          "uses": "actions/checkout@v4"
+        },
+        {
+          "name": "Nix",
+          "uses": "cachix/install-nix-action@v26"
+        },
+        {
+          "name": "Cachix",
+          "uses": "cachix/cachix-action@v14",
+          "with": {
+            "authToken": "${{ secrets.CACHIX_AUTH_TOKEN }}",
+            "name": "nix-community"
+          }
+        },
+        {
+          "name": "Build w/ overlay (stable)",
+          "run": "nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json\n"
+        }
+      ]
+    },
+    "j12-go-test-macos-latest": {
+      "name": "Go tests (macos-latest)",
+      "runs-on": "macos-latest",
+      "steps": [
+        {
+          "name": "Checkout",
+          "uses": "actions/checkout@v4"
+        },
+        {
+          "name": "Nix",
+          "uses": "cachix/install-nix-action@v26"
+        },
+        {
+          "name": "Cachix",
+          "uses": "cachix/cachix-action@v14",
+          "with": {
+            "authToken": "${{ secrets.CACHIX_AUTH_TOKEN }}",
+            "name": "nix-community"
+          }
+        },
+        {
+          "name": "Build CI tests",
+          "run": "nix-build \\\n  --out-link ./ci-tests \\\n  --arg isDevelopmentShell false \\\n  -A ci.testsuite \\\n  shell.nix\n"
+        },
+        {
+          "name": "Run CI tests",
+          "run": "./ci-tests\n"
+        }
+      ]
+    },
+    "j13-nix-build_stable-macos-latest": {
+      "name": "nix-build [nixos stable] (macos-latest)",
+      "runs-on": "macos-latest",
+      "steps": [
+        {
+          "name": "Checkout",
+          "uses": "actions/checkout@v4"
+        },
+        {
+          "name": "Nix",
+          "uses": "cachix/install-nix-action@v26"
+        },
+        {
+          "name": "Cachix",
+          "uses": "cachix/cachix-action@v14",
+          "with": {
+            "authToken": "${{ secrets.CACHIX_AUTH_TOKEN }}",
+            "name": "nix-community"
+          }
+        },
+        {
+          "name": "Build",
+          "run": "nix-build\n"
+        },
+        {
+          "name": "Install",
+          "run": "nix-env -i ./result\n"
+        }
+      ]
+    },
+    "j14-overlay-macos-latest": {
+      "name": "Overlay builds (macos-latest)",
+      "runs-on": "macos-latest",
+      "steps": [
+        {
+          "name": "Checkout",
+          "uses": "actions/checkout@v4"
+        },
+        {
+          "name": "Nix",
+          "uses": "cachix/install-nix-action@v26"
+        },
+        {
+          "name": "Cachix",
+          "uses": "cachix/cachix-action@v14",
+          "with": {
+            "authToken": "${{ secrets.CACHIX_AUTH_TOKEN }}",
+            "name": "nix-community"
+          }
+        },
+        {
+          "name": "Build w/ overlay (stable)",
+          "run": "nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json\n"
+        }
+      ]
+    }
+  }
+}
