@@ -26,6 +26,7 @@ let
     pkgs.direnv
     pkgs.nix-prefetch-git
     pkgs.nixpkgs-fmt
+    pkgs.yj
     pkgs.execline
     (lib.binify { exe = lib.nix-run; name = "nix-run"; })
 
