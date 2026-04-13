@@ -256,11 +256,19 @@ func TestWithPanicHandlerNoOp(t *testing.T) {
 }
 
 func TestWithPanicHandlerCatchesPanic(t *testing.T) {
-	// Suppress the crash output so test output stays clean.
-	t.Setenv("LORRI_NO_INSTALL_PANIC_HANDLER", "")
-	// We want the handler to run, so unset the bypass env.
-	os.Unsetenv("LORRI_NO_INSTALL_PANIC_HANDLER")
-	os.Unsetenv("LORRI_DEBUG_PANIC")
+	os.Unsetenv("LORRI_NO_INSTALL_PANIC_HANDLER") //nolint:errcheck
+	os.Unsetenv("LORRI_DEBUG_PANIC")              //nolint:errcheck
+
+	// Redirect os.Stderr to /dev/null so the crash report doesn't pollute
+	// the test output. Restore it afterwards.
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open /dev/null: %v", err)
+	}
+	defer devNull.Close()
+	origStderr := os.Stderr
+	os.Stderr = devNull
+	defer func() { os.Stderr = origStderr }()
 
 	code := withPanicHandler(func() int {
 		panic("test panic")

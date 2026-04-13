@@ -11,6 +11,10 @@ import (
 
 const watcherTimeout = 2 * time.Second
 
+// watcherSettle is how long to wait after AddPaths before triggering a real
+// event, to let macOS fsnotify emit and discard its spurious startup event.
+const watcherSettle = 600 * time.Millisecond
+
 // waitForFile blocks until a path whose base name equals fileName appears in
 // a batch from w, or until timeout. Returns (found, allSeen).
 func waitForFile(t *testing.T, w *Watch, fileName string, timeout time.Duration) (bool, []string) {
@@ -60,11 +64,13 @@ func assertNoEvent(t *testing.T, w *Watch, timeout time.Duration, suffixes ...st
 }
 
 // mkWatchForTest creates a Watch, optionally enabling first-event-drop (macOS).
+// On macOS, fsnotify fires a spurious initial event shortly after a path is
+// registered; we drop any batch arriving within 500ms of watcher creation.
 func mkWatchForTest(t *testing.T) *Watch {
 	t.Helper()
 	var dropFirst time.Duration
 	if runtime.GOOS == "darwin" {
-		dropFirst = watcherTimeout
+		dropFirst = 500 * time.Millisecond
 	}
 	w, err := newWatchImpl(dropFirst)
 	if err != nil {
@@ -121,6 +127,7 @@ func TestWatchWholeDirectoryRecursive(t *testing.T) {
 		if err := w.AddPaths([]WatchPathBuf{{Recursive: true, Path: dir}}); err != nil {
 			t.Fatalf("AddPaths: %v", err)
 		}
+		time.Sleep(watcherSettle)
 
 		// Write a file at the top level.
 		writeFile(t, filepath.Join(dir, "baz"), "1")
@@ -154,6 +161,7 @@ func TestWatchDirectoryNonRecursive(t *testing.T) {
 		if err := w.AddPaths([]WatchPathBuf{{Recursive: false, Path: dir}}); err != nil {
 			t.Fatalf("AddPaths: %v", err)
 		}
+		time.Sleep(watcherSettle)
 
 		// A file directly in dir should fire.
 		touchFile(t, filepath.Join(dir, "baz"))
@@ -181,9 +189,7 @@ func TestWatchSpecificFile(t *testing.T) {
 		if err := w.AddPaths([]WatchPathBuf{{Recursive: true, Path: fooPath}}); err != nil {
 			t.Fatalf("AddPaths: %v", err)
 		}
-
-		// Give the watcher time to register before triggering.
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(watcherSettle)
 
 		writeFile(t, fooPath, "changed")
 		found, seen := waitForFile(t, w, "foo", watcherTimeout)
