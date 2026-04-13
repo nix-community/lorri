@@ -71,8 +71,6 @@ func run(args []string) error {
 		return opInit()
 	case "prompt":
 		return runPrompt(args[1:])
-	case "watch":
-		return runWatch(args[1:])
 	case "internal":
 		return runInternal(args[1:])
 	case "-h", "--help", "help":
@@ -275,34 +273,6 @@ func runPromptDefault(args []string) error {
 }
 
 // ---------------------------------------------------------------------------
-// watch
-// ---------------------------------------------------------------------------
-
-func runWatch(args []string) error {
-	fs := flag.NewFlagSet("lorri watch", flag.ContinueOnError)
-	shellFile := fs.String("shell-file", "", "path to shell.nix (or similar)")
-	contextDir := fs.String("context", ".", "directory to resolve a flake from")
-	flake := fs.String("flake", "", "flake installable descriptor")
-	once := fs.Bool("once", false, "exit after the first build")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	rtc := requireRTC()
-	if rtc == "" {
-		return fmt.Errorf("RUN_TIME_CLOSURE not set")
-	}
-	paths, err := InitPaths()
-	if err != nil {
-		return err
-	}
-	projectFile, err := resolveProjectFile(*shellFile, *contextDir, *flake)
-	if err != nil {
-		return err
-	}
-	return opWatch(paths, projectFile, rtc, *once)
-}
-
-// ---------------------------------------------------------------------------
 // internal subcommands
 // ---------------------------------------------------------------------------
 
@@ -428,6 +398,5 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  info      show information about a lorri project")
 	fmt.Fprintln(os.Stderr, "  init      write bootstrap files to current directory")
 	fmt.Fprintln(os.Stderr, "  prompt    generate lorri status markers for shell prompts")
-	fmt.Fprintln(os.Stderr, "  watch     build project whenever an input file changes")
 	fmt.Fprintln(os.Stderr, "  internal  plumbing commands")
 }

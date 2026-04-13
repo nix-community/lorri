@@ -242,17 +242,6 @@ type buildResult struct {
 	err    error
 }
 
-// Once runs exactly one build, updates the watch set, creates GC roots, and
-// returns the output path.  Closes the watcher when done.
-// Mirrors BuildLoop::once().
-func (bl *BuildLoop) Once() (BuildOutputPath, error) {
-	ch := make(chan buildResult, 1)
-	go runBuild(bl.cfg, ch)
-	res := <-ch
-	bl.watch.Close()
-	return bl.handleRunResult(res)
-}
-
 // Forever runs the build loop indefinitely.
 // Mirrors BuildLoop::forever().
 //
