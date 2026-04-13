@@ -13,9 +13,12 @@ import (
 	"testing"
 )
 
-// lorriRoot returns the repository root.
+// lorriRoot returns the repository root from $LORRI_ROOT, falling back to
+// filepath.Abs(".") when running outside the nix-shell.
 func lorriRoot() string {
-	// The test binary runs from the repo root (module root).
+	if root := os.Getenv("LORRI_ROOT"); root != "" {
+		return root
+	}
 	abs, err := filepath.Abs(".")
 	if err != nil {
 		panic(err)
