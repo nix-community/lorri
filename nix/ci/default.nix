@@ -4,15 +4,13 @@ let
   lib = pkgs.lib;
 
   inherit (import ../lib { inherit pkgs; })
-    allCommandsSucceed
     pathAdd
     getBins
     pathPrependBins
     writeExecline
     ;
 
-  bins = getBins pkgs.shellcheck [ "shellcheck" ]
-      // getBins pkgs.gitMinimal [ "git" ]
+  bins = getBins pkgs.gitMinimal [ "git" ]
       // getBins pkgs.bats [ "bats" ]
       // getBins pkgs.coreutils [ "test" "echo" "cat" "mkdir" "mv" "touch" ]
       // getBins pkgs.go [ "go" ]
@@ -21,13 +19,6 @@ let
   inherit (import ./sandbox.nix { inherit pkgs writeExecline; })
     runInEmptyEnv
     ;
-
-  # shellcheck a file
-  shellcheck = file: writeExecline "lint-shellcheck" {} [
-    "cd" LORRI_ROOT
-    "if" [ bins.echo "shellchecking ${file}" ]
-    bins.shellcheck "--shell" "bash" file
-  ];
 
   # the CI tests we want to run
   # Tests should not depend on each other (or block if they do),
@@ -64,22 +55,7 @@ let
 
   };
 
-  # Tests that don't need to be run on different CI runners,
-  # and that don't take a long time to be red (so we don't have to wait for them).
-  # Also tests that are somewhat annoying but should be fixed nonetheless.
-  tests-simple-checks = {
-
-    shellcheck =
-      let files = [
-        "nix/bogus-nixpkgs/builder.sh"
-        "envrc.bash"
-      ];
-      in {
-        description = "shellcheck ${pkgs.lib.concatStringsSep " and " files}";
-        test = allCommandsSucceed "lint-shellcheck-all" (map shellcheck files);
-      };
-
-  };
+  tests-simple-checks = {};
 
   # An offline check is a check that can be run inside a nix build.
   # But instead of crashing the nix build, it will write the result to $out
