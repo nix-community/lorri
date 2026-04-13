@@ -111,13 +111,8 @@ focussing their time on actual issues with the developer experience.
 Technical changes that do not create visible improvements, but enable the features above.
 Will be linked to where required for a feature.
 
-### Switch to `sqlite` for keeping metadata
+### ~~Switch to `sqlite` for keeping metadata~~ ✓ Done
 
-Currently, all data that lorri keeps is stored as files in its cache directory.
-This was fine for the initial proof-of-concept, but has reached a complexity limit.
-Instead of going for something like “write json to different files”,
-we would create a single sqlite database to store cache data in, similar to how nix itself does store management.
-
-nix `gc roots` would of course still be symlinks, but all other information should be placed in sqlite.
-For example, currently the `lorri gc` command looks at the `mtime` of symlinks, which is somewhat brittle.
-In the future this would be stored inside a sqlite table.
+lorri now uses a SQLite database (via `zombiezen.com/go/sqlite`) to store
+cache data. GC roots are still symlinks, but all other metadata lives in
+the database.

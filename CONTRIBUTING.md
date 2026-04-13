@@ -17,11 +17,15 @@ and discussed.
 
 Whether you're fixing a bug or adding a feature, we recommend you use the
 development environment defined in `shell.nix`. You can do this using
-`nix-shell` or by using lorri itself (yes, we use lorri to develop lorri!).
+`nix develop` or by using lorri itself (yes, we use lorri to develop lorri!).
 
-Amongst other things, the environment gives you the `ci` command which runs the
-continuous integration build and test suite locally. If this passes, you can be
-pretty confident that your pull request will pass CI too.
+You can run the test suite locally with:
+
+```console
+$ nix develop .#ci --command go test ./...
+```
+
+If this passes, you can be pretty confident that your pull request will pass CI too.
 
 ## Making a contribution
 
@@ -33,9 +37,7 @@ A complete pull request will:
 
  - Have new or updated documentation
  - Have tests
- - Pass the `ci` script available in the project's `nix-shell` environment
-   This script runs `cargo test`, `cargo fmt --check` and `cargo clippy`,
-   amongst other checks.
+ - Pass `go test ./...` (run from within `nix develop`)
  - Have nice commit messages
 
 We use a commit message scheme which starts with the type of change
@@ -49,8 +51,8 @@ Examples:
 
 ```
 fix(builder): run nix builds with the `--foo` flag
-feat(error.rs): use proper status codes for different failures
-chore(CI): run cachix during CI
+feat(ops): use proper status codes for different failures
+chore(ci): run cachix during CI
 ```
 
 Where `type` can be one of:
