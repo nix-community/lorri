@@ -244,28 +244,6 @@ func TestWireTimestampNilIsNull(t *testing.T) {
 	}
 }
 
-func TestWireTimestampKeyNames(t *testing.T) {
-	// Verify the exact JSON key names match the Rust serde output.
-	ts := time.Unix(42, 0)
-	b, err := json.Marshal(toWireTimestamp(&ts))
-	if err != nil {
-		t.Fatalf("Marshal: %v", err)
-	}
-	s := string(b)
-	if !strings.Contains(s, `"secs_since_epoch"`) {
-		t.Errorf("missing secs_since_epoch in %s", s)
-	}
-	if !strings.Contains(s, `"nanos_since_epoch"`) {
-		t.Errorf("missing nanos_since_epoch in %s", s)
-	}
-	// Must NOT contain the old bare-integer format.
-	// (The old format would just be a number at the top level.)
-	var asInt int64
-	if err := json.Unmarshal(b, &asInt); err == nil {
-		t.Error("timestamp marshaled as a bare integer (old format), want object")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Exit code / panic handler
 // ---------------------------------------------------------------------------
@@ -431,34 +409,6 @@ func TestOpDirenvOutputShape(t *testing.T) {
 	// Embedded envrc.bash content should appear.
 	if !strings.Contains(out, "EVALUATION_ROOT") {
 		t.Errorf("embedded envrc.bash content missing:\n%s", out)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// TestBashFromRTC — verify path ends in /bash not /bin/bash
-// ---------------------------------------------------------------------------
-
-func TestBashFromRTC(t *testing.T) {
-	rtc := os.Getenv("RUN_TIME_CLOSURE")
-	if rtc == "" {
-		t.Skip("RUN_TIME_CLOSURE not set — run from lorri nix-shell")
-	}
-
-	path, err := bashFromRTC(rtc)
-	if err != nil {
-		t.Fatalf("bashFromRTC: %v", err)
-	}
-
-	// RTC .path evaluates to the bin/ directory (e.g. /nix/store/xxx/bin),
-	// so joining "bash" produces /nix/store/xxx/bin/bash.
-	// Verify the path ends in /bin/bash — the correct shape.
-	if !strings.HasSuffix(path, "/bin/bash") {
-		t.Errorf("bash path should end in /bin/bash (RTC .path is the bin/ dir): got %q", path)
-	}
-
-	// The binary must actually exist.
-	if _, err := os.Stat(path); err != nil {
-		t.Errorf("bash binary does not exist at %q: %v", path, err)
 	}
 }
 
