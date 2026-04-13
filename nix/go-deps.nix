@@ -22,10 +22,8 @@ rec {
     };
   };
 
-  # Platform-specific subpackage (unix on Linux, darwin on macOS)
-  golang-x-sys-unix = if pkgs.stdenv.isDarwin
-    then golang-x-sys.darwin
-    else golang-x-sys.unix;
+  # golang.org/x/sys/unix covers both Linux and Darwin
+  golang-x-sys-unix = golang-x-sys.unix;
 
   # golang.org/x/exp - Experimental and deprecated packages
   golang-x-exp = buildGo.external {
