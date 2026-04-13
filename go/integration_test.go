@@ -131,19 +131,10 @@ func TestIntegrationDirenvMatchesRust(t *testing.T) {
 		t.Fatalf("InitPaths: %v", err)
 	}
 
-	// Capture Go lorri direnv output by redirecting stdout.
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	projectFile := NewShellNixProjectFile(mustAbsPath(nixFile))
-	opErr := opDirenv(paths, projectFile)
-
-	w.Close()
-	os.Stdout = old
-
+	// Capture Go lorri direnv output via an explicit io.Writer (no os.Stdout mutation).
 	var goOutBuf bytes.Buffer
-	goOutBuf.ReadFrom(r)
+	projectFile := NewShellNixProjectFile(mustAbsPath(nixFile))
+	opErr := opDirenv(&goOutBuf, paths, projectFile)
 	goOut := goOutBuf.Bytes()
 
 	if opErr != nil {

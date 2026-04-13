@@ -100,44 +100,33 @@ derivation {
 	}
 
 	// Collect events until we see both Started and Completed.
-	gotStarted, gotCompleted := false, false
-	timeout := time.NewTimer(120 * time.Second)
-	defer timeout.Stop()
-
-	type rawEvent map[string]any
-	type readResult struct {
-		ev  rawEvent
-		err error
+	// Set a single absolute deadline on the connection so ReadMsg returns an
+	// error naturally on timeout — no per-iteration goroutine spawning needed.
+	const eventTimeout = 120 * time.Second
+	if err := streamFraming.conn.SetReadDeadline(time.Now().Add(eventTimeout)); err != nil {
+		t.Fatalf("SetReadDeadline: %v", err)
 	}
 
+	gotStarted, gotCompleted := false, false
 	for !gotStarted || !gotCompleted {
-		ch := make(chan readResult, 1)
-		go func() {
-			var e rawEvent
-			err := streamFraming.ReadMsg(0, &e)
-			ch <- readResult{e, err}
-		}()
-
-		select {
-		case r := <-ch:
-			if r.err != nil {
-				t.Fatalf("read event: %v", r.err)
-			}
-			if _, ok := r.ev["Started"]; ok {
-				t.Logf("got Started")
-				gotStarted = true
-			}
-			if _, ok := r.ev["Completed"]; ok {
-				t.Logf("got Completed")
-				gotCompleted = true
-			}
-			if _, ok := r.ev["Failure"]; ok {
-				t.Fatalf("got Failure: %v", r.ev)
-			}
-		case <-timeout.C:
-			t.Fatalf("timed out waiting for events (started=%v completed=%v)", gotStarted, gotCompleted)
+		var ev map[string]any
+		if err := streamFraming.ReadMsg(0, &ev); err != nil {
+			t.Fatalf("read event (started=%v completed=%v): %v", gotStarted, gotCompleted, err)
+		}
+		if _, ok := ev["Started"]; ok {
+			t.Logf("got Started")
+			gotStarted = true
+		}
+		if _, ok := ev["Completed"]; ok {
+			t.Logf("got Completed")
+			gotCompleted = true
+		}
+		if _, ok := ev["Failure"]; ok {
+			t.Fatalf("got Failure: %v", ev)
 		}
 	}
+	// Clear the deadline for the snapshot read below.
+	_ = streamFraming.conn.SetReadDeadline(time.Time{})
 
 	// Verify snapshot contains the completed event.
 	snapFraming, err := connectClient(socketPath, CommStreamSnapshot, defaultReadTimeout)

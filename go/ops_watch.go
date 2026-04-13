@@ -88,9 +88,7 @@ func printWatchEvent(ev Event) {
 	switch {
 	case ev.Started != nil:
 		reason := "ping"
-		if ev.Started.Reason.IsPingReceived() {
-			reason = "ping"
-		} else if files := ev.Started.Reason.FilesChanged(); len(files) > 0 {
+		if files := ev.Started.Reason.FilesChanged(); len(files) > 0 {
 			reason = fmt.Sprintf("files changed: %v", files)
 		}
 		fmt.Fprintf(os.Stderr, "lorri: evaluating %s (%s)\n", ev.Started.NixFile, reason)

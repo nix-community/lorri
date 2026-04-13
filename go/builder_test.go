@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -18,7 +19,7 @@ func TestInstantiateAndBuild(t *testing.T) {
 	}
 
 	result, err := InstantiateAndBuild(
-		"/home/philip/kot/work/tweag/lorri/shell.nix",
+		filepath.Join(lorriRoot(), "shell.nix"),
 		cas,
 		EmptyNixOptions(),
 		rtc,

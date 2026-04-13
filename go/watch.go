@@ -117,34 +117,27 @@ func (f *watchFilter) addPaths(paths []WatchPathBuf) error {
 				continue
 			}
 
+			// Hold the lock for the entire check-then-register operation to
+			// avoid a TOCTOU race where two goroutines both observe a path as
+			// unwatched and both call watcher.Add.
+			// Mirrors Filter::extend in src/watch.rs.
 			f.mu.Lock()
-			_, alreadyWatched := f.currentWatched[canon]
-			f.mu.Unlock()
-
-			if !alreadyWatched {
+			if _, ok := f.currentWatched[canon]; !ok {
 				if err := f.watcher.Add(canon); err == nil {
-					f.mu.Lock()
 					f.currentWatched[canon] = struct{}{}
-					f.mu.Unlock()
 				}
 			}
-
 			// Also watch the parent directory so that rename-into-place
 			// (Vim-style atomic writes) fire an event on the parent dir.
 			// Mirrors the parent-watching logic in Filter::extend.
-			parent := filepath.Dir(canon)
-			if parent != canon {
-				f.mu.Lock()
-				_, parentWatched := f.currentWatched[parent]
-				f.mu.Unlock()
-				if !parentWatched {
+			if parent := filepath.Dir(canon); parent != canon {
+				if _, ok := f.currentWatched[parent]; !ok {
 					if err := f.watcher.Add(parent); err == nil {
-						f.mu.Lock()
 						f.currentWatched[parent] = struct{}{}
-						f.mu.Unlock()
 					}
 				}
 			}
+			f.mu.Unlock()
 		}
 	}
 	return nil

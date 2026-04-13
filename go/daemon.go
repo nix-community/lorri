@@ -44,14 +44,9 @@ func NewDaemon(opts NixOptions) *Daemon {
 	return &Daemon{extraNixOpts: opts}
 }
 
-// Serve binds the Unix socket and runs the daemon until ctx is cancelled
+// ServeContext binds the Unix socket and runs the daemon until ctx is cancelled
 // or a signal is received.
 // Mirrors daemon.rs Daemon::serve().
-func (d *Daemon) Serve(paths *Paths, rtc string) error {
-	return d.ServeContext(context.Background(), paths, rtc)
-}
-
-// ServeContext is like Serve but uses the provided context for cancellation.
 func (d *Daemon) ServeContext(ctx context.Context, paths *Paths, rtc string) error {
 	// Open SQLite database.
 	db, err := OpenLorriDB(paths.SQLiteDB.String())
@@ -101,7 +96,7 @@ func (d *Daemon) ServeContext(ctx context.Context, paths *Paths, rtc string) err
 				acceptErrCh <- err
 				return
 			}
-			go d.handleConn(conn, activityCh, hub, hubCh)
+			go d.handleConn(ctx, conn, activityCh, hub, hubCh)
 		}
 	}()
 
@@ -121,7 +116,10 @@ func (d *Daemon) ServeContext(ctx context.Context, paths *Paths, rtc string) err
 
 // handleConn serves one client connection.
 // Mirrors server.rs Server::handle_client.
+// ctx is the daemon's shutdown context; when it is cancelled the StreamEvents
+// handler exits cleanly instead of blocking forever on the subscriber channel.
 func (d *Daemon) handleConn(
+	ctx context.Context,
 	conn net.Conn,
 	activityCh chan<- IndicateActivity,
 	hub *EventHub,
@@ -161,19 +159,31 @@ func (d *Daemon) handleConn(
 			return
 		}
 		log.Printf("stream-events: client connected")
-		// Subscribe and stream events until the client disconnects.
+		// Subscribe and stream events until the client disconnects or the
+		// daemon shuts down. We select on ctx.Done() so this goroutine
+		// exits promptly on graceful shutdown rather than blocking forever.
 		subCh, subID := hub.Subscribe()
 		defer hub.Unsubscribe(subID)
-		for ev := range subCh {
-			out, err := buildEventToJSON(ev)
-			if err != nil {
-				break
-			}
-			if err := framing.WriteMsg(defaultReadTimeout, json.RawMessage(out)); err != nil {
-				break
+		for {
+			select {
+			case <-ctx.Done():
+				log.Printf("stream-events: daemon shutting down, closing client")
+				return
+			case ev, ok := <-subCh:
+				if !ok {
+					log.Printf("stream-events: subscriber channel closed")
+					return
+				}
+				out, err := buildEventToJSON(ev)
+				if err != nil {
+					return
+				}
+				if err := framing.WriteMsg(defaultReadTimeout, json.RawMessage(out)); err != nil {
+					log.Printf("stream-events: client disconnected")
+					return
+				}
 			}
 		}
-		log.Printf("stream-events: client disconnected")
 
 	case CommStreamSnapshot:
 		// No request body for snapshot — server pushes immediately.
@@ -189,12 +199,14 @@ func (d *Daemon) handleConn(
 		if err != nil {
 			return
 		}
-		framing.WriteMsg(defaultReadTimeout, wireSnap) //nolint:errcheck
+		// Best-effort: client may have disconnected.
+		_ = framing.WriteMsg(defaultReadTimeout, wireSnap)
 
 	case CommDaemonInfo:
 		var req struct{}
-		framing.ReadMsg(defaultReadTimeout, &req)        //nolint:errcheck
-		framing.WriteMsg(defaultReadTimeout, struct{}{}) //nolint:errcheck
+		// Best-effort read/write: client may have already disconnected.
+		_ = framing.ReadMsg(defaultReadTimeout, &req)
+		_ = framing.WriteMsg(defaultReadTimeout, struct{}{})
 	}
 }
 

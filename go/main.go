@@ -3,12 +3,16 @@ package main
 // lorri — Go rewrite entry point.
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // stringSliceFlag implements flag.Value for a repeatable flag that accumulates
@@ -19,10 +23,23 @@ func (s *stringSliceFlag) String() string     { return strings.Join(*s, ", ") }
 func (s *stringSliceFlag) Set(v string) error { *s = append(*s, v); return nil }
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "lorri: %v\n", err)
-		os.Exit(1)
-	}
+	// Ignore SIGPIPE so that writes to a closed socket/pipe return an error
+	// rather than killing the daemon process (e.g. when a direnv client
+	// disconnects mid-stream). Mirrors src/main.rs setup_sigpipe().
+	signal.Ignore(syscall.SIGPIPE)
+
+	os.Exit(withPanicHandler(func() int {
+		if err := run(os.Args[1:]); err != nil {
+			var exitErr *ExitError
+			if errors.As(err, &exitErr) {
+				fmt.Fprintf(os.Stderr, "lorri: %v\n", exitErr)
+				return exitErr.Code
+			}
+			fmt.Fprintf(os.Stderr, "lorri: %v\n", err)
+			return 1
+		}
+		return 0
+	}))
 }
 
 func run(args []string) error {
@@ -92,7 +109,7 @@ func runDaemon(args []string) error {
 	if err != nil {
 		return err
 	}
-	return NewDaemon(opts).Serve(paths, rtc)
+	return NewDaemon(opts).ServeContext(context.Background(), paths, rtc)
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +132,7 @@ func runDirenv(args []string) error {
 	if err != nil {
 		return err
 	}
-	return opDirenv(paths, projectFile)
+	return opDirenv(os.Stdout, paths, projectFile)
 }
 
 // ---------------------------------------------------------------------------
@@ -389,12 +406,14 @@ func runStartUserShell(args []string) error {
 	if err != nil {
 		return err
 	}
-	// nixFile not used directly by opStartUserShell but we keep the parse for consistency.
-	_, err = resolveProjectFile(*shellFile, *contextDir, *flake)
+	// Resolve and validate the project file so we surface bad --shell-file /
+	// --flake flags early, before exec'ing into the shell.
+	projectFile, err := resolveProjectFile(*shellFile, *contextDir, *flake)
 	if err != nil {
 		return err
 	}
-	return opStartUserShell(*shellPath, "", cas)
+	nixFile := nixFilePathForProject(projectFile)
+	return opStartUserShell(*shellPath, nixFile, cas)
 }
 
 // ---------------------------------------------------------------------------

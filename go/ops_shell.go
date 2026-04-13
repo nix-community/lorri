@@ -11,7 +11,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 )
 
 // opShell builds the project environment and spawns a shell inside it.
@@ -32,16 +34,43 @@ func opShell(paths *Paths, projectFile ProjectFile, rtc string, cached bool) err
 		}
 		outputPath = BuildOutputPath{ShellGCRoot: gcRootPath.String()}
 	} else {
-		// Build the environment.
+		// Build the environment with a progress spinner.
+		// Mirrors build_root() in src/ops.rs: prints "lorri: building environment"
+		// then a dot every 500ms, and a --cached hint after 3s if a prior
+		// cached root exists.
 		fmt.Fprint(os.Stderr, "lorri: building environment")
+		stopSpinner := make(chan struct{})
+		var spinnerDone sync.WaitGroup
+		spinnerDone.Add(1)
+		go func() {
+			defer spinnerDone.Done()
+			var hintShown bool
+			start := time.Now()
+			for {
+				select {
+				case <-stopSpinner:
+					return
+				case <-time.After(500 * time.Millisecond):
+					fmt.Fprint(os.Stderr, ".")
+					if gcRootExists && !hintShown && time.Since(start) >= 3*time.Second {
+						fmt.Fprintln(os.Stderr,
+							"\nHint: you can use `lorri shell --cached` to use the most recent "+
+								"environment that was built successfully.")
+						hintShown = true
+					}
+				}
+			}
+		}()
 		result, err := buildForShell(paths, projectFile, rtc)
+		close(stopSpinner)
+		spinnerDone.Wait() // ensure the goroutine has finished any in-progress print
 		fmt.Fprintln(os.Stderr, ". done")
 		if err != nil {
 			if gcRootExists {
-				return fmt.Errorf("build failed. Hint: try `lorri shell --cached` to use "+
-					"the most recently built environment.\nBuild error: %w", err)
+				return fmt.Errorf("Build failed. Hint: try running `lorri shell --cached` to use the most "+
+					"recent environment that was built successfully.\nBuild error: %w", err)
 			}
-			return fmt.Errorf("build failed. No cached environment available.\nBuild error: %w", err)
+			return fmt.Errorf("Build failed. No cached environment available.\nBuild error: %w", err)
 		}
 		outputPath = result
 	}
@@ -131,7 +160,10 @@ func bashFromRTC(rtc string) (string, error) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(string(out))), &storePath); err != nil {
 		return "", fmt.Errorf("parse bash store path: %w (output: %q)", err, string(out))
 	}
-	return filepath.Join(storePath, "bin", "bash"), nil
+	// (import <rtc>).path evaluates to the bin/ directory (e.g.
+	// /nix/store/xxx-lorri-runtime-tools/bin), so joining "bash" directly
+	// gives us the binary.  Mirrors Rust: bash_path.join("bash").
+	return filepath.Join(storePath, "bash"), nil
 }
 
 // opStartUserShell execs into the user's shell with lorri's prompt customisation.
