@@ -276,7 +276,6 @@ func runDirenvExport(t *testing.T, fixtureName string, ambientEnv map[string]str
 	paths := &Paths{
 		GCRootDir:        gcRootDir,
 		DaemonSocketFile: mustAbsPath(filepath.Join(dir, "daemon.socket")),
-		CASDir:           mustAbsPath(filepath.Join(dir, "cas")),
 		SQLiteDB:         mustAbsPath(filepath.Join(dir, "lorri.sqlite")),
 	}
 
@@ -299,6 +298,29 @@ func runDirenvExport(t *testing.T, fixtureName string, ambientEnv map[string]str
 
 	buildOut := BuildOutputPath{ShellGCRoot: gcRootPath.String()}
 	return direnvExportJSON(t, dir, projectDir, ambientEnv), buildOut
+}
+
+// captureStdout temporarily redirects os.Stdout to a pipe, runs f, and
+// returns what was written.
+func captureStdout(t *testing.T, f func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+
+	f()
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatalf("read from pipe: %v", err)
+	}
+	return buf.String()
 }
 
 // ---------------------------------------------------------------------------
@@ -585,7 +607,6 @@ derivation {
 	paths := &Paths{
 		GCRootDir:        mustAbsPath(filepath.Join(dir, "gc_roots")),
 		DaemonSocketFile: mustAbsPath(filepath.Join(dir, "daemon.socket")),
-		CASDir:           mustAbsPath(filepath.Join(dir, "cas")),
 		SQLiteDB:         mustAbsPath(filepath.Join(dir, "lorri.sqlite")),
 		LoggedEvalFile:   writeLoggedEvalForTest(t, dir),
 	}
@@ -643,8 +664,7 @@ derivation {
 	if err != nil {
 		t.Fatalf("listGCRoots: %v", err)
 	}
-	opts := GCRmOptions{}
-	toRemove := gcFilterRoots(infos, opts)
+	toRemove := gcFilterRoots(infos, GCRmOptions{})
 	if len(toRemove) != 0 {
 		t.Errorf("expected 0 roots to remove when project exists, got %d", len(toRemove))
 	}
@@ -734,27 +754,4 @@ derivation {
 	if !strings.Contains(gcInfoJSON2, nixFile) {
 		t.Errorf("gc info after rebuild should contain nix file %q\ngot: %s", nixFile, gcInfoJSON2)
 	}
-}
-
-// captureStdout temporarily redirects os.Stdout to a pipe, runs f, and
-// returns what was written.
-func captureStdout(t *testing.T, f func()) string {
-	t.Helper()
-	old := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("os.Pipe: %v", err)
-	}
-	os.Stdout = w
-
-	f()
-
-	w.Close()
-	os.Stdout = old
-
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(r); err != nil {
-		t.Fatalf("read from pipe: %v", err)
-	}
-	return buf.String()
 }

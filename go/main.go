@@ -71,8 +71,6 @@ func run(args []string) error {
 		return opInit()
 	case "prompt":
 		return runPrompt(args[1:])
-	case "shell":
-		return runShell(args[1:])
 	case "watch":
 		return runWatch(args[1:])
 	case "internal":
@@ -277,34 +275,6 @@ func runPromptDefault(args []string) error {
 }
 
 // ---------------------------------------------------------------------------
-// shell
-// ---------------------------------------------------------------------------
-
-func runShell(args []string) error {
-	fs := flag.NewFlagSet("lorri shell", flag.ContinueOnError)
-	shellFile := fs.String("shell-file", "", "path to shell.nix (or similar)")
-	contextDir := fs.String("context", ".", "directory to resolve a flake from")
-	flake := fs.String("flake", "", "flake installable descriptor")
-	cached := fs.Bool("cached", false, "use the most recently built environment")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	rtc := requireRTC()
-	if rtc == "" {
-		return fmt.Errorf("RUN_TIME_CLOSURE not set")
-	}
-	paths, err := InitPaths()
-	if err != nil {
-		return err
-	}
-	projectFile, err := resolveProjectFile(*shellFile, *contextDir, *flake)
-	if err != nil {
-		return err
-	}
-	return opShell(paths, projectFile, rtc, *cached)
-}
-
-// ---------------------------------------------------------------------------
 // watch
 // ---------------------------------------------------------------------------
 
@@ -341,7 +311,6 @@ func runInternal(args []string) error {
 		fmt.Fprintln(os.Stderr, "usage: lorri internal <subcommand>")
 		fmt.Fprintln(os.Stderr, "  ping_              tell the daemon to watch a project")
 		fmt.Fprintln(os.Stderr, "  stream-events_     stream build events from the daemon")
-		fmt.Fprintln(os.Stderr, "  start-user-shell   exec into the user shell (used by lorri shell)")
 		return fmt.Errorf("no internal subcommand given")
 	}
 	switch args[0] {
@@ -349,8 +318,6 @@ func runInternal(args []string) error {
 		return runPing(args[1:])
 	case "stream-events_":
 		return runStreamEvents(args[1:])
-	case "start-user-shell":
-		return runStartUserShell(args[1:])
 	default:
 		return fmt.Errorf("unknown internal subcommand %q", args[0])
 	}
@@ -397,36 +364,6 @@ func runStreamEvents(args []string) error {
 		return err
 	}
 	return opStreamEvents(paths, ek)
-}
-
-func runStartUserShell(args []string) error {
-	fs := flag.NewFlagSet("lorri internal start-user-shell", flag.ContinueOnError)
-	shellPath := fs.String("shell-path", "", "path to the user's shell binary (required)")
-	shellFile := fs.String("shell-file", "", "path to shell.nix (or similar)")
-	contextDir := fs.String("context", ".", "directory to resolve a flake from")
-	flake := fs.String("flake", "", "flake installable descriptor")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if *shellPath == "" {
-		return fmt.Errorf("--shell-path is required")
-	}
-	paths, err := InitPaths()
-	if err != nil {
-		return err
-	}
-	cas, err := NewCAS(paths.CASDir)
-	if err != nil {
-		return err
-	}
-	// Resolve and validate the project file so we surface bad --shell-file /
-	// --flake flags early, before exec'ing into the shell.
-	projectFile, err := resolveProjectFile(*shellFile, *contextDir, *flake)
-	if err != nil {
-		return err
-	}
-	nixFile := nixFilePathForProject(projectFile)
-	return opStartUserShell(*shellPath, nixFile, cas)
 }
 
 // ---------------------------------------------------------------------------
@@ -491,7 +428,6 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  info      show information about a lorri project")
 	fmt.Fprintln(os.Stderr, "  init      write bootstrap files to current directory")
 	fmt.Fprintln(os.Stderr, "  prompt    generate lorri status markers for shell prompts")
-	fmt.Fprintln(os.Stderr, "  shell     open a project shell")
 	fmt.Fprintln(os.Stderr, "  watch     build project whenever an input file changes")
 	fmt.Fprintln(os.Stderr, "  internal  plumbing commands")
 }

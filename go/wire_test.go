@@ -376,7 +376,6 @@ func TestOpDirenvOutputShape(t *testing.T) {
 	paths := &Paths{
 		GCRootDir:        mustAbsPath(dir + "/gc_roots"),
 		DaemonSocketFile: mustAbsPath(dir + "/daemon.socket"),
-		CASDir:           mustAbsPath(dir + "/cas"),
 		SQLiteDB:         mustAbsPath(dir + "/lorri.sqlite"),
 	}
 	nixFile := mustAbsPath(dir + "/shell.nix")

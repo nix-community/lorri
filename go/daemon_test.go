@@ -42,16 +42,11 @@ derivation {
 	paths := &Paths{
 		GCRootDir:        mustAbsPath(filepath.Join(dir, "gc_roots")),
 		DaemonSocketFile: mustAbsPath(filepath.Join(dir, "daemon.socket")),
-		CASDir:           mustAbsPath(filepath.Join(dir, "cas")),
 		SQLiteDB:         mustAbsPath(filepath.Join(dir, "lorri.sqlite")),
+		LoggedEvalFile:   writeLoggedEvalForTest(t, dir),
 	}
-	for _, d := range []string{
-		string(paths.GCRootDir),
-		string(paths.CASDir),
-	} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			t.Fatalf("mkdir %s: %v", d, err)
-		}
+	if err := os.MkdirAll(string(paths.GCRootDir), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", paths.GCRootDir, err)
 	}
 
 	// Start the daemon with a cancellable context so the test can shut it down.

@@ -20,10 +20,6 @@ type Paths struct {
 	// ~/.cache/lorri/daemon.socket           (macOS fallback)
 	DaemonSocketFile AbsPath
 
-	// Directory for the content-addressable store (used by lorri shell).
-	// ~/.cache/lorri/cas/
-	CASDir AbsPath
-
 	// Path to the SQLite database.
 	// ~/.cache/lorri/lorri.sqlite
 	SQLiteDB AbsPath
@@ -43,17 +39,11 @@ func InitPaths() (*Paths, error) {
 	}
 
 	gcRootDir := AbsPath(filepath.Join(cacheDir, "gc_roots"))
-	casDir := AbsPath(filepath.Join(cacheDir, "cas"))
 	sqliteDB := AbsPath(filepath.Join(cacheDir, "lorri.sqlite"))
 
 	// Create gc_roots dir
 	if err := os.MkdirAll(string(gcRootDir), 0o755); err != nil {
 		return nil, fmt.Errorf("could not create GC roots directory %s: %w", gcRootDir, err)
-	}
-
-	// Create CAS dir
-	if err := os.MkdirAll(string(casDir), 0o755); err != nil {
-		return nil, fmt.Errorf("could not create CAS directory %s: %w", casDir, err)
 	}
 
 	// Write logged-evaluation.nix only if the content has changed.
@@ -75,7 +65,6 @@ func InitPaths() (*Paths, error) {
 	return &Paths{
 		GCRootDir:        gcRootDir,
 		DaemonSocketFile: socketFile,
-		CASDir:           casDir,
 		SQLiteDB:         sqliteDB,
 		LoggedEvalFile:   loggedEvalFile,
 	}, nil

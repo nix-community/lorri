@@ -23,6 +23,16 @@ func lorriRoot() string {
 	return abs
 }
 
+// rtcOrSkip returns RUN_TIME_CLOSURE or skips the test.
+func rtcOrSkip(t *testing.T) string {
+	t.Helper()
+	rtc := os.Getenv("RUN_TIME_CLOSURE")
+	if rtc == "" {
+		t.Skip("RUN_TIME_CLOSURE not set — run from lorri nix-shell")
+	}
+	return rtc
+}
+
 // writeLoggedEvalForTest writes loggedEvaluationNix to dir/logged-evaluation.nix
 // and returns the path. Fatals on error.
 func writeLoggedEvalForTest(t *testing.T, dir string) AbsPath {
