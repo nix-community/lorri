@@ -13,17 +13,13 @@ let
 
   bins = getBins pkgs.shellcheck [ "shellcheck" ]
       // getBins pkgs.gitMinimal [ "git" ]
-      // getBins pkgs.mandoc [ "mandoc" ]
-      // getBins pkgs.gnused [ "sed" ]
       // getBins pkgs.bats [ "bats" ]
       // getBins pkgs.coreutils [ "test" "echo" "cat" "mkdir" "mv" "touch" ]
-      // getBins pkgs.diffutils [ "diff" ]
       // getBins pkgs.go [ "go" ]
       ;
 
   inherit (import ./sandbox.nix { inherit pkgs writeExecline; })
     runInEmptyEnv
-    runWithoutNetwork
     ;
 
   # shellcheck a file
@@ -53,15 +49,17 @@ let
 
     ci-script = offlineCheck.test {
       name = "lint-ci-script";
-      description = "check ci script was generated";
+      description = "check ci.json is up to date";
       test = { ok, err }:
-        let yaml = (import ../../.github/workflows/ci.nix { inherit pkgs; }).yaml;
-        in writeExecline "ci-script" {} [
-          "ifelse" [bins.diff "--" ../../.github/workflows/ci.yml yaml]
-          [ ok ]
-          "if" [ bins.echo ''NOTE: Please run `nix-build ./.github/workflows/ci.nix -A writeConfig && ./result"` to re-generate the CI yaml file'' ]
-          err
-      ];
+        writeExecline "ci-script" {}
+          (pathPrependBins [ pkgs.go ]
+          ++ [
+            "cd" LORRI_ROOT
+            "ifelse" [ bins.go "run" "./cmd/ci" "--check" ]
+            [ ok ]
+            "if" [ bins.echo "NOTE: Please run 'go run ./cmd/ci' to re-generate ci.json" ]
+            err
+          ]);
     };
 
   };
