@@ -40,6 +40,11 @@ func main() {
 
 	os.Exit(withPanicHandler(func() int {
 		if err := run(os.Args[1:]); err != nil {
+			// BuildError → convert to the appropriate ExitError.
+			var be *BuildError
+			if errors.As(err, &be) {
+				err = buildErrorToExitError(be)
+			}
 			var exitErr *ExitError
 			if errors.As(err, &exitErr) {
 				fmt.Fprintf(os.Stderr, "lorri: %v\n", exitErr)
@@ -55,7 +60,7 @@ func main() {
 func run(args []string) error {
 	if len(args) == 0 {
 		printUsage()
-		return fmt.Errorf("no subcommand given")
+		return exitUserError("no subcommand given", nil)
 	}
 
 	switch args[0] {
@@ -68,7 +73,10 @@ func run(args []string) error {
 	case "info":
 		return runInfo(args[1:])
 	case "init":
-		return opInit()
+		if err := opInit(); err != nil {
+			return exitTemporary("lorri init failed", err)
+		}
+		return nil
 	case "prompt":
 		return runPrompt(args[1:])
 	case "internal":
@@ -78,8 +86,58 @@ func run(args []string) error {
 		return nil
 	default:
 		printUsage()
-		return fmt.Errorf("unknown subcommand %q", args[0])
+		return exitUserError(fmt.Sprintf("unknown subcommand %q", args[0]), nil)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+// buildErrorToExitError maps a BuildError to the appropriate ExitError.
+// Mirrors the exit code semantics from src/ops/error.rs:
+//
+//	Spawn (executable not found) → ExitCodeMissing (127)
+//	Io (disk/pipe)               → ExitCodeTemporary (111)
+//	Exit / Output (build failed) → ExitCodeExpected (1)
+func buildErrorToExitError(be *BuildError) *ExitError {
+	switch be.Kind {
+	case BuildErrorKindSpawn:
+		return exitMissing(be.Error(), nil)
+	case BuildErrorKindIo:
+		return exitTemporary(be.Error(), nil)
+	default: // Exit, Output
+		return exitExpected(be.Error(), nil)
+	}
+}
+
+// mustInitPaths calls InitPaths and wraps any error as a user error (exit 100).
+// Failure to set up paths is a permanent configuration problem.
+func mustInitPaths() (*Paths, error) {
+	paths, err := InitPaths()
+	if err != nil {
+		return nil, exitUserError("could not initialise lorri state directories", err)
+	}
+	return paths, nil
+}
+
+// mustRTC returns the runtime closure path or an environment error (exit 126).
+func mustRTC() (string, error) {
+	rtc := requireRTC()
+	if rtc == "" {
+		return "", exitEnvironment(
+			"RUN_TIME_CLOSURE not set; please run lorri from its nix-shell", nil)
+	}
+	return rtc, nil
+}
+
+// mustResolveProjectFile wraps resolveProjectFile as a user error (exit 100).
+func mustResolveProjectFile(shellFile, contextDir, flake string) (ProjectFile, error) {
+	pf, err := resolveProjectFile(shellFile, contextDir, flake)
+	if err != nil {
+		return ProjectFile{}, exitUserError("could not resolve project file", err)
+	}
+	return pf, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -101,17 +159,17 @@ func runDaemon(args []string) error {
 			Substituters []string `json:"substituters"`
 		}
 		if err := json.Unmarshal([]byte(*extraNixOptsJSON), &parsed); err != nil {
-			return fmt.Errorf("--extra-nix-options: invalid JSON: %w", err)
+			return exitUserError("--extra-nix-options: invalid JSON", err)
 		}
 		opts.Builders = parsed.Builders
 		opts.Substituters = parsed.Substituters
 	}
 
-	rtc := requireRTC()
-	if rtc == "" {
-		return fmt.Errorf("RUN_TIME_CLOSURE environment variable not set; please run lorri from its nix-shell")
+	rtc, err := mustRTC()
+	if err != nil {
+		return err
 	}
-	paths, err := InitPaths()
+	paths, err := mustInitPaths()
 	if err != nil {
 		return err
 	}
@@ -128,13 +186,13 @@ func runDirenv(args []string) error {
 	contextDir := fs.String("context", ".", "directory to resolve a flake from")
 	flake := fs.String("flake", "", "flake installable descriptor (e.g. .#)")
 	if err := fs.Parse(args); err != nil {
-		return err
+		return exitUserError("bad flags", err)
 	}
-	paths, err := InitPaths()
+	paths, err := mustInitPaths()
 	if err != nil {
 		return err
 	}
-	projectFile, err := resolveProjectFile(*shellFile, *contextDir, *flake)
+	projectFile, err := mustResolveProjectFile(*shellFile, *contextDir, *flake)
 	if err != nil {
 		return err
 	}
@@ -150,12 +208,12 @@ func runGC(args []string) error {
 	fs := flag.NewFlagSet("lorri gc", flag.ContinueOnError)
 	jsonOut := fs.Bool("json", false, "machine-readable JSON output")
 	if err := fs.Parse(args); err != nil {
-		return err
+		return exitUserError("bad flags", err)
 	}
 	remaining := fs.Args()
 	if len(remaining) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: lorri gc [--json] <info|rm> [options]")
-		return fmt.Errorf("no gc subcommand given")
+		return exitUserError("no gc subcommand given", nil)
 	}
 	switch remaining[0] {
 	case "info":
@@ -163,16 +221,16 @@ func runGC(args []string) error {
 	case "rm":
 		return runGCRm(remaining[1:], *jsonOut)
 	default:
-		return fmt.Errorf("unknown gc subcommand %q", remaining[0])
+		return exitUserError(fmt.Sprintf("unknown gc subcommand %q", remaining[0]), nil)
 	}
 }
 
 func runGCInfo(args []string, jsonOut bool) error {
 	fs := flag.NewFlagSet("lorri gc info", flag.ContinueOnError)
 	if err := fs.Parse(args); err != nil {
-		return err
+		return exitUserError("bad flags", err)
 	}
-	paths, err := InitPaths()
+	paths, err := mustInitPaths()
 	if err != nil {
 		return err
 	}
@@ -191,7 +249,7 @@ func runGCRm(args []string, jsonOut bool) error {
 		return nil
 	})
 	if err := fs.Parse(args); err != nil {
-		return err
+		return exitUserError("bad flags", err)
 	}
 
 	opts := GCRmOptions{
@@ -203,11 +261,11 @@ func runGCRm(args []string, jsonOut bool) error {
 	if *olderThan != "" {
 		d, err := parseDuration(*olderThan)
 		if err != nil {
-			return fmt.Errorf("--older-than: %w", err)
+			return exitUserError("--older-than: invalid duration", err)
 		}
 		opts.OlderThan = &d
 	}
-	paths, err := InitPaths()
+	paths, err := mustInitPaths()
 	if err != nil {
 		return err
 	}
@@ -224,17 +282,17 @@ func runInfo(args []string) error {
 	contextDir := fs.String("context", ".", "directory to resolve a flake from")
 	flake := fs.String("flake", "", "flake installable descriptor")
 	if err := fs.Parse(args); err != nil {
-		return err
+		return exitUserError("bad flags", err)
 	}
 	// info uses SourceOptions (no default — must be explicit).
 	if *shellFile == "" && *flake == "" {
-		return fmt.Errorf("lorri info requires --shell-file or --flake")
+		return exitUserError("lorri info requires --shell-file or --flake", nil)
 	}
-	paths, err := InitPaths()
+	paths, err := mustInitPaths()
 	if err != nil {
 		return err
 	}
-	projectFile, err := resolveProjectFile(*shellFile, *contextDir, *flake)
+	projectFile, err := mustResolveProjectFile(*shellFile, *contextDir, *flake)
 	if err != nil {
 		return err
 	}
@@ -248,13 +306,13 @@ func runInfo(args []string) error {
 func runPrompt(args []string) error {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: lorri prompt <default> [options]")
-		return fmt.Errorf("no prompt subcommand given")
+		return exitUserError("no prompt subcommand given", nil)
 	}
 	switch args[0] {
 	case "default":
 		return runPromptDefault(args[1:])
 	default:
-		return fmt.Errorf("unknown prompt subcommand %q", args[0])
+		return exitUserError(fmt.Sprintf("unknown prompt subcommand %q", args[0]), nil)
 	}
 }
 
@@ -263,9 +321,9 @@ func runPromptDefault(args []string) error {
 	leadingSpace := fs.Bool("include-leading-space", false,
 		"include a leading space before the prompt symbol")
 	if err := fs.Parse(args); err != nil {
-		return err
+		return exitUserError("bad flags", err)
 	}
-	paths, err := InitPaths()
+	paths, err := mustInitPaths()
 	if err != nil {
 		return err
 	}
@@ -281,7 +339,7 @@ func runInternal(args []string) error {
 		fmt.Fprintln(os.Stderr, "usage: lorri internal <subcommand>")
 		fmt.Fprintln(os.Stderr, "  ping_              tell the daemon to watch a project")
 		fmt.Fprintln(os.Stderr, "  stream-events_     stream build events from the daemon")
-		return fmt.Errorf("no internal subcommand given")
+		return exitUserError("no internal subcommand given", nil)
 	}
 	switch args[0] {
 	case "ping_":
@@ -289,7 +347,7 @@ func runInternal(args []string) error {
 	case "stream-events_":
 		return runStreamEvents(args[1:])
 	default:
-		return fmt.Errorf("unknown internal subcommand %q", args[0])
+		return exitUserError(fmt.Sprintf("unknown internal subcommand %q", args[0]), nil)
 	}
 }
 
@@ -299,13 +357,13 @@ func runPing(args []string) error {
 	contextDir := fs.String("context", ".", "directory to resolve a flake from")
 	flake := fs.String("flake", "", "flake installable descriptor (e.g. .#)")
 	if err := fs.Parse(args); err != nil {
-		return err
+		return exitUserError("bad flags", err)
 	}
-	paths, err := InitPaths()
+	paths, err := mustInitPaths()
 	if err != nil {
 		return err
 	}
-	projectFile, err := resolveProjectFile(*shellFile, *contextDir, *flake)
+	projectFile, err := mustResolveProjectFile(*shellFile, *contextDir, *flake)
 	if err != nil {
 		return err
 	}
@@ -316,7 +374,7 @@ func runStreamEvents(args []string) error {
 	fs := flag.NewFlagSet("lorri internal stream-events_", flag.ContinueOnError)
 	kind := fs.String("kind", "all", "event kind: live, snapshot, or all")
 	if err := fs.Parse(args); err != nil {
-		return err
+		return exitUserError("bad flags", err)
 	}
 	var ek EventKind
 	switch *kind {
@@ -327,9 +385,9 @@ func runStreamEvents(args []string) error {
 	case "all":
 		ek = EventKindAll
 	default:
-		return fmt.Errorf("--kind must be live, snapshot, or all (got %q)", *kind)
+		return exitUserError(fmt.Sprintf("--kind must be live, snapshot, or all (got %q)", *kind), nil)
 	}
-	paths, err := InitPaths()
+	paths, err := mustInitPaths()
 	if err != nil {
 		return err
 	}
