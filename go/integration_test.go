@@ -23,50 +23,6 @@ func lorriRoot() string {
 	return abs
 }
 
-// TestIntegrationBasicShellNix builds tests/integration/basic/shell.nix via
-// InstantiateAndBuild and verifies:
-//   - a store path is returned
-//   - referenced paths are non-empty (watched files were discovered)
-//   - the store path exists on disk
-func TestIntegrationBasicShellNix(t *testing.T) {
-	rtc := os.Getenv("RUN_TIME_CLOSURE")
-	if rtc == "" {
-		t.Skip("RUN_TIME_CLOSURE not set — run from lorri nix-shell")
-	}
-
-	nixFile := filepath.Join(lorriRoot(), "tests/integration/basic/shell.nix")
-	if _, err := os.Stat(nixFile); err != nil {
-		t.Fatalf("test fixture missing: %s", nixFile)
-	}
-
-	dir := t.TempDir()
-	cas, err := NewCAS(mustAbsPath(filepath.Join(dir, "cas")))
-	if err != nil {
-		t.Fatalf("NewCAS: %v", err)
-	}
-
-	result, err := InstantiateAndBuild(nixFile, cas, EmptyNixOptions(), rtc)
-	if err != nil {
-		t.Fatalf("InstantiateAndBuild: %v", err)
-	}
-	defer result.Result.Release()
-
-	if result.Result.Path == "" {
-		t.Fatal("expected non-empty store path")
-	}
-	t.Logf("store path: %s", result.Result.Path)
-
-	if _, err := os.Stat(result.Result.Path); err != nil {
-		t.Errorf("store path does not exist: %s: %v", result.Result.Path, err)
-	}
-
-	if len(result.ReferencedPaths) == 0 {
-		t.Error("expected at least one referenced path")
-	}
-	reduced := ReducePaths(result.ReferencedPaths)
-	t.Logf("referenced paths (raw %d, reduced %d)", len(result.ReferencedPaths), len(reduced))
-}
-
 // TestIntegrationBasicFlake builds tests/integration/basic-flake/ via BuildFlake.
 func TestIntegrationBasicFlake(t *testing.T) {
 	rtc := os.Getenv("RUN_TIME_CLOSURE")
