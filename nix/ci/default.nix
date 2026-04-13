@@ -2,7 +2,6 @@
 let
 
   lib = pkgs.lib;
-  lorriBinDir = "${LORRI_ROOT}/target/debug";
 
   inherit (import ../lib { inherit pkgs; })
     allCommandsSucceed
@@ -15,12 +14,11 @@ let
   bins = getBins pkgs.shellcheck [ "shellcheck" ]
       // getBins pkgs.gitMinimal [ "git" ]
       // getBins pkgs.mandoc [ "mandoc" ]
-      // getBins pkgs.cargo [ "cargo" ]
       // getBins pkgs.gnused [ "sed" ]
       // getBins pkgs.bats [ "bats" ]
       // getBins pkgs.coreutils [ "test" "echo" "cat" "mkdir" "mv" "touch" ]
       // getBins pkgs.diffutils [ "diff" ]
-      // getBins pkgs.ninja [ "ninja" ]
+      // getBins pkgs.go [ "go" ]
       ;
 
   inherit (import ./sandbox.nix { inherit pkgs writeExecline; })
@@ -35,81 +33,6 @@ let
     bins.shellcheck "--shell" "bash" file
   ];
 
-  # Dump the environment inside a `stdenv.mkDerivation` builder
-  # into an envdir (can be read in again with `s6-envdir`).
-  # This captures all magic `setupHooks` and linker paths and the like.
-  stdenvDrvEnvdir = drvAttrs: pkgs.stdenv.mkDerivation ({
-    name = "dumped-env";
-    phases = [ "buildPhase" ];
-    buildPhase = ''
-      mkdir $out
-      unset HOME TMP TEMP TEMPDIR TMPDIR
-      # unset user-requested variables as well
-      unset ${pkgs.lib.concatStringsSep " "
-        # if these are set, the non-sandboxed test build complains about
-        # linker paths outside of the nix store.
-        [ "NIX_ENFORCE_PURITY" "NIX_SSL_CERT_FILE" "SSL_CERT_FILE" ]
-      }
-      ${pkgs.s6-portable-utils}/bin/s6-dumpenv $out
-    '';
-  } // drvAttrs);
-
-  # On linux we need to setup a viable CC environment for compilation.
-  linuxCCEnv = stdenvDrvEnvdir {};
-
-  # On darwin we have to get the system libraries
-  # from their setup hooks, by exporting the variables
-  # from the builder.
-  # Otherwise building & linking the rust binaries fails.
-  darwinImpureEnv = stdenvDrvEnvdir {
-    buildInputs = [
-      # TODO: duplicated in shell.nix and default.nix
-      pkgs.darwin.Security
-      pkgs.darwin.apple_sdk.frameworks.Security
-      pkgs.darwin.apple_sdk.frameworks.CoreServices
-      pkgs.darwin.apple_sdk.frameworks.CoreFoundation
-      pkgs.stdenv.cc.bintools.bintools
-      pkgs.libiconv
-    ];
-  };
-
-  # import an envdir, as e.g. produced by stdenvDrvEnvdir
-  importDrvEnvdir = envdir: [
-    "importas" "OLDPATH" "PATH"
-    "${pkgs.s6}/bin/s6-envdir" envdir
-    (pathAdd "prepend") "$OLDPATH"
-  ];
-
-  cargoEnvironment =
-    # set the environment to a normal CC builder environment.
-    importDrvEnvdir (if pkgs.stdenv.isDarwin then darwinImpureEnv else linuxCCEnv)
-    ++ (pkgs.lib.optionals pkgs.stdenv.isDarwin [
-       # TODO: duplicated in default.nix
-       # Cargo wasn't able to find CF during a `cargo test` run on Darwin.
-       # see https://stackoverflow.com/questions/51161225/how-can-i-make-macos-frameworks-available-to-clang-in-a-nix-environment
-       "importas" "NIX_LDFLAGS" "NIX_LDFLAGS"
-       "export" "NIX_LDFLAGS" "-F${pkgs.darwin.apple_sdk.frameworks.CoreFoundation}/Library/Frameworks -framework CoreFoundation \${NIX_LDFLAGS}"
-       # Same for core services
-       "export" "NIX_LDFLAGS" "-F${pkgs.darwin.apple_sdk.frameworks.CoreServices}/Library/Frameworks -framework CoreServices \${NIX_LDFLAGS}"
-    ])
-    # we have to add the bin to PATH,
-    # otherwise cargo doesn’t find its subcommands
-    ++ (pathPrependBins [
-        # all cargo executables call themselves recursively, smh
-        pkgs.rustc
-        pkgs.gcc
-        pkgs.rustfmt
-        pkgs.clippy
-        pkgs.cargo
-    ])
-    ++ [
-      "export" "RUST_BACKTRACE" "full"
-      "export" "RUN_TIME_CLOSURE" RUN_TIME_CLOSURE
-    ];
-
-  writeCargo = name: setup: args:
-    writeExecline name {} (cargoEnvironment ++ setup ++ [ bins.cargo ] ++ args);
-
   # the CI tests we want to run
   # Tests should not depend on each other (or block if they do),
   # so that they can run in parallel.
@@ -117,15 +40,14 @@ let
 
   tests = {
 
-    # TODO: it would be good to sandbox this (it changes files in the tree)
-    # can crate2nix generate nix files without any compilation?
-    crate2nix = {
-      description = "check crate2nix up-to-date";
-      test = writeExecline "lint-crate2nix" {}
-        (pathPrependBins [pkgs.crate2nix]
+    go-test = {
+      description = "run go test ./...";
+      test = writeExecline "go-test" {}
+        (pathPrependBins [ pkgs.go pkgs.nix pkgs.direnv pkgs.git pkgs.coreutils pkgs.bash ]
         ++ [
-          "if" [ bins.ninja "update-cargo-nix" ]
-          bins.git "diff" "--exit-code"
+          "export" "RUN_TIME_CLOSURE" RUN_TIME_CLOSURE
+          "cd" LORRI_ROOT
+          bins.go "test" "./..."
         ]);
     };
 
@@ -142,59 +64,30 @@ let
       ];
     };
 
-
-    cargo-test = {
-      description = "run cargo test";
-      test = writeCargo "cargo-test"
-        # the tests need bash and nix and direnv
-        (pathPrependBins [ pkgs.coreutils pkgs.bash pkgs.nix pkgs.direnv pkgs.git ])
-        [ "test" "--no-fail-fast" ];
-    };
-
-    cargo-clippy = {
-      description = "run cargo clippy";
-      test = writeCargo "cargo-clippy" [
-        "if" [ "env" ]
-        # print the absolute path of the cargo-clippy version used
-        "if" [ "sh" "-c" "type cargo-clippy" ]
-        # first make sure all packages are fetched already
-        (writeCargo "cargo-fetch" [] [ "fetch" ])
-        # turn of network to prevent clippy from downloading anything
-        runWithoutNetwork
-        "if" [ "cargo-clippy" "--version" ]
-        "export" "RUSTFLAGS" "-D warnings"
-      ] [ "clippy" "--offline" ];
-    };
-
   };
 
-  # Tests that don’t need to be run on different CI runners,
-  # and that don’t take a long time to be red (so we don’t have to wait for them).
+  # Tests that don't need to be run on different CI runners,
+  # and that don't take a long time to be red (so we don't have to wait for them).
   # Also tests that are somewhat annoying but should be fixed nonetheless.
   tests-simple-checks = {
 
     shellcheck =
       let files = [
         "nix/bogus-nixpkgs/builder.sh"
-        "src/ops/direnv/envrc.bash"
+        "envrc.bash"
       ];
       in {
         description = "shellcheck ${pkgs.lib.concatStringsSep " and " files}";
         test = allCommandsSucceed "lint-shellcheck-all" (map shellcheck files);
       };
 
-    cargo-fmt = {
-      description = "cargo fmt was done";
-      test = writeCargo "lint-cargo-fmt" [] [ "fmt" "--" "--check" ];
-    };
-
   };
 
   # An offline check is a check that can be run inside a nix build.
   # But instead of crashing the nix build, it will write the result to $out
   # and generate a test runner that will just print the script.
-  # This means we don’t have to run the check on CI every time
-  # if the nix build inputs didn’t change.
+  # This means we don't have to run the check on CI every time
+  # if the nix build inputs didn't change.
   offlineCheck = {
 
     # create an offline check test
@@ -211,7 +104,7 @@ let
           code=$?
           set -e
           # should the test exit 123 by chance, this check will not work, but better than nothing
-          # We require the use of ok/err, otherwise it’s too easy to accidentally
+          # We require the use of ok/err, otherwise it's too easy to accidentally
           # succeed tests in scripts (e.g. forgot "set -e").
           if [ ! $code -eq 123 ]; then
             echo "offlineCheck: please call ok or err in order to finish the test" >&2
@@ -256,10 +149,8 @@ let
     ];
   };
 
-  # Remove tests that cannot succeed
-  limitTests = if pkgs.stdenv.isLinux then n: v: true else n: v: !(builtins.elem n [
-    "cargo-clippy" # requires bubblewrap
-  ]);
+  # Remove tests that cannot succeed on certain platforms
+  limitTests = if pkgs.stdenv.isLinux then n: v: true else n: v: true;
   limitedTests = lib.filterAttrs limitTests tests;
 
 
@@ -278,7 +169,7 @@ let
   # to a script which can be read by `bats` (a simple testing framework).
   batsScript =
     let
-      # add a few things to bats’ path that should really be patched upstream instead
+      # add a few things to bats' path that should really be patched upstream instead
       # TODO: upstream
       bats = writeExecline "bats" {}
         (pathPrependBins [ pkgs.coreutils pkgs.gnugrep ]
@@ -309,5 +200,4 @@ in {
 
   # we want the single test attributes to have their environment emptied as well.
   tests = testsWithEmptyEnv;
-  inherit darwinImpureEnv;
 }

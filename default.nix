@@ -1,100 +1,53 @@
-{ nixpkgs ? ./nix/nixpkgs-stable.nix
-, pkgs ? import nixpkgs {
-    # This is a hack to work around something requiring libcap on MacOS
-    config.allowUnsupportedSystem = true;
-  }
-}:
+{ pkgs ? import <nixpkgs> { }, ... }:
+
 let
-  src = pkgs.nix-gitignore.gitignoreSource [
-    ".git/"
-    ".github/"
-    "assets/"
-  ] ./.;
-  cargoLorri =
-    (
-      import ./Cargo.nix {
-        inherit pkgs;
-      }
-    ).rootCrate.build;
-
-  # Go rewrite of lorri. Exposed via rustLorri.passthru.go.
-  # nix-build -A passthru.go
-  goLorri = import ./go/default.nix { inherit pkgs; };
-
-  rustLorri = cargoLorri.override {
-    crateOverrides = pkgs.defaultCrateOverrides // {
-      lorri = attrs: {
-        name = "lorri";
-
-        src = pkgs.nix-gitignore.gitignoreSource  [ ".git" "target" "/*.nix" ] ./.;
-
-        # add man and doc outputs to put our documentation into
-        outputs = cargoLorri.outputs ++ [ "man" "doc" ];
-
-        RUN_TIME_CLOSURE = pkgs.callPackage ./nix/runtime.nix {};
-        NIX_PATH = "nixpkgs=${./nix/bogus-nixpkgs}";
-
-        # required by human-panic, because the nix generator doesn't
-        # set the cargo environment variables correctly
-        # (TODO: does crate2nix do it? carnix didn't.)
-        # see https://doc.rust-lang.org/cargo/reference/environment-variables.html
-        homepage = "https://github.com/nix-community/lorri";
-
-        preConfigure = ''
-          . ${./nix/pre-check.sh}
-
-          # Do an immediate, light-weight test to ensure logged-evaluation
-          # is valid, prior to doing expensive compilations.
-          nix-build --show-trace ./src/logged-evaluation.nix \
-            --arg src ./tests/integration/basic/shell.nix \
-            --arg runTimeClosure "$RUN_TIME_CLOSURE" \
-            --no-out-link
-        '';
-
-        buildInputs = [
-          pkgs.nix # required for the preConfigure test
-          pkgs.rustPackages.rustfmt
-        ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
-          pkgs.darwin.Security
-          pkgs.darwin.apple_sdk.frameworks.CoreServices
-          pkgs.libiconv
-        ];
-        nativeBuildInputs = [ pkgs.installShellFiles ];
-
-        postInstall = ''
-          # copy the docs to the $man and $doc outputs
-          ${pkgs.scdoc}/bin/scdoc < lorri.scd > lorri.1
-          install -Dm644 lorri.1 $man/share/man/man1/lorri.1
-          install -Dm644 -t $doc/share/doc/lorri/ \
-            README.md \
-            CONTRIBUTING.md \
-            LICENSE \
-            MAINTAINERS.md
-          cp -r contrib/ $doc/share/doc/lorri/contrib
-
-          # install shell completions via the internal command
-          mkdir out-completions
-          cd out-completions
-          # work around /homeless-shelter not being writable on darwin nix builds
-          export HOME=$(pwd)
-          $out/bin/lorri internal write-shell-completion-scripts
-          echo installing shell completions for ./*
-
-          # || true because installShellCompletion is buggy as hell and I don't care
-          # (also it only supports bash/zsh/fish and not e.g. elvish, even though clap_completion does)
-          installShellCompletion ./* || true
-        '';
-
-        passthru = {
-          # The Go rewrite, accessible via:
-          #   nix-build -A passthru.go
-          go = goLorri;
-        };
-      };
-    };
-  };
-
+  buildGo = import ./nix/buildGo { inherit pkgs; };
+  goDeps  = import ./nix/go-deps.nix { inherit pkgs; };
+  # Runtime closure: the Nix file lorri passes to nix-instantiate as --argstr runTimeClosure.
+  # Baked into the binary at link time via x_defs.
+  rtc = pkgs.callPackage ./nix/runtime.nix {};
 in
-# nix-build → Rust lorri (default, unchanged)
-# nix-build -A passthru.go → Go lorri
-rustLorri
+buildGo.program {
+  name = "lorri";
+
+  # Bake the runtime closure store path into the binary at link time.
+  x_defs."main.runtimeClosure" = "${rtc}";
+
+  srcs = [
+    ./runtime_closure.go  # var runtimeClosure + requireRTC() — must come first
+    ./main.go
+    ./abspath.go
+    ./paths.go
+    ./cas.go
+    ./socket_framing.go
+    ./socket_path.go
+    ./communicate.go
+    ./ops_ping.go
+    ./ops_stream_events.go
+    ./ops_direnv.go
+    ./envrc.bash
+    ./nix_options.go
+    ./path_reduction.go
+    ./logged-evaluation.nix
+    ./builder.go
+    ./watch.go
+    ./build_loop.go
+    ./lorri_db.go
+    ./daemon.go
+    ./ops_init.go
+    ./trivial-shell.nix
+    ./default-envrc
+    ./ops_info.go
+    ./ops_gc.go
+    ./ops_watch.go
+    ./ops_shell.go
+    ./ops_prompt.go
+  ];
+
+  deps = [
+    goDeps.fsnotify
+    goDeps.golang-x-sys-unix
+    goDeps.zombiezen-go-sqlite
+    goDeps.zombiezen-go-sqlite.sqlitex
+  ];
+}

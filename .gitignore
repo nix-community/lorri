@@ -1,12 +1,7 @@
-# `cargo build` dir
-/target
-# we set this as CARGO_INSTALL_ROOT
-/.cargo
 # nix-build symlink
 result*
-**/*.rs.bk
 .bash_history
-crates-io.list
-*.rustfmt
 .extra-envrc
 /.ninja/
+# local go build output
+/lorri
