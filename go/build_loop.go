@@ -389,7 +389,7 @@ func runBuild(cfg BuildLoopConfig, ch chan<- buildResult) {
 		r, err := BuildFlake(*cfg.ProjectFile.FlakeNix)
 		res = buildResult{result: r, err: err}
 	} else {
-		res = buildResult{err: buildErrorOutput("ProjectFile has no ShellNix or FlakeNix set")}
+		res = buildResult{err: &BuildError{Kind: BuildErrorKindOutput, Msg: "ProjectFile has no ShellNix or FlakeNix set"}}
 	}
 
 	ch <- res

@@ -60,21 +60,21 @@ func checkDirenvVersion() error {
 	out, err := exec.Command("direnv", "version").Output()
 	if err != nil {
 		if _, notFound := err.(*exec.Error); notFound {
-			return fmt.Errorf("`direnv`: executable not found")
+			return exitMissing("`direnv`: executable not found", nil)
 		}
-		return fmt.Errorf("could not run `direnv version`: %w", err)
+		return exitTemporary("could not run `direnv version`", err)
 	}
 
 	ver, err := parseDirenvVersion(string(out))
 	if err != nil {
-		return fmt.Errorf("could not figure out the current `direnv` version (parse error): %w", err)
+		return exitEnvironment("could not figure out the current `direnv` version (parse error)", err)
 	}
 
 	if ver.lt(minDirenvVersion) {
-		return fmt.Errorf(
+		return exitEnvironment(fmt.Sprintf(
 			"`direnv` is version %s, but >= %s is required for lorri to function",
 			ver, minDirenvVersion,
-		)
+		), nil)
 	}
 	return nil
 }

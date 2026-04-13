@@ -69,19 +69,6 @@ func (e *BuildError) Error() string {
 	}
 }
 
-func buildErrorIo(msg string) *BuildError {
-	return &BuildError{Kind: BuildErrorKindIo, Msg: msg}
-}
-func buildErrorSpawn(cmd string, msg string) *BuildError {
-	return &BuildError{Kind: BuildErrorKindSpawn, Cmd: cmd, Msg: msg}
-}
-func buildErrorExit(cmd string, status *int, logs []string) *BuildError {
-	return &BuildError{Kind: BuildErrorKindExit, Cmd: cmd, Status: status, Logs: logs}
-}
-func buildErrorOutput(msg string) *BuildError {
-	return &BuildError{Kind: BuildErrorKindOutput, Msg: msg}
-}
-
 // ---------------------------------------------------------------------------
 // RootedPath — a realized store path kept alive by a temp-dir GC handle
 // ---------------------------------------------------------------------------
@@ -279,7 +266,7 @@ func InstantiateAndBuild(
 	// Temp dir used as an indirect GC root for the .drv output.
 	gcRootDir, err := os.MkdirTemp("", "lorri-gc-root-*")
 	if err != nil {
-		return nil, buildErrorIo(fmt.Sprintf("create gc root temp dir: %v", err))
+		return nil, &BuildError{Kind: BuildErrorKindIo, Msg: fmt.Sprintf("create gc root temp dir: %v", err)}
 	}
 	// cleanup tracks whether we should remove gcRootDir on exit.
 	// Set to false when ownership is transferred to the returned RootedPath.
@@ -306,18 +293,18 @@ func InstantiateAndBuild(
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, buildErrorIo(fmt.Sprintf("stdout pipe: %v", err))
+		return nil, &BuildError{Kind: BuildErrorKindIo, Msg: fmt.Sprintf("stdout pipe: %v", err)}
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		return nil, buildErrorIo(fmt.Sprintf("stderr pipe: %v", err))
+		return nil, &BuildError{Kind: BuildErrorKindIo, Msg: fmt.Sprintf("stderr pipe: %v", err)}
 	}
 
 	if err := cmd.Start(); err != nil {
 		if isNotFound(err) {
-			return nil, buildErrorSpawn(cmd.String(), err.Error())
+			return nil, &BuildError{Kind: BuildErrorKindSpawn, Cmd: cmd.String(), Msg: err.Error()}
 		}
-		return nil, buildErrorIo(err.Error())
+		return nil, &BuildError{Kind: BuildErrorKindIo, Msg: err.Error()}
 	}
 
 	// Concurrently read stdout (.drv paths) and stderr (log datums).
@@ -354,10 +341,10 @@ func InstantiateAndBuild(
 	exitErr := cmd.Wait()
 
 	if stdoutErr != nil {
-		return nil, buildErrorIo(fmt.Sprintf("read stdout: %v", stdoutErr))
+		return nil, &BuildError{Kind: BuildErrorKindIo, Msg: fmt.Sprintf("read stdout: %v", stdoutErr)}
 	}
 	if stderrErr != nil {
-		return nil, buildErrorIo(fmt.Sprintf("read stderr: %v", stderrErr))
+		return nil, &BuildError{Kind: BuildErrorKindIo, Msg: fmt.Sprintf("read stderr: %v", stderrErr)}
 	}
 
 	// Collect watched paths and log lines from stderr datums.
@@ -373,18 +360,18 @@ func InstantiateAndBuild(
 
 	if exitErr != nil {
 		status := exitStatus(exitErr)
-		return nil, buildErrorExit(cmd.String(), status, logLines)
+		return nil, &BuildError{Kind: BuildErrorKindExit, Cmd: cmd.String(), Status: status, Logs: logLines}
 	}
 
 	// Expect exactly one .drv path on stdout.
 	if len(drvPaths) == 0 {
-		return nil, buildErrorOutput("logged_evaluation.nix did not return a build product")
+		return nil, &BuildError{Kind: BuildErrorKindOutput, Msg: "logged_evaluation.nix did not return a build product"}
 	}
 	if len(drvPaths) > 1 {
-		return nil, buildErrorOutput(fmt.Sprintf(
+		return nil, &BuildError{Kind: BuildErrorKindOutput, Msg: fmt.Sprintf(
 			"got more than one build product (%d) from logged_evaluation.nix: %v",
 			len(drvPaths), drvPaths,
-		))
+		)}
 	}
 	drvPath := drvPaths[0]
 
@@ -411,17 +398,17 @@ func buildDrv(drvPath string, gcRootDir string) (*RootedPath, error) {
 	out, err := cmd.Output()
 	if err != nil {
 		if isNotFound(err) {
-			return nil, buildErrorSpawn(cmd.String(), err.Error())
+			return nil, &BuildError{Kind: BuildErrorKindSpawn, Cmd: cmd.String(), Msg: err.Error()}
 		}
 		// Extract stderr from ExitError for log lines.
 		logs := extractStderrLines(err)
 		status := exitStatus(err)
-		return nil, buildErrorExit(cmd.String(), status, logs)
+		return nil, &BuildError{Kind: BuildErrorKindExit, Cmd: cmd.String(), Status: status, Logs: logs}
 	}
 
 	storePath := strings.TrimSpace(string(out))
 	if storePath == "" {
-		return nil, buildErrorOutput("nix-build produced no output path")
+		return nil, &BuildError{Kind: BuildErrorKindOutput, Msg: "nix-build produced no output path"}
 	}
 
 	return &RootedPath{
@@ -439,7 +426,7 @@ func buildDrv(drvPath string, gcRootDir string) (*RootedPath, error) {
 func BuildFlake(fo FlakeOutput) (*RunResult, error) {
 	gcRootDir, err := os.MkdirTemp("", "lorri-gc-root-flake-*")
 	if err != nil {
-		return nil, buildErrorIo(fmt.Sprintf("create gc root temp dir: %v", err))
+		return nil, &BuildError{Kind: BuildErrorKindIo, Msg: fmt.Sprintf("create gc root temp dir: %v", err)}
 	}
 	cleanup := true
 	defer func() {
@@ -465,18 +452,18 @@ func BuildFlake(fo FlakeOutput) (*RunResult, error) {
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, buildErrorIo(fmt.Sprintf("stdout pipe: %v", err))
+		return nil, &BuildError{Kind: BuildErrorKindIo, Msg: fmt.Sprintf("stdout pipe: %v", err)}
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		return nil, buildErrorIo(fmt.Sprintf("stderr pipe: %v", err))
+		return nil, &BuildError{Kind: BuildErrorKindIo, Msg: fmt.Sprintf("stderr pipe: %v", err)}
 	}
 
 	if err := cmd.Start(); err != nil {
 		if isNotFound(err) {
-			return nil, buildErrorSpawn(cmd.String(), err.Error())
+			return nil, &BuildError{Kind: BuildErrorKindSpawn, Cmd: cmd.String(), Msg: err.Error()}
 		}
-		return nil, buildErrorIo(err.Error())
+		return nil, &BuildError{Kind: BuildErrorKindIo, Msg: err.Error()}
 	}
 
 	var (
@@ -512,15 +499,15 @@ func BuildFlake(fo FlakeOutput) (*RunResult, error) {
 	exitErr := cmd.Wait()
 
 	if stdoutErr != nil {
-		return nil, buildErrorIo(fmt.Sprintf("write bash-export: %v", stdoutErr))
+		return nil, &BuildError{Kind: BuildErrorKindIo, Msg: fmt.Sprintf("write bash-export: %v", stdoutErr)}
 	}
 	if stderrErr != nil {
-		return nil, buildErrorIo(fmt.Sprintf("read stderr: %v", stderrErr))
+		return nil, &BuildError{Kind: BuildErrorKindIo, Msg: fmt.Sprintf("read stderr: %v", stderrErr)}
 	}
 	if exitErr != nil {
 		logs := extractStderrLines(exitErr)
 		status := exitStatus(exitErr)
-		return nil, buildErrorExit(cmd.String(), status, logs)
+		return nil, &BuildError{Kind: BuildErrorKindExit, Cmd: cmd.String(), Status: status, Logs: logs}
 	}
 
 	// Collect watched paths.
@@ -557,16 +544,16 @@ func BuildFlake(fo FlakeOutput) (*RunResult, error) {
 	addOut, err := addCmd.Output()
 	if err != nil {
 		if isNotFound(err) {
-			return nil, buildErrorSpawn(addCmd.String(), err.Error())
+			return nil, &BuildError{Kind: BuildErrorKindSpawn, Cmd: addCmd.String(), Msg: err.Error()}
 		}
 		logs := extractStderrLines(err)
 		status := exitStatus(err)
-		return nil, buildErrorExit(addCmd.String(), status, logs)
+		return nil, &BuildError{Kind: BuildErrorKindExit, Cmd: addCmd.String(), Status: status, Logs: logs}
 	}
 
 	storePath := strings.TrimSpace(string(addOut))
 	if storePath == "" {
-		return nil, buildErrorOutput("nix store add-file: no store path reported")
+		return nil, &BuildError{Kind: BuildErrorKindOutput, Msg: "nix store add-file: no store path reported"}
 	}
 
 	cleanup = false // ownership transferred to RootedPath.gcHandle
