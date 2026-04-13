@@ -10,9 +10,9 @@ build show-ninja-deps: show-ninja-deps | build.ninja
 
 # run all checks as would be run on CI
 rule run-ci-checks
-  command = execlineb -c "nix-run { $in -A ci.testsuite }"
+  command = go run ./cmd/ci test
 
-build run-ci-checks : run-ci-checks ./shell.nix
+build run-ci-checks : run-ci-checks ./cmd/ci/main.go
   pool = console
 
 # create the ci.yml file for github actions

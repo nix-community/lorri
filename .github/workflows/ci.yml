@@ -23,16 +23,10 @@ jobs:
         with:
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           name: nix-community
-      - name: Build CI tests
-        run: |
-          nix-build \
-            --out-link ./ci-tests \
-            --arg isDevelopmentShell false \
-            -A ci.testsuite \
-            shell.nix
       - name: Run CI tests
         run: |
-          ./ci-tests
+          NIX_PATH="nixpkgs=$(nix-build ./nix/nixpkgs-stable.nix --no-out-link)" \
+            nix run nixpkgs#go -- run ./cmd/ci test
   j02-nix-build_stable-ubuntu-latest:
     name: nix-build [nixos stable] (ubuntu-latest)
     runs-on: ubuntu-latest
@@ -81,16 +75,10 @@ jobs:
         with:
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           name: nix-community
-      - name: Build CI tests
-        run: |
-          nix-build \
-            --out-link ./ci-tests \
-            --arg isDevelopmentShell false \
-            -A ci.testsuite \
-            shell.nix
       - name: Run CI tests
         run: |
-          ./ci-tests
+          NIX_PATH="nixpkgs=$(nix-build ./nix/nixpkgs-stable.nix --no-out-link)" \
+            nix run nixpkgs#go -- run ./cmd/ci test
   j12-nix-build_stable-macos-latest:
     name: nix-build [nixos stable] (macos-latest)
     runs-on: macos-latest
