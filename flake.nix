@@ -19,7 +19,16 @@
       devShells = forAllSystems (system:
         let pkgs = pkgsFor system; in
         {
+          # Full interactive development shell.
           default = pkgs.callPackage ./shell.nix { inherit pkgs; };
+
+          # Minimal shell used by CI: just enough to run go test ./...
+          ci = pkgs.mkShell {
+            name = "lorri-ci";
+            packages = with pkgs; [ go nix direnv git bash yj ];
+            RUN_TIME_CLOSURE = pkgs.callPackage ./nix/runtime.nix {};
+            LORRI_ROOT       = toString ./.;
+          };
         });
     };
 }
