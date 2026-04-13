@@ -199,40 +199,13 @@ let
       isGoFile = src: lib.hasSuffix ".go" (baseNameOf src);
       goSrcs = builtins.filter isGoFile srcs;
 
-      # Generate embedcfg for go:embed support.
-      # We stage ALL srcs (both .go and embed targets) into a real directory
-      # so that go list can see them side-by-side and resolve //go:embed patterns.
-      embedcfg = runCommand "${name}-embedcfg" {
-        nativeBuildInputs = [ go mkembedcfg ];
-      } ''
-        # Check if any Go source files contain go:embed directives
-        if grep -q "//go:embed" ${spaceOut goSrcs}; then
-          export HOME=$NIX_BUILD_TOP/home
-          mkdir -p $HOME
-
-          # Stage ALL srcs (go + embed files) into one directory with clean names.
-          mkdir -p srcdir
-          ${stageSrcs "srcdir" srcs}
-
-          # Run go list from the staged directory so it sees both .go and embed files.
-          cd srcdir
-          echo "module tempmodule" > go.mod
-          echo "go ${go.version}" >> go.mod
-          if ${go}/bin/go list -json . > golist.json 2>golist.err; then
-            ${mkembedcfg}/bin/mkembedcfg -srcdir $PWD < golist.json > $out
-          else
-            echo "go list failed:" >&2
-            cat golist.err >&2
-            echo '{"Patterns":{},"Files":{}}' > $out
-          fi
-        else
-          echo '{"Patterns":{},"Files":{}}' > $out
-        fi
-      '';
     in
     runCommand name {
-      nativeBuildInputs = [ pkgs.jq ];
+      nativeBuildInputs = [ go mkembedcfg ];
     } ''
+      export HOME=$NIX_BUILD_TOP/home
+      mkdir -p $HOME
+
       # Stage ALL srcs into a working directory so the compiler can find
       # embedded files relative to the .go sources.
       mkdir -p srcdir
@@ -240,9 +213,20 @@ let
 
       ${importcfgCmd { inherit name; deps = uniqueDeps; }}
 
-      # Check if embedcfg has actual embeds and set flag accordingly
-      if [ "$(jq '.Patterns | length' < ${embedcfg})" -gt 0 ]; then
-        EMBED_FLAG="-embedcfg ${embedcfg}"
+      # Generate embedcfg from within our own srcdir so all paths are correct.
+      if grep -q "//go:embed" ${spaceOut goSrcs}; then
+        cd srcdir
+        echo "module tempmodule" > go.mod
+        echo "go ${go.version}" >> go.mod
+        if ${go}/bin/go list -json . > golist.json 2>golist.err; then
+          ${mkembedcfg}/bin/mkembedcfg -srcdir $PWD < golist.json > ../embedcfg.json
+        else
+          echo "go list failed:" >&2
+          cat golist.err >&2
+          echo '{"Patterns":{},"Files":{}}' > ../embedcfg.json
+        fi
+        cd ..
+        EMBED_FLAG="-embedcfg $PWD/embedcfg.json"
       else
         EMBED_FLAG=""
       fi
