@@ -1,6 +1,6 @@
 package main
 
-// Integration tests against the real test fixtures in tests/integration/.
+// Integration tests against the real test fixtures in tests/.
 // All tests are gated on RUN_TIME_CLOSURE being set — they require a full
 // Nix installation and are only run from within the lorri nix-shell.
 
@@ -47,7 +47,7 @@ func writeLoggedEvalForTest(t *testing.T, dir string) AbsPath {
 	return p
 }
 
-// TestIntegrationBasicFlake builds tests/integration/basic-flake/ via BuildFlake.
+// TestIntegrationBasicFlake builds tests/basic-flake/ via BuildFlake.
 func TestIntegrationBasicFlake(t *testing.T) {
 	rtc := os.Getenv("RUN_TIME_CLOSURE")
 	if rtc == "" {
@@ -55,7 +55,7 @@ func TestIntegrationBasicFlake(t *testing.T) {
 	}
 	_ = rtc // BuildFlake doesn't need RTC directly but gate on it for consistency
 
-	flakeDir := filepath.Join(lorriRoot(), "tests/integration/basic-flake")
+	flakeDir := filepath.Join(lorriRoot(), "tests/basic-flake")
 	if _, err := os.Stat(filepath.Join(flakeDir, "flake.nix")); err != nil {
 		t.Fatalf("test fixture missing: %s/flake.nix", flakeDir)
 	}
@@ -96,7 +96,7 @@ func TestIntegrationDirenvMatchesRust(t *testing.T) {
 		t.Skip("Rust lorri not on PATH — skipping diff test")
 	}
 
-	nixFile := filepath.Join(lorriRoot(), "tests/integration/basic/shell.nix")
+	nixFile := filepath.Join(lorriRoot(), "tests/basic/shell.nix")
 
 	// Capture Rust lorri direnv output (stderr ignored — it's status messages).
 	rustCmd := exec.Command(rustLorri, "direnv", "--shell-file", nixFile)

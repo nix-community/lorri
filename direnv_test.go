@@ -1,7 +1,7 @@
 package main
 
-// Ports of tests/integration/{envrc,direnv,trivial,bug*.rs} and
-// tests/integration/test_op_gc.rs.
+// Ports of tests/{envrc,direnv,trivial,bug*.rs} and
+// tests/test_op_gc.rs.
 //
 // Two test harnesses mirror the Rust originals:
 //
@@ -123,7 +123,7 @@ func skipIfNoDirenv(t *testing.T) {
 // EnvrcTestCase harness
 // ---------------------------------------------------------------------------
 //
-// Mirrors tests/integration/envrctestcase.rs.
+// Mirrors tests/envrctestcase.rs.
 //
 // Writes a synthetic EVALUATION_ROOT directory containing:
 //   v1: a single "bash-export" file (output of `bash -c export` with given vars)
@@ -234,7 +234,7 @@ func runEnvrcExport(t *testing.T, evalRoot string, ambientEnv map[string]string)
 // DirenvTestCase harness
 // ---------------------------------------------------------------------------
 //
-// Mirrors tests/integration/direnvtestcase.rs:
+// Mirrors tests/direnvtestcase.rs:
 //   1. Build the fixture via InstantiateAndBuild.
 //   2. Create a GC root.
 //   3. Write .envrc via opDirenv into a fresh project directory.
@@ -245,12 +245,18 @@ func runEnvrcExport(t *testing.T, evalRoot string, ambientEnv map[string]string)
 // GC-rooted build output path (mirrors DirenvTestCase returning both testcase
 // and the OutputPath so callers can check res.exists()).
 // ambientEnv is merged into the clean direnv environment.
-func runDirenvExport(t *testing.T, fixtureName string, ambientEnv map[string]string) (map[string]any, BuildOutputPath) {
+// fixtureNix returns the absolute path to a test fixture. Fixtures that are
+// single files are named directly (e.g. "gopath.nix"); fixtures that need
+// accompanying files live in a subdirectory (e.g. "basic/shell.nix").
+func fixtureNix(name string) string {
+	return filepath.Join(lorriRoot(), "tests", name)
+}
+
+func runDirenvExport(t *testing.T, nixFile string, ambientEnv map[string]string) (map[string]any, BuildOutputPath) {
 	t.Helper()
 	rtc := rtcOrSkip(t)
 	skipIfNoDirenv(t)
 
-	nixFile := filepath.Join(lorriRoot(), "tests/integration", fixtureName, "shell.nix")
 	if _, err := os.Stat(nixFile); err != nil {
 		t.Fatalf("fixture missing: %s", nixFile)
 	}
@@ -261,7 +267,7 @@ func runDirenvExport(t *testing.T, fixtureName string, ambientEnv map[string]str
 
 	result, err := InstantiateAndBuild(nixFile, loggedEvalFile, NixOptions{}, rtc)
 	if err != nil {
-		t.Fatalf("InstantiateAndBuild(%s): %v", fixtureName, err)
+		t.Fatalf("InstantiateAndBuild(%s): %v", nixFile, err)
 	}
 	defer result.Result.Release()
 
@@ -460,7 +466,7 @@ func TestEnvrcBug18PathWithSpaces(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestTrivialOldStyle(t *testing.T) {
-	env, res := runDirenvExport(t, "basic", nil)
+	env, res := runDirenvExport(t, fixtureNix("basic/shell.nix"), nil)
 
 	// Mirrors Rust trivial_old_style: assert!(res.exists(), "no build output …")
 	if !res.Exists() {
@@ -473,49 +479,47 @@ func TestTrivialOldStyle(t *testing.T) {
 }
 
 func TestInLorriShell(t *testing.T) {
-	env, _ := runDirenvExport(t, "basic", nil)
+	f := fixtureNix("basic/shell.nix")
+	env, _ := runDirenvExport(t, f, nil)
 
-	want := filepath.Join(lorriRoot(), "tests/integration/basic/shell.nix")
-	if v, _ := direnvGet(env, "IN_LORRI_SHELL"); v != want {
-		t.Errorf("IN_LORRI_SHELL = %q, want %q", v, want)
+	if v, _ := direnvGet(env, "IN_LORRI_SHELL"); v != f {
+		t.Errorf("IN_LORRI_SHELL = %q, want %q", v, f)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// bug23_gopath.rs + bug23_setuphook.rs ports
+// gopath + setup-hook tests
 // ---------------------------------------------------------------------------
 
 func TestBug23Gopath(t *testing.T) {
-	env, _ := runDirenvExport(t, "bug23_gopath", map[string]string{
+	env, _ := runDirenvExport(t, fixtureNix("gopath.nix"), map[string]string{
 		"GOPATH": "my-neat-go-path",
 	})
 
 	// The fixture appends /tmp/foo/bar to the ambient GOPATH.
 	// Result: ambient comes first, appended value second.
-	// Mirrors Rust: assert_eq!(env.get_env("GOPATH"), Value("my-neat-go-path:/tmp/foo/bar"))
 	if v, _ := direnvGet(env, "GOPATH"); v != "my-neat-go-path:/tmp/foo/bar" {
 		t.Errorf("GOPATH = %q, want my-neat-go-path:/tmp/foo/bar", v)
 	}
 }
 
 func TestBug23SetupHook(t *testing.T) {
-	env, _ := runDirenvExport(t, "bug23_setuphook", map[string]string{
+	env, _ := runDirenvExport(t, fixtureNix("setup-hook.nix"), map[string]string{
 		"EXAMPLE": "my-neat-path",
 	})
 
 	// Same pattern: ambient first, appended second.
-	// Mirrors Rust: assert_eq!(env.get_env("EXAMPLE"), Value("my-neat-path:/tmp/foo/bar"))
 	if v, _ := direnvGet(env, "EXAMPLE"); v != "my-neat-path:/tmp/foo/bar" {
 		t.Errorf("EXAMPLE = %q, want my-neat-path:/tmp/foo/bar", v)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// bug97_varmap_leak.rs port — strict "no extra vars" check
+// varmap-leak — strict "no extra vars" check
 // ---------------------------------------------------------------------------
 
 func TestBug97VarmapLeak(t *testing.T) {
-	env, _ := runDirenvExport(t, "bug97_varmap_leak", nil)
+	env, _ := runDirenvExport(t, fixtureNix("varmap-leak.nix"), nil)
 
 	// preHook must be the literal string from the fixture.
 	if v, _ := direnvGet(env, "preHook"); v != "echo 'foo bar'" {
@@ -563,7 +567,7 @@ func TestBug97VarmapLeak(t *testing.T) {
 
 func TestBug110DuplicateAppends(t *testing.T) {
 	start := time.Now()
-	env, _ := runDirenvExport(t, "bug110_duplicate_appends", nil)
+	env, _ := runDirenvExport(t, fixtureNix("duplicate-appends.nix"), nil)
 	elapsed := time.Since(start)
 
 	if elapsed > 2*time.Second {
