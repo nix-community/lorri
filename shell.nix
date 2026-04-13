@@ -13,6 +13,10 @@
 let
   lib = import ./nix/lib { inherit pkgs; };
 
+  # Needed by go test — gates all Nix-dependent tests and used as a
+  # runtime fallback in main.go when the binary isn't built with -X.
+  RUN_TIME_CLOSURE = pkgs.callPackage ./nix/runtime.nix {};
+
   buildInputs = [
     pkgs.go
     pkgs.git
@@ -35,6 +39,7 @@ in
 pkgs.mkShell {
   name = "lorri";
   inherit buildInputs;
+  inherit RUN_TIME_CLOSURE;
 
   shellHook = ''
     echo "You opened a nix-shell for lorri; this is fine, but we strongly encourage the use of direnv(1) and lorri(1) to develop lorri ;)" 1>&2
