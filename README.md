@@ -92,6 +92,10 @@ the following instructions will help you get started with lorri.
    Otherwise, install lorri from the repository as follows:
 
    ```console
+   # With flakes:
+   $ nix profile install github:nix-community/lorri
+
+   # Without flakes:
    $ nix-env -if https://github.com/nix-community/lorri/archive/canon.tar.gz
    ```
 
@@ -184,21 +188,6 @@ for any problems or bugs you encounter.
 
 [Webchat]: https://matrix.to/#/#lorri:libera.chat
 
-### Why is lorri not on [crates.io][]?
-
-Command line tools written in Rust are commonly available as Rust crates on
-[crates.io][]. lorri is not distributed in this way, for good reasons.
-
-lorri can only be built within a Nix environment, and it can only be installed
-via Nix. This is because lorri specifies its runtime dependencies as a Nix
-closure, and because Nix is itself a runtime dependency of lorri.
-
-In addition to these technical reasons, there is simply no point in running
-lorri if you don't have Nix installed. And if you have Nix installed, then
-you're best off installing lorri via Nix.
-
-[crates.io]: https://crates.io
-
 ## How To Help
 
 All development on lorri happens on the Github repository, in the
@@ -209,11 +198,8 @@ a comment when you start working on something.
 
 ## Debugging
 
-Set these environment variables when debugging:
-
-```
-RUST_LOG=lorri=debug RUST_BACKTRACE=1 lorri watch
-```
+Set `LORRI_DEBUG_PANIC=1` to get a raw panic stack trace instead of
+the formatted crash report when lorri crashes.
 
 ### lorri reevaluates more than expected
 
@@ -243,9 +229,9 @@ stages.
 
 ### Initial evaluation
 
-`builder::run()` instantiates (and builds) the Nix expression with
-`nix-build -vv`. The evaluator prints each imported Nix file, and
-each copied source file. `builder::run()` parses the log and notes each
+`InstantiateAndBuild` instantiates (and builds) the Nix expression with
+`nix-instantiate -vv`. The evaluator prints each imported Nix file, and
+each copied source file. `InstantiateAndBuild` parses the log and notes each
 of these paths out as an "input" path.
 
 Each input path is the absolute path which Nix examined.

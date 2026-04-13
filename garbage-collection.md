@@ -102,8 +102,8 @@ somewhere in `/nix/var/nix/gcroots/` that points (directly or indirectly) to a
 Nix store path. That store path is then protected from GC.
 
 After each successful build, lorri creates an indirect GC root:
-- a symlink in `$CACHE_DIR/lorri/gc_roots/` (see
-  [ProjectDirs::cache_dir][cache-dir] for how `$CACHE_DIR` is determined) which
+- a symlink in `$CACHE_DIR/lorri/gc_roots/` (where `$CACHE_DIR` is
+  `~/.cache` on Linux and `~/Library/Caches` on macOS) which
   points to the store path of the environment, and
 - an indirect Nix GC root in `/nix/var/nix/gcroots/per-user/$USER/` which
   points to the symlink
@@ -187,7 +187,6 @@ from being garbage collected.
 
 [blog-post]: https://www.tweag.io/posts/2019-03-28-introducing-lorri.html
 [build-vs-runtime-deps]: https://stackoverflow.com/a/34837585/3507119
-[cache-dir]: https://docs.rs/directories/1.0.2/directories/struct.ProjectDirs.html#method.cache_dir
 [nix-conf-man]: https://www.mankier.com/5/nix.conf
 [nix-deps-scan]: https://github.com/NixOS/nix/blob/2242be83c61788b9c0736a92bb0b5c7bbfc40803/src/libstore/references.cc#L82-L118
 [nix-gc-roots]: https://nixos.org/nix/manual/#ssec-gc-roots
