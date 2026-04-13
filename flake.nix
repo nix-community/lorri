@@ -28,6 +28,7 @@
             packages = with pkgs; [ go nix direnv git bash yj ];
             RUN_TIME_CLOSURE = pkgs.callPackage ./nix/runtime.nix {};
             LORRI_ROOT       = toString ./.;
+            NIX_PATH         = "nixpkgs=${nixpkgs}";
           };
         });
     };
