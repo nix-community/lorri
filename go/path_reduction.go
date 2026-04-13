@@ -24,36 +24,16 @@ type WatchPathBuf struct {
 	Path      string
 }
 
-// replaceWatchPath returns a new WatchPathBuf with the same Recursive flag but a different path.
-func replaceWatchPath(w WatchPathBuf, newPath string) WatchPathBuf {
-	return WatchPathBuf{Recursive: w.Recursive, Path: newPath}
-}
-
 // ReducePaths reduces a slice of WatchPathBufs to the minimal set needed to
 // detect all relevant changes. Mirrors pathreduction.rs reduce_paths().
 func ReducePaths(paths []WatchPathBuf) []WatchPathBuf {
-	// Phase 1: apply per-path reducers.
-	type reduction struct {
-		path    WatchPathBuf
-		removed bool
-	}
-	reduced := make([]reduction, 0, len(paths))
+	// Phase 1: apply per-path reducers, collecting survivors directly.
+	survivors := make([]WatchPathBuf, 0, len(paths))
 	for _, p := range paths {
 		if r, ok := reduceChannelPath(p); ok {
-			reduced = append(reduced, reduction{path: r})
-			continue
-		}
-		if removed := reduceNixStorePath(p); removed {
-			continue // drop it
-		}
-		reduced = append(reduced, reduction{path: p})
-	}
-
-	// Collect the survivors.
-	survivors := make([]WatchPathBuf, 0, len(reduced))
-	for _, r := range reduced {
-		if !r.removed {
-			survivors = append(survivors, r.path)
+			survivors = append(survivors, r)
+		} else if !reduceNixStorePath(p) {
+			survivors = append(survivors, p)
 		}
 	}
 
@@ -156,7 +136,7 @@ func reduceChannelPath(path WatchPathBuf) (WatchPathBuf, bool) {
 	// Reduce to the directory two levels up from channelRootPath:
 	// /nix/var/nix/profiles/per-user/<user>  (the user directory)
 	reduceTo := filepath.Dir(filepath.Dir(channelRootPath))
-	return replaceWatchPath(path, reduceTo), true
+	return WatchPathBuf{Recursive: path.Recursive, Path: reduceTo}, true
 }
 
 // reduceNixStorePath drops paths that are under /nix/store and whose

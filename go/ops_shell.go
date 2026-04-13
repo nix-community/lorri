@@ -135,7 +135,7 @@ func buildForShell(paths *Paths, projectFile ProjectFile, rtc string) (BuildOutp
 		ProjectFile:    projectFile,
 		NixFile:        nixFilePathForProject(projectFile),
 		CAS:            cas,
-		Opts:           EmptyNixOptions(),
+		Opts:           NixOptions{},
 		RunTimeClosure: rtc,
 		GCRootDir:      paths.GCRootDir,
 	}

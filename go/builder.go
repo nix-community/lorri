@@ -197,16 +197,13 @@ func logDatumToWatchPath(d logDatum) (WatchPathBuf, bool) {
 // It dynamically builds regexes as it encounters flake/tree references.
 type NixDevParser struct {
 	// flakeRees maps flake URL → (regex matching "got tree '...' from '<flakeURL>'", absPath)
-	flakeRees map[string]flakeEntry
+	flakeRees map[string]regexEntry
 	// treeRees maps tree store path → (regex matching "checking access to '<tree>/...'", absPath)
-	treeRees map[string]treeEntry
+	treeRees map[string]regexEntry
 }
 
-type flakeEntry struct {
-	re      *regexp.Regexp
-	absPath string
-}
-type treeEntry struct {
+// regexEntry pairs a compiled regexp with the absolute path it was built from.
+type regexEntry struct {
 	re      *regexp.Regexp
 	absPath string
 }
@@ -219,8 +216,8 @@ var reEvalDrv = regexp.MustCompile(
 
 func newNixDevParser() *NixDevParser {
 	return &NixDevParser{
-		flakeRees: make(map[string]flakeEntry),
-		treeRees:  make(map[string]treeEntry),
+		flakeRees: make(map[string]regexEntry),
+		treeRees:  make(map[string]regexEntry),
 	}
 }
 
@@ -244,7 +241,7 @@ func (p *NixDevParser) Parse(line string) logDatum {
 				"checking access to '%s/(?P<file>[^']*)'",
 				regexp.QuoteMeta(tree),
 			))
-			p.treeRees[tree] = treeEntry{re: treeRe, absPath: entry.absPath}
+			p.treeRees[tree] = regexEntry{re: treeRe, absPath: entry.absPath}
 			// Remove this flake entry — we've matched it.
 			delete(p.flakeRees, flakeName)
 			return logDatum{kind: logText, text: line}
@@ -259,7 +256,7 @@ func (p *NixDevParser) Parse(line string) logDatum {
 			"got tree '(?P<tree>[^']*)' from '%s'",
 			regexp.QuoteMeta(flakeURL),
 		))
-		p.flakeRees[flakeURL] = flakeEntry{re: gotTreeRe, absPath: sourcePath}
+		p.flakeRees[flakeURL] = regexEntry{re: gotTreeRe, absPath: sourcePath}
 	}
 
 	return logDatum{kind: logText, text: line}
@@ -288,7 +285,14 @@ func InstantiateAndBuild(
 	if err != nil {
 		return nil, buildErrorIo(fmt.Sprintf("create gc root temp dir: %v", err))
 	}
-	// gcRootDir ownership transfers to RootedPath; don't defer-remove here.
+	// cleanup tracks whether we should remove gcRootDir on exit.
+	// Set to false when ownership is transferred to the returned RootedPath.
+	cleanup := true
+	defer func() {
+		if cleanup {
+			os.RemoveAll(gcRootDir)
+		}
+	}()
 
 	// Build the nix-instantiate argument list.
 	args := []string{"-vv"}
@@ -306,17 +310,14 @@ func InstantiateAndBuild(
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		os.RemoveAll(gcRootDir)
 		return nil, buildErrorIo(fmt.Sprintf("stdout pipe: %v", err))
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		os.RemoveAll(gcRootDir)
 		return nil, buildErrorIo(fmt.Sprintf("stderr pipe: %v", err))
 	}
 
 	if err := cmd.Start(); err != nil {
-		os.RemoveAll(gcRootDir)
 		if isNotFound(err) {
 			return nil, buildErrorSpawn(cmd.String(), err.Error())
 		}
@@ -357,11 +358,9 @@ func InstantiateAndBuild(
 	exitErr := cmd.Wait()
 
 	if stdoutErr != nil {
-		os.RemoveAll(gcRootDir)
 		return nil, buildErrorIo(fmt.Sprintf("read stdout: %v", stdoutErr))
 	}
 	if stderrErr != nil {
-		os.RemoveAll(gcRootDir)
 		return nil, buildErrorIo(fmt.Sprintf("read stderr: %v", stderrErr))
 	}
 
@@ -377,18 +376,15 @@ func InstantiateAndBuild(
 	}
 
 	if exitErr != nil {
-		os.RemoveAll(gcRootDir)
 		status := exitStatus(exitErr)
 		return nil, buildErrorExit(cmd.String(), status, logLines)
 	}
 
 	// Expect exactly one .drv path on stdout.
 	if len(drvPaths) == 0 {
-		os.RemoveAll(gcRootDir)
 		return nil, buildErrorOutput("logged_evaluation.nix did not return a build product")
 	}
 	if len(drvPaths) > 1 {
-		os.RemoveAll(gcRootDir)
 		return nil, buildErrorOutput(fmt.Sprintf(
 			"got more than one build product (%d) from logged_evaluation.nix: %v",
 			len(drvPaths), drvPaths,
@@ -399,10 +395,10 @@ func InstantiateAndBuild(
 	// Build the .drv.
 	rootedPath, err := buildDrv(drvPath, gcRootDir)
 	if err != nil {
-		os.RemoveAll(gcRootDir)
 		return nil, err
 	}
 
+	cleanup = false // ownership transferred to rootedPath.gcHandle
 	return &RunResult{
 		ReferencedPaths: referencedPaths,
 		Result:          *rootedPath,
@@ -449,6 +445,12 @@ func BuildFlake(fo FlakeOutput) (*RunResult, error) {
 	if err != nil {
 		return nil, buildErrorIo(fmt.Sprintf("create gc root temp dir: %v", err))
 	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			os.RemoveAll(gcRootDir)
+		}
+	}()
 
 	envPath := filepath.Join(gcRootDir, "bash-export")
 	profilePath := filepath.Join(gcRootDir, "profile")
@@ -467,17 +469,14 @@ func BuildFlake(fo FlakeOutput) (*RunResult, error) {
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		os.RemoveAll(gcRootDir)
 		return nil, buildErrorIo(fmt.Sprintf("stdout pipe: %v", err))
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		os.RemoveAll(gcRootDir)
 		return nil, buildErrorIo(fmt.Sprintf("stderr pipe: %v", err))
 	}
 
 	if err := cmd.Start(); err != nil {
-		os.RemoveAll(gcRootDir)
 		if isNotFound(err) {
 			return nil, buildErrorSpawn(cmd.String(), err.Error())
 		}
@@ -517,15 +516,12 @@ func BuildFlake(fo FlakeOutput) (*RunResult, error) {
 	exitErr := cmd.Wait()
 
 	if stdoutErr != nil {
-		os.RemoveAll(gcRootDir)
 		return nil, buildErrorIo(fmt.Sprintf("write bash-export: %v", stdoutErr))
 	}
 	if stderrErr != nil {
-		os.RemoveAll(gcRootDir)
 		return nil, buildErrorIo(fmt.Sprintf("read stderr: %v", stderrErr))
 	}
 	if exitErr != nil {
-		os.RemoveAll(gcRootDir)
 		logs := extractStderrLines(exitErr)
 		status := exitStatus(exitErr)
 		return nil, buildErrorExit(cmd.String(), status, logs)
@@ -564,7 +560,6 @@ func BuildFlake(fo FlakeOutput) (*RunResult, error) {
 	addCmd.Dir = fo.Context
 	addOut, err := addCmd.Output()
 	if err != nil {
-		os.RemoveAll(gcRootDir)
 		if isNotFound(err) {
 			return nil, buildErrorSpawn(addCmd.String(), err.Error())
 		}
@@ -575,10 +570,10 @@ func BuildFlake(fo FlakeOutput) (*RunResult, error) {
 
 	storePath := strings.TrimSpace(string(addOut))
 	if storePath == "" {
-		os.RemoveAll(gcRootDir)
 		return nil, buildErrorOutput("nix store add-file: no store path reported")
 	}
 
+	cleanup = false // ownership transferred to RootedPath.gcHandle
 	return &RunResult{
 		ReferencedPaths: referencedPaths,
 		Result: RootedPath{

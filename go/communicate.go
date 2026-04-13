@@ -10,8 +10,10 @@ package main
 //   4. Client sends its typed request; server sends typed response(s).
 
 import (
+	"crypto/md5" //nolint:gosec // MD5 used for path-keying, not cryptographic security
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 )
 
@@ -212,6 +214,44 @@ type OutputPath struct {
 // EventSnapshot is a snapshot of already-seen events.
 type EventSnapshot struct {
 	Snapshot []Event `json:"snapshot"`
+}
+
+// ---------------------------------------------------------------------------
+// ProjectFile helpers
+// ---------------------------------------------------------------------------
+
+// nixFilePathForProject returns the nix file path string used for hashing.
+// Mirrors ProjectFile::as_absolute_path() → as_nix_file() in Rust:
+//
+//	ShellNix(path)         → path
+//	FlakeNix{context, ...} → context/flake.nix
+func nixFilePathForProject(projectFile ProjectFile) string {
+	if projectFile.ShellNix != nil {
+		return projectFile.ShellNix.path
+	}
+	if projectFile.FlakeNix != nil {
+		return AbsPath(projectFile.FlakeNix.Context).Join("flake.nix").String()
+	}
+	panic("ProjectFile has neither ShellNix nor FlakeNix set")
+}
+
+// gcRootPathForProject computes the shell GC root path for a project.
+// Mirrors project.rs Project::new_internal + Project::shell_gc_root:
+//
+//	hash = md5(nixFilePath bytes)
+//	path = <gcRootDir>/<hexhash>/gc_root/shell_gc_root
+func gcRootPathForProject(gcRootDir AbsPath, projectFile ProjectFile) AbsPath {
+	nixFilePath := nixFilePathForProject(projectFile)
+	//nolint:gosec // MD5 for path-keying only
+	hash := md5.Sum([]byte(nixFilePath))
+	hexHash := fmt.Sprintf("%x", hash)
+	return gcRootDir.Join(hexHash, "gc_root", "shell_gc_root")
+}
+
+// fileExists reports whether path exists (as any filesystem object).
+func fileExists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
 }
 
 // ---------------------------------------------------------------------------

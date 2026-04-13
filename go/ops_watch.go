@@ -24,7 +24,7 @@ func opWatch(paths *Paths, projectFile ProjectFile, rtc string, once bool) error
 		ProjectFile:    projectFile,
 		NixFile:        nixFile,
 		CAS:            cas,
-		Opts:           EmptyNixOptions(),
+		Opts:           NixOptions{},
 		RunTimeClosure: rtc,
 		GCRootDir:      paths.GCRootDir,
 	}

@@ -19,11 +19,6 @@ type NixOptions struct {
 	Substituters []string
 }
 
-// EmptyNixOptions returns NixOptions that adds no extra arguments.
-func EmptyNixOptions() NixOptions {
-	return NixOptions{}
-}
-
 // Append merges other into o.
 // If both slices are non-nil they are concatenated; otherwise the existing
 // non-nil one is kept (nil is the identity element).

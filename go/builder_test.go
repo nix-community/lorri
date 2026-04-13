@@ -21,7 +21,7 @@ func TestInstantiateAndBuild(t *testing.T) {
 	result, err := InstantiateAndBuild(
 		filepath.Join(lorriRoot(), "shell.nix"),
 		cas,
-		EmptyNixOptions(),
+		NixOptions{},
 		rtc,
 	)
 	if err != nil {

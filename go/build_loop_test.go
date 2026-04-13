@@ -53,7 +53,7 @@ derivation {
 		ProjectFile:    NewShellNixProjectFile(mustAbsPath(shellNix)),
 		NixFile:        shellNix,
 		CAS:            cas,
-		Opts:           EmptyNixOptions(),
+		Opts:           NixOptions{},
 		RunTimeClosure: rtc,
 		GCRootDir:      gcRootDir,
 	}
