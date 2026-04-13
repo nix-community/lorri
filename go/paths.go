@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,13 +20,18 @@ type Paths struct {
 	// ~/.cache/lorri/daemon.socket           (macOS fallback)
 	DaemonSocketFile AbsPath
 
-	// Directory for the content-addressable store.
+	// Directory for the content-addressable store (used by lorri shell).
 	// ~/.cache/lorri/cas/
 	CASDir AbsPath
 
 	// Path to the SQLite database.
 	// ~/.cache/lorri/lorri.sqlite
 	SQLiteDB AbsPath
+
+	// Path to the logged-evaluation.nix instrumentation file.
+	// Written from the embedded copy on startup if the content has changed.
+	// ~/.cache/lorri/logged-evaluation.nix
+	LoggedEvalFile AbsPath
 }
 
 // InitPaths computes all lorri paths from the user's XDG/home directories,
@@ -50,6 +56,12 @@ func InitPaths() (*Paths, error) {
 		return nil, fmt.Errorf("could not create CAS directory %s: %w", casDir, err)
 	}
 
+	// Write logged-evaluation.nix only if the content has changed.
+	loggedEvalFile := AbsPath(filepath.Join(cacheDir, "logged-evaluation.nix"))
+	if err := writeFileIfChanged(string(loggedEvalFile), loggedEvaluationNix, 0o644); err != nil {
+		return nil, fmt.Errorf("could not write logged-evaluation.nix: %w", err)
+	}
+
 	// Determine socket path
 	socketDir, err := lorriRuntimeDir(cacheDir)
 	if err != nil {
@@ -65,7 +77,47 @@ func InitPaths() (*Paths, error) {
 		DaemonSocketFile: socketFile,
 		CASDir:           casDir,
 		SQLiteDB:         sqliteDB,
+		LoggedEvalFile:   loggedEvalFile,
 	}, nil
+}
+
+// writeFileIfChanged writes content to path only if the existing file differs
+// (or does not exist). Uses an atomic rename so readers never see partial content.
+func writeFileIfChanged(path, content string, perm os.FileMode) error {
+	existing, err := os.ReadFile(path)
+	if err == nil && bytes.Equal(existing, []byte(content)) {
+		return nil // already up to date
+	}
+
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".lorri-tmp-")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	needsRemove := true
+	defer func() {
+		if needsRemove {
+			os.Remove(tmpName)
+		}
+	}()
+
+	if _, err := tmp.WriteString(content); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	needsRemove = false // rename succeeded, file is now at its destination
+	return nil
 }
 
 // lorriCacheDir returns the lorri-specific cache directory.

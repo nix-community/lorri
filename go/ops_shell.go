@@ -127,14 +127,10 @@ func opShell(paths *Paths, projectFile ProjectFile, rtc string, cached bool) err
 
 // buildForShell runs a single build for the shell op.
 func buildForShell(paths *Paths, projectFile ProjectFile, rtc string) (BuildOutputPath, error) {
-	cas, err := NewCAS(paths.CASDir)
-	if err != nil {
-		return BuildOutputPath{}, err
-	}
 	cfg := BuildLoopConfig{
 		ProjectFile:    projectFile,
 		NixFile:        nixFilePathForProject(projectFile),
-		CAS:            cas,
+		LoggedEvalFile: paths.LoggedEvalFile,
 		Opts:           NixOptions{},
 		RunTimeClosure: rtc,
 		GCRootDir:      paths.GCRootDir,

@@ -270,15 +270,11 @@ func (p *NixDevParser) Parse(line string) logDatum {
 // Mirrors builder.rs instantiate_and_build().
 func InstantiateAndBuild(
 	nixFile string,
-	cas *CAS,
+	loggedEvalFile AbsPath,
 	opts NixOptions,
 	runTimeClosure string,
 ) (*RunResult, error) {
-	// Write the instrumentation Nix file to the CAS so nix-instantiate can read it.
-	loggedEvalPath, err := cas.FileFromString(loggedEvaluationNix)
-	if err != nil {
-		return nil, buildErrorIo(fmt.Sprintf("write logged-evaluation.nix to CAS: %v", err))
-	}
+	loggedEvalPath := loggedEvalFile
 
 	// Temp dir used as an indirect GC root for the .drv output.
 	gcRootDir, err := os.MkdirTemp("", "lorri-gc-root-*")

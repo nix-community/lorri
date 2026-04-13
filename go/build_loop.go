@@ -193,8 +193,8 @@ type BuildLoopConfig struct {
 	// For ShellNix: the shell.nix path.
 	// For FlakeNix: context/flake.nix.
 	NixFile string
-	// CAS is the content-addressable store for build instrumentation files.
-	CAS *CAS
+	// LoggedEvalFile is the path to logged-evaluation.nix on disk.
+	LoggedEvalFile AbsPath
 	// Opts are extra Nix CLI options.
 	Opts NixOptions
 	// RunTimeClosure is the Nix store path for the lorri runtime closure.
@@ -394,7 +394,7 @@ func runBuild(cfg BuildLoopConfig, ch chan<- buildResult) {
 	var res buildResult
 
 	if cfg.ProjectFile.ShellNix != nil {
-		r, err := InstantiateAndBuild(cfg.NixFile, cfg.CAS, cfg.Opts, cfg.RunTimeClosure)
+		r, err := InstantiateAndBuild(cfg.NixFile, cfg.LoggedEvalFile, cfg.Opts, cfg.RunTimeClosure)
 		res = buildResult{result: r, err: err}
 	} else if cfg.ProjectFile.FlakeNix != nil {
 		r, err := BuildFlake(*cfg.ProjectFile.FlakeNix)

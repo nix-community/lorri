@@ -37,22 +37,17 @@ derivation {
 		t.Fatalf("write shell.nix: %v", err)
 	}
 
-	// Set up CAS and GC root dirs.
-	casDir := mustAbsPath(filepath.Join(dir, "cas"))
+	// Set up logged-eval file and GC root dir.
 	gcRootDir := mustAbsPath(filepath.Join(dir, "gc_roots"))
 	if err := os.MkdirAll(string(gcRootDir), 0o755); err != nil {
 		t.Fatalf("mkdir gc_roots: %v", err)
 	}
-
-	cas, err := NewCAS(casDir)
-	if err != nil {
-		t.Fatalf("NewCAS: %v", err)
-	}
+	loggedEvalFile := writeLoggedEvalForTest(t, dir)
 
 	cfg := BuildLoopConfig{
 		ProjectFile:    NewShellNixProjectFile(mustAbsPath(shellNix)),
 		NixFile:        shellNix,
-		CAS:            cas,
+		LoggedEvalFile: loggedEvalFile,
 		Opts:           NixOptions{},
 		RunTimeClosure: rtc,
 		GCRootDir:      gcRootDir,

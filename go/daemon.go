@@ -64,12 +64,6 @@ func (d *Daemon) ServeContext(ctx context.Context, paths *Paths, rtc string) err
 	defer lock.Release()
 	defer listener.Close()
 
-	// Init CAS.
-	cas, err := NewCAS(paths.CASDir)
-	if err != nil {
-		return fmt.Errorf("daemon: init CAS: %w", err)
-	}
-
 	// Start EventHub.
 	hub := NewEventHub()
 	hubCh := make(chan LoopHandlerEvent, 256)
@@ -80,7 +74,7 @@ func (d *Daemon) ServeContext(ctx context.Context, paths *Paths, rtc string) err
 	handlerDone := make(chan struct{})
 	go func() {
 		defer close(handlerDone)
-		d.buildInstructionHandler(ctx, activityCh, hubCh, db, paths, cas, rtc)
+		d.buildInstructionHandler(ctx, activityCh, hubCh, db, paths, rtc)
 	}()
 
 	// Wrap ctx with signal cancellation.
@@ -222,7 +216,6 @@ func (d *Daemon) buildInstructionHandler(
 	hubCh chan<- LoopHandlerEvent,
 	db *LorriDB,
 	paths *Paths,
-	cas *CAS,
 	rtc string,
 ) {
 	// nixFile path → ping channel for the running BuildLoop.
@@ -270,7 +263,7 @@ func (d *Daemon) buildInstructionHandler(
 			cfg := BuildLoopConfig{
 				ProjectFile:    activity.ProjectFile,
 				NixFile:        nixFile,
-				CAS:            cas,
+				LoggedEvalFile: paths.LoggedEvalFile,
 				Opts:           d.extraNixOpts,
 				RunTimeClosure: rtc,
 				GCRootDir:      paths.GCRootDir,

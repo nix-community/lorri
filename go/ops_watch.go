@@ -14,16 +14,10 @@ import (
 // If once is true, runs exactly one build and exits.
 // Otherwise, runs forever, printing events to stderr.
 func opWatch(paths *Paths, projectFile ProjectFile, rtc string, once bool) error {
-	nixFile := nixFilePathForProject(projectFile)
-	cas, err := NewCAS(paths.CASDir)
-	if err != nil {
-		return fmt.Errorf("watch: init CAS: %w", err)
-	}
-
 	cfg := BuildLoopConfig{
 		ProjectFile:    projectFile,
-		NixFile:        nixFile,
-		CAS:            cas,
+		NixFile:        nixFilePathForProject(projectFile),
+		LoggedEvalFile: paths.LoggedEvalFile,
 		Opts:           NixOptions{},
 		RunTimeClosure: rtc,
 		GCRootDir:      paths.GCRootDir,

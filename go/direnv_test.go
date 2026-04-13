@@ -257,12 +257,9 @@ func runDirenvExport(t *testing.T, fixtureName string, ambientEnv map[string]str
 
 	dir := t.TempDir()
 
-	cas, err := NewCAS(mustAbsPath(filepath.Join(dir, "cas")))
-	if err != nil {
-		t.Fatalf("NewCAS: %v", err)
-	}
+	loggedEvalFile := writeLoggedEvalForTest(t, dir)
 
-	result, err := InstantiateAndBuild(nixFile, cas, NixOptions{}, rtc)
+	result, err := InstantiateAndBuild(nixFile, loggedEvalFile, NixOptions{}, rtc)
 	if err != nil {
 		t.Fatalf("InstantiateAndBuild(%s): %v", fixtureName, err)
 	}
@@ -590,6 +587,7 @@ derivation {
 		DaemonSocketFile: mustAbsPath(filepath.Join(dir, "daemon.socket")),
 		CASDir:           mustAbsPath(filepath.Join(dir, "cas")),
 		SQLiteDB:         mustAbsPath(filepath.Join(dir, "lorri.sqlite")),
+		LoggedEvalFile:   writeLoggedEvalForTest(t, dir),
 	}
 	if err := os.MkdirAll(string(paths.GCRootDir), 0o755); err != nil {
 		t.Fatalf("mkdir gc_roots: %v", err)
@@ -606,11 +604,7 @@ derivation {
 
 	// ── Build the project ────────────────────────────────────────────────────
 	rtc := os.Getenv("RUN_TIME_CLOSURE")
-	cas, err := NewCAS(paths.CASDir)
-	if err != nil {
-		t.Fatalf("NewCAS: %v", err)
-	}
-	result, err := InstantiateAndBuild(nixFile, cas, NixOptions{}, rtc)
+	result, err := InstantiateAndBuild(nixFile, paths.LoggedEvalFile, NixOptions{}, rtc)
 	if err != nil {
 		t.Fatalf("InstantiateAndBuild: %v", err)
 	}
@@ -716,7 +710,7 @@ derivation {
 	if err := os.Rename(backupFile, nixFile); err != nil {
 		t.Fatalf("rename back: %v", err)
 	}
-	result2, err := InstantiateAndBuild(nixFile, cas, NixOptions{}, rtc)
+	result2, err := InstantiateAndBuild(nixFile, paths.LoggedEvalFile, NixOptions{}, rtc)
 	if err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}

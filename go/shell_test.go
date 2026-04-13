@@ -38,13 +38,10 @@ func TestEnvrcBashSetsPath(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	cas, err := NewCAS(mustAbsPath(filepath.Join(dir, "cas")))
-	if err != nil {
-		t.Fatalf("NewCAS: %v", err)
-	}
+	loggedEvalFile := writeLoggedEvalForTest(t, dir)
 
 	// Build the environment — this is the same call opShell makes internally.
-	result, err := InstantiateAndBuild(nixFile, cas, NixOptions{}, rtc)
+	result, err := InstantiateAndBuild(nixFile, loggedEvalFile, NixOptions{}, rtc)
 	if err != nil {
 		t.Fatalf("InstantiateAndBuild: %v", err)
 	}
