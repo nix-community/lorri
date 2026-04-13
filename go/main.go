@@ -212,7 +212,15 @@ func runGC(args []string) error {
 	}
 	remaining := fs.Args()
 	if len(remaining) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: lorri gc [--json] <info|rm> [options]")
+		fmt.Fprint(os.Stderr, `usage: lorri gc [--json] <info|rm> [options]
+
+subcommands:
+  info  print the gc roots lorri created, and whether their project still exists
+  rm    remove gc roots for projects whose nix file no longer exists
+
+options:
+  --json  machine-readable JSON output
+`)
 		return exitUserError("no gc subcommand given", nil)
 	}
 	switch remaining[0] {
@@ -305,7 +313,11 @@ func runInfo(args []string) error {
 
 func runPrompt(args []string) error {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: lorri prompt <default> [options]")
+		fmt.Fprint(os.Stderr, `usage: lorri prompt <default> [options]
+
+subcommands:
+  default  print 'ℓ' if the current directory is inside a lorri-watched project
+`)
 		return exitUserError("no prompt subcommand given", nil)
 	}
 	switch args[0] {
@@ -336,9 +348,17 @@ func runPromptDefault(args []string) error {
 
 func runInternal(args []string) error {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: lorri internal <subcommand>")
-		fmt.Fprintln(os.Stderr, "  ping_              tell the daemon to watch a project")
-		fmt.Fprintln(os.Stderr, "  stream-events_     stream build events from the daemon")
+		fmt.Fprint(os.Stderr, `usage: lorri internal <subcommand>
+
+These are plumbing commands. They are unstable and intended for scripts
+and integrations, not direct use.
+
+subcommands:
+  ping_            tell the daemon to watch the current project;
+                   starts watching if not already, keeps it alive if so
+  stream-events_   stream build events from the daemon as JSON lines;
+                   intended for scripts (no stability guarantee yet)
+`)
 		return exitUserError("no internal subcommand given", nil)
 	}
 	switch args[0] {
@@ -447,14 +467,17 @@ func findNixFile(name string) (ProjectFile, bool) {
 }
 
 func printUsage() {
-	fmt.Fprintln(os.Stderr, "usage: lorri <subcommand> [options]")
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "subcommands:")
-	fmt.Fprintln(os.Stderr, "  daemon    start the lorri daemon")
-	fmt.Fprintln(os.Stderr, "  direnv    emit shell script for direnv to eval")
-	fmt.Fprintln(os.Stderr, "  gc        manage lorri garbage collection roots")
-	fmt.Fprintln(os.Stderr, "  info      show information about a lorri project")
-	fmt.Fprintln(os.Stderr, "  init      write bootstrap files to current directory")
-	fmt.Fprintln(os.Stderr, "  prompt    generate lorri status markers for shell prompts")
-	fmt.Fprintln(os.Stderr, "  internal  plumbing commands")
+	fmt.Fprint(os.Stderr, `lorri — your project's nix-shell
+
+usage: lorri <subcommand> [options]
+
+subcommands:
+  daemon    start the multi-project daemon
+  direnv    emit shell script for direnv to eval via 'eval "$(lorri direnv)"'
+  gc        remove lorri GC roots for projects whose nix file is gone
+  info      show project and daemon status information
+  init      write bootstrap files to the current directory to start a new project
+  prompt    generate a lorri status marker for inclusion in your shell prompt
+  internal  plumbing commands (unstable)
+`)
 }
