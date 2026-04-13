@@ -12,6 +12,7 @@ import (
 	"crypto/md5" //nolint:gosec // MD5 used for path-keying, not cryptographic security
 	_ "embed"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -129,8 +130,11 @@ func nixFilePathForProject(projectFile ProjectFile) string {
 }
 
 // opDirenv implements `lorri direnv`.
-// Writes the direnv shell script to stdout; all status messages go to stderr.
-func opDirenv(paths *Paths, projectFile ProjectFile) error {
+// Writes the direnv shell script to out; all status messages go to stderr.
+// Accepting an explicit io.Writer for the script output (instead of writing
+// directly to os.Stdout) makes the function testable without mutating the
+// global os.Stdout.
+func opDirenv(out io.Writer, paths *Paths, projectFile ProjectFile) error {
 	if err := checkDirenvVersion(); err != nil {
 		return err
 	}
@@ -153,9 +157,9 @@ func opDirenv(paths *Paths, projectFile ProjectFile) error {
 		fmt.Fprintln(os.Stderr, "lorri: daemon is not running and this project has not yet been evaluated, please run `lorri daemon`")
 	}
 
-	// Write the shell script to stdout.
+	// Write the shell script to out.
 	// Format mirrors the Rust writeln! with r#"..."# (note leading newline).
-	fmt.Printf(
+	fmt.Fprintf(out,
 		"\nEVALUATION_ROOT=%q\n\nwatch_file %q\nwatch_file \"$EVALUATION_ROOT\"\n\n%s\n",
 		string(gcRootPath),
 		string(paths.DaemonSocketFile),

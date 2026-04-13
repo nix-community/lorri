@@ -30,11 +30,10 @@ func opPrompt(includeLeadingSpace bool, paths *Paths) error {
 	}
 	defer conn.Close()
 
-	nix_file, found := isSubdirOfKnownProject(conn, cwd)
+	_, found := isSubdirOfKnownProject(conn, cwd)
 	if !found {
 		return nil
 	}
-	_ = nix_file
 
 	if includeLeadingSpace {
 		fmt.Print(" ℓ")

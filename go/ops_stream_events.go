@@ -10,6 +10,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -31,18 +32,11 @@ const (
 func opStreamEvents(paths *Paths, kind EventKind) error {
 	socketPath := NewSocketPath(paths.DaemonSocketFile)
 
-	// Handle Ctrl-C gracefully — exit 0 like the Rust version (killed by signal).
+	// Handle Ctrl-C gracefully — return nil so the caller can clean up normally.
+	// Mirrors the Rust version which exits 0 on SIGINT.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-sig:
-			os.Exit(0)
-		case <-done:
-		}
-	}()
-	defer close(done)
+	defer signal.Stop(sig) // prevent the channel from leaking after return
 
 	// ── snapshot phase ──────────────────────────────────────────────────────
 	if kind == EventKindSnapshot || kind == EventKindAll {
@@ -55,7 +49,7 @@ func opStreamEvents(paths *Paths, kind EventKind) error {
 	}
 
 	// ── live phase ───────────────────────────────────────────────────────────
-	return streamLive(socketPath)
+	return streamLive(socketPath, sig)
 }
 
 // printSnapshot connects as StreamSnapshot, reads the one-shot snapshot,
@@ -90,7 +84,8 @@ func printSnapshot(socketPath SocketPath) error {
 }
 
 // streamLive connects as StreamEvents and reads events indefinitely.
-func streamLive(socketPath SocketPath) error {
+// It returns nil when the daemon closes the connection or a signal is received.
+func streamLive(socketPath SocketPath, sig <-chan os.Signal) error {
 	// Infinite timeout for the live stream.
 	framing, err := connectClient(socketPath, CommStreamEvents, defaultReadTimeout)
 	if err != nil {
@@ -103,19 +98,39 @@ func streamLive(socketPath SocketPath) error {
 		return fmt.Errorf("stream-events live: send request: %w", err)
 	}
 
-	for {
-		// Decode as raw JSON and write directly — no re-encoding needed since
-		// the daemon already sends the formatted wire shape.
-		var raw json.RawMessage
-		if err := framing.ReadMsg(0, &raw); err != nil {
-			if err == io.EOF {
-				return nil // daemon closed connection
+	// Read events in a background goroutine so we can also select on sig.
+	type readResult struct {
+		raw json.RawMessage
+		err error
+	}
+	readCh := make(chan readResult, 1)
+	go func() {
+		for {
+			var raw json.RawMessage
+			err := framing.ReadMsg(0, &raw)
+			readCh <- readResult{raw, err}
+			if err != nil {
+				return
 			}
-			return fmt.Errorf("stream-events live: read: %w", err)
 		}
-		line := append([]byte(raw), '\n')
-		if _, err := os.Stdout.Write(line); err != nil {
-			return err
+	}()
+
+	for {
+		select {
+		case <-sig:
+			// SIGINT/SIGTERM — exit cleanly, mirroring Rust's exit(0).
+			return nil
+		case r := <-readCh:
+			if r.err != nil {
+				if errors.Is(r.err, io.EOF) {
+					return nil // daemon closed connection
+				}
+				return fmt.Errorf("stream-events live: read: %w", r.err)
+			}
+			line := append([]byte(r.raw), '\n')
+			if _, err := os.Stdout.Write(line); err != nil {
+				return err
+			}
 		}
 	}
 }

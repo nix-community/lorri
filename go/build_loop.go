@@ -7,6 +7,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -260,9 +261,10 @@ func (bl *BuildLoop) Once() (BuildOutputPath, error) {
 func (bl *BuildLoop) Forever(txEvents chan<- LoopHandlerEvent, rxPing <-chan struct{}) {
 	// buildResultCh is nil (never fires in select) when no build is running,
 	// and set to a real channel when a build goroutine is active.
-	// This is the idiomatic Go replacement for Rust's pending() future.
+	// A nil channel blocks forever in select, so it acts as the "not building"
+	// sentinel — no need for a separate isBuilding bool.
+	// Mirrors BuildLoop::forever() in src/build_loop.rs.
 	var buildResultCh <-chan buildResult
-	isBuilding := false
 	scheduled := false
 
 	sendEvent := func(ev Event) {
@@ -272,7 +274,6 @@ func (bl *BuildLoop) Forever(txEvents chan<- LoopHandlerEvent, rxPing <-chan str
 	startBuild := func() {
 		ch := make(chan buildResult, 1)
 		buildResultCh = ch
-		isBuilding = true
 		go runBuild(bl.cfg, ch)
 	}
 
@@ -282,11 +283,9 @@ func (bl *BuildLoop) Forever(txEvents chan<- LoopHandlerEvent, rxPing <-chan str
 			if !ok {
 				// Should not happen since we use buffered channels, but be safe.
 				buildResultCh = nil
-				isBuilding = false
 				continue
 			}
 			buildResultCh = nil
-			isBuilding = false
 
 			// If another build was scheduled while this one ran, start it now.
 			if scheduled {
@@ -297,8 +296,8 @@ func (bl *BuildLoop) Forever(txEvents chan<- LoopHandlerEvent, rxPing <-chan str
 			// Process the build result.
 			outPath, err := bl.handleRunResult(res)
 			if err != nil {
-				be := err.(*BuildError)
-				if be.Kind == BuildErrorKindIo {
+				var be *BuildError
+				if errors.As(err, &be) && be.Kind == BuildErrorKindIo {
 					// Unrecoverable I/O error — panic like Rust does.
 					panic(fmt.Sprintf("unrecoverable build error: %v", err))
 				}
@@ -332,7 +331,7 @@ func (bl *BuildLoop) Forever(txEvents chan<- LoopHandlerEvent, rxPing <-chan str
 					Reason:  reasonFilesChanged(changed),
 				},
 			})
-			if isBuilding {
+			if buildResultCh != nil {
 				scheduled = true
 			} else {
 				startBuild()
@@ -349,7 +348,7 @@ func (bl *BuildLoop) Forever(txEvents chan<- LoopHandlerEvent, rxPing <-chan str
 					Reason:  reasonPingReceived(),
 				},
 			})
-			if isBuilding {
+			if buildResultCh != nil {
 				scheduled = true
 			} else {
 				startBuild()
@@ -377,7 +376,7 @@ func (bl *BuildLoop) handleRunResult(res buildResult) (BuildOutputPath, error) {
 	if err := createGCRoot(storePath, symlinkPath); err != nil {
 		// Non-fatal: the build succeeded, we just might lose the output to GC.
 		// Log and continue (mirrors Rust's soft error handling here).
-		_ = err
+		log.Printf("createGCRoot: non-fatal, build output may be GC'd: %v", err)
 	}
 
 	// Transfer ownership: the RootedPath temp dir can now be released because

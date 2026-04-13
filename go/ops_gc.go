@@ -148,24 +148,36 @@ func opGCInfo(paths *Paths, jsonOutput bool) error {
 	return nil
 }
 
+// wireTimestamp mirrors Rust's SystemTime serde serialization default:
+// {"secs_since_epoch": N, "nanos_since_epoch": N}.
+type wireTimestamp struct {
+	Secs  int64 `json:"secs_since_epoch"`
+	Nanos int64 `json:"nanos_since_epoch"`
+}
+
+func toWireTimestamp(t *time.Time) *wireTimestamp {
+	if t == nil {
+		return nil
+	}
+	return &wireTimestamp{
+		Secs:  t.Unix(),
+		Nanos: int64(t.Nanosecond()),
+	}
+}
+
 func writeGCInfoJSON(infos []GCRootInfo) error {
 	type jsonRoot struct {
-		GCDir     string `json:"gc_dir"`
-		NixFile   string `json:"nix_file"`
-		Timestamp *int64 `json:"timestamp"`
-		Alive     bool   `json:"alive"`
+		GCDir     string         `json:"gc_dir"`
+		NixFile   string         `json:"nix_file"`
+		Timestamp *wireTimestamp `json:"timestamp"`
+		Alive     bool           `json:"alive"`
 	}
 	out := make([]jsonRoot, len(infos))
 	for i, info := range infos {
-		var ts *int64
-		if info.Timestamp != nil {
-			u := info.Timestamp.Unix()
-			ts = &u
-		}
 		out[i] = jsonRoot{
 			GCDir:     info.GCDir,
 			NixFile:   info.NixFile,
-			Timestamp: ts,
+			Timestamp: toWireTimestamp(info.Timestamp),
 			Alive:     info.ProjectExists,
 		}
 	}
@@ -181,23 +193,16 @@ type GCRmOptions struct {
 	JSON       bool
 }
 
-// opGCRm removes GC roots matching the given criteria.
-func opGCRm(paths *Paths, opts GCRmOptions) error {
-	infos, err := listGCRoots(paths)
-	if err != nil {
-		return err
-	}
-
+// gcFilterRoots returns the subset of infos that should be removed given opts.
+// Extracted from opGCRm so tests can call it directly.
+func gcFilterRoots(infos []GCRootInfo, opts GCRmOptions) []GCRootInfo {
 	shellFileSet := make(map[string]bool, len(opts.ShellFiles))
 	for _, f := range opts.ShellFiles {
-		abs, err := NewAbsPathFromCwd(f)
-		if err != nil {
-			return fmt.Errorf("--shell-file: %w", err)
+		if abs, err := NewAbsPathFromCwd(f); err == nil {
+			shellFileSet[abs.String()] = true
 		}
-		shellFileSet[abs.String()] = true
 	}
 
-	// Filter roots to remove.
 	var toRemove []GCRootInfo
 	for _, info := range infos {
 		if opts.All {
@@ -219,11 +224,37 @@ func opGCRm(paths *Paths, opts GCRmOptions) error {
 			}
 		}
 		if opts.OlderThan != nil && info.Timestamp == nil {
-			// No timestamp → assume old; remove.
 			toRemove = append(toRemove, info)
-			continue
 		}
 	}
+	return toRemove
+}
+
+// opGCRm removes GC roots matching the given criteria.
+func opGCRm(paths *Paths, opts GCRmOptions) error {
+	infos, err := listGCRoots(paths)
+	if err != nil {
+		return err
+	}
+
+	// Resolve --shell-file paths before filtering (needs error handling).
+	shellFileSet := make(map[string]bool, len(opts.ShellFiles))
+	for _, f := range opts.ShellFiles {
+		abs, err := NewAbsPathFromCwd(f)
+		if err != nil {
+			return fmt.Errorf("--shell-file: %w", err)
+		}
+		shellFileSet[abs.String()] = true
+	}
+
+	// opts.ShellFiles are already resolved into shellFileSet above;
+	// pass them as absolute paths to gcFilterRoots.
+	resolvedOpts := opts
+	resolvedOpts.ShellFiles = make([]string, 0, len(shellFileSet))
+	for k := range shellFileSet {
+		resolvedOpts.ShellFiles = append(resolvedOpts.ShellFiles, k)
+	}
+	toRemove := gcFilterRoots(infos, resolvedOpts)
 
 	if opts.DryRun {
 		if len(toRemove) == 0 {
@@ -260,27 +291,32 @@ func opGCRm(paths *Paths, opts GCRmOptions) error {
 	}
 
 	if opts.JSON {
-		var out []map[string]any
-		for _, r := range results {
-			var ts *int64
-			if r.info.Timestamp != nil {
-				u := r.info.Timestamp.Unix()
-				ts = &u
-			}
-			entry := map[string]any{
-				"root": map[string]any{
-					"gc_dir":    r.info.GCDir,
-					"nix_file":  r.info.NixFile,
-					"timestamp": ts,
-					"alive":     r.info.ProjectExists,
-				},
-			}
+		type jsonRmRoot struct {
+			GCDir     string         `json:"gc_dir"`
+			NixFile   string         `json:"nix_file"`
+			Timestamp *wireTimestamp `json:"timestamp"`
+			Alive     bool           `json:"alive"`
+		}
+		type jsonRmEntry struct {
+			Root  jsonRmRoot `json:"root"`
+			Error *string    `json:"error"`
+		}
+		out := make([]jsonRmEntry, len(results))
+		for i, r := range results {
+			var errStr *string
 			if r.err != nil {
-				entry["error"] = r.err.Error()
-			} else {
-				entry["error"] = nil
+				s := r.err.Error()
+				errStr = &s
 			}
-			out = append(out, entry)
+			out[i] = jsonRmEntry{
+				Root: jsonRmRoot{
+					GCDir:     r.info.GCDir,
+					NixFile:   r.info.NixFile,
+					Timestamp: toWireTimestamp(r.info.Timestamp),
+					Alive:     r.info.ProjectExists,
+				},
+				Error: errStr,
+			}
 		}
 		return json.NewEncoder(os.Stdout).Encode(out)
 	}
