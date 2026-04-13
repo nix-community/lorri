@@ -13,10 +13,10 @@ import (
 	"testing"
 )
 
-// lorriRoot returns the repository root (parent of the go/ directory).
+// lorriRoot returns the repository root.
 func lorriRoot() string {
-	// The test binary runs in go/, so .. is the repo root.
-	abs, err := filepath.Abs("..")
+	// The test binary runs from the repo root (module root).
+	abs, err := filepath.Abs(".")
 	if err != nil {
 		panic(err)
 	}
