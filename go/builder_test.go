@@ -13,14 +13,11 @@ func TestInstantiateAndBuild(t *testing.T) {
 		t.Skip("RUN_TIME_CLOSURE not set — run from lorri nix-shell")
 	}
 
-	cas, err := NewCAS(mustAbsPath(os.TempDir() + "/lorri-test-cas"))
-	if err != nil {
-		t.Fatalf("cas: %v", err)
-	}
+	loggedEvalFile := writeLoggedEvalForTest(t, t.TempDir())
 
 	result, err := InstantiateAndBuild(
 		filepath.Join(lorriRoot(), "shell.nix"),
-		cas,
+		loggedEvalFile,
 		NixOptions{},
 		rtc,
 	)

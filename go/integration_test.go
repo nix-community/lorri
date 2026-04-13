@@ -23,6 +23,17 @@ func lorriRoot() string {
 	return abs
 }
 
+// writeLoggedEvalForTest writes loggedEvaluationNix to dir/logged-evaluation.nix
+// and returns the path. Fatals on error.
+func writeLoggedEvalForTest(t *testing.T, dir string) AbsPath {
+	t.Helper()
+	p := mustAbsPath(filepath.Join(dir, "logged-evaluation.nix"))
+	if err := writeFileIfChanged(string(p), loggedEvaluationNix, 0o644); err != nil {
+		t.Fatalf("writeLoggedEvalForTest: %v", err)
+	}
+	return p
+}
+
 // TestIntegrationBasicFlake builds tests/integration/basic-flake/ via BuildFlake.
 func TestIntegrationBasicFlake(t *testing.T) {
 	rtc := os.Getenv("RUN_TIME_CLOSURE")
