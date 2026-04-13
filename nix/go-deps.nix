@@ -111,6 +111,29 @@ rec {
     };
   };
 
+  # github.com/mattn/go-isatty - Check if fd is a terminal (needed by modernc-libc on Darwin)
+  mattn-go-isatty = buildGo.external {
+    path = "github.com/mattn/go-isatty";
+    src = pkgs.fetchFromGitHub {
+      owner = "mattn";
+      repo = "go-isatty";
+      rev = "v0.0.20";
+      sha256 = "0g63n9wpb991qnq9mn2kvd8jk1glrp6gnd851kvwz2wmzdkggiga";
+    };
+    deps = [ golang-x-sys-unix ];
+  };
+
+  # github.com/ncruces/go-strftime - strftime for Go (needed by modernc-libc on Darwin)
+  ncruces-go-strftime = buildGo.external {
+    path = "github.com/ncruces/go-strftime";
+    src = pkgs.fetchFromGitHub {
+      owner = "ncruces";
+      repo = "go-strftime";
+      rev = "v1.0.0";
+      sha256 = "052lbj0kam3wywlaf192g9bys1hx0bl1402d9krgzfld6dh310hr";
+    };
+  };
+
   # github.com/dustin/go-humanize - Humanize values (filesizes, times, etc)
   dustin-go-humanize = buildGo.external {
     path = "github.com/dustin/go-humanize";
@@ -177,6 +200,8 @@ rec {
       golang-x-exp.constraints
       modernc-mathutil
       modernc-memory
+      mattn-go-isatty
+      ncruces-go-strftime
     ];
   };
 
