@@ -14,14 +14,12 @@ buildGo.program {
   x_defs."main.runtimeClosure" = "${rtc}";
 
   srcs = [
-    ./runtime_closure.go  # var runtimeClosure + requireRTC() — must come first
     ./main.go
     ./abspath.go
     ./paths.go
-    ./cas.go
-    ./socket_framing.go
-    ./socket_path.go
+    ./panic.go
     ./communicate.go
+    ./socket.go
     ./ops_ping.go
     ./ops_stream_events.go
     ./ops_direnv.go
@@ -39,8 +37,6 @@ buildGo.program {
     ./default-envrc
     ./ops_info.go
     ./ops_gc.go
-    ./ops_watch.go
-    ./ops_shell.go
     ./ops_prompt.go
   ];
 

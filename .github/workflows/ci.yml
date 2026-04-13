@@ -1,76 +1,59 @@
 name: CI
-"on":
+on:
   pull_request:
-    branches:
-      - '**'
+    branches: ["**"]
   push:
-    branches:
-      - master
+    branches: [master]
   workflow_dispatch: {}
-env:
-  LORRI_NO_INSTALL_PANIC_HANDLER: absolutely
 jobs:
-  j01-go-test-ubuntu-latest:
+  go-test-ubuntu:
     name: Go tests (ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Nix
-        uses: cachix/install-nix-action@v26
-      - name: Cachix
-        uses: cachix/cachix-action@v14
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31.10.4
+      - uses: cachix/cachix-action@v17
         with:
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           name: nix-community
-      - name: Run CI tests
-        run: |
-          nix develop --command go run ./cmd/ci test
-  j02-nix-build-ubuntu-latest:
-    name: nix build (ubuntu-latest)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Nix
-        uses: cachix/install-nix-action@v26
-      - name: Cachix
-        uses: cachix/cachix-action@v14
-        with:
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          name: nix-community
-      - name: Build
-        run: |
-          nix build
-  j11-go-test-macos-latest:
+      - name: Run tests
+        run: nix develop .#ci --command go test ./...
+
+  go-test-macos:
     name: Go tests (macos-latest)
     runs-on: macos-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Nix
-        uses: cachix/install-nix-action@v26
-      - name: Cachix
-        uses: cachix/cachix-action@v14
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31.10.4
+      - uses: cachix/cachix-action@v17
         with:
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           name: nix-community
-      - name: Run CI tests
-        run: |
-          nix develop --command go run ./cmd/ci test
-  j12-nix-build-macos-latest:
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Run tests
+        run: nix develop .#ci --command go test ./...
+
+  nix-build-ubuntu:
+    name: nix build (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31.10.4
+      - uses: cachix/cachix-action@v17
+        with:
+          name: nix-community
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Build
+        run: nix build
+
+  nix-build-macos:
     name: nix build (macos-latest)
     runs-on: macos-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Nix
-        uses: cachix/install-nix-action@v26
-      - name: Cachix
-        uses: cachix/cachix-action@v14
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31.10.4
+      - uses: cachix/cachix-action@v17
         with:
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           name: nix-community
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Build
-        run: |
-          nix build
+        run: nix build
