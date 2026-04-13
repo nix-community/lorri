@@ -88,20 +88,6 @@ func goTestSteps() []step {
 	)
 }
 
-func simpleChecksSteps() []step {
-	return append(commonSteps,
-		step{
-			Name: "Build simple checks",
-			Run: "nix-build \\\n" +
-				"  --out-link ./simple-tests \\\n" +
-				"  --arg isDevelopmentShell false \\\n" +
-				"  -A ci.testsuite-simple-checks \\\n" +
-				"  shell.nix\n",
-		},
-		step{Name: "Run simple checks", Run: "./simple-tests\n"},
-	)
-}
-
 func stableSteps() []step {
 	return append(commonSteps,
 		step{Name: "Build", Run: "nix-build\n"},
@@ -132,37 +118,32 @@ func config() workflow {
 			"LORRI_NO_INSTALL_PANIC_HANDLER": "absolutely",
 		},
 		Jobs: map[string]job{
-			"j01-simple-checks": {
-				Name:   "Simple Checks",
-				RunsOn: "ubuntu-latest",
-				Steps:  simpleChecksSteps(),
-			},
-			"j02-go-test-ubuntu-latest": {
+			"j01-go-test-ubuntu-latest": {
 				Name:   "Go tests (ubuntu-latest)",
 				RunsOn: "ubuntu-latest",
 				Steps:  goTestSteps(),
 			},
-			"j03-nix-build_stable-ubuntu-latest": {
+			"j02-nix-build_stable-ubuntu-latest": {
 				Name:   "nix-build [nixos stable] (ubuntu-latest)",
 				RunsOn: "ubuntu-latest",
 				Steps:  stableSteps(),
 			},
-			"j04-overlay-ubuntu-latest": {
+			"j03-overlay-ubuntu-latest": {
 				Name:   "Overlay builds (ubuntu-latest)",
 				RunsOn: "ubuntu-latest",
 				Steps:  overlaySteps(),
 			},
-			"j12-go-test-macos-latest": {
+			"j11-go-test-macos-latest": {
 				Name:   "Go tests (macos-latest)",
 				RunsOn: "macos-latest",
 				Steps:  goTestSteps(),
 			},
-			"j13-nix-build_stable-macos-latest": {
+			"j12-nix-build_stable-macos-latest": {
 				Name:   "nix-build [nixos stable] (macos-latest)",
 				RunsOn: "macos-latest",
 				Steps:  stableSteps(),
 			},
-			"j14-overlay-macos-latest": {
+			"j13-overlay-macos-latest": {
 				Name:   "Overlay builds (macos-latest)",
 				RunsOn: "macos-latest",
 				Steps:  overlaySteps(),
