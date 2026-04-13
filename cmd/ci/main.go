@@ -1,10 +1,14 @@
-// cmd/ci generates .github/workflows/ci.json.
+// cmd/ci generates .github/workflows/ci.yml.
+//
+// It builds the workflow config as Go structs, marshals to JSON via
+// encoding/json, then converts to YAML by piping through `yj -jy`.
+// yj must be on PATH (available in the lorri nix-shell).
 //
 // Usage:
 //
-//	go run ./cmd/ci                         # writes ci.json in place
-//	go run ./cmd/ci --check                 # exits non-zero if ci.json is stale
-//	go run ./cmd/ci --out /path/to/ci.json  # write to a specific path
+//	go run ./cmd/ci                         # writes ci.yml in place
+//	go run ./cmd/ci --check                 # exits non-zero if ci.yml is stale
+//	go run ./cmd/ci --out /path/to/ci.yml   # write to a specific path
 package main
 
 import (
@@ -13,6 +17,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 )
@@ -154,12 +159,21 @@ func config() workflow {
 
 // ── generate ─────────────────────────────────────────────────────────────────
 
+// generate marshals the workflow config to JSON then converts it to YAML
+// by piping through `yj -jy`.
 func generate() ([]byte, error) {
-	out, err := json.MarshalIndent(config(), "", "  ")
+	jsonBytes, err := json.Marshal(config())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshal: %w", err)
 	}
-	return append(out, '\n'), nil
+
+	cmd := exec.Command("yj", "-jy")
+	cmd.Stdin = bytes.NewReader(jsonBytes)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("yj: %w", err)
+	}
+	return out, nil
 }
 
 // ── main ─────────────────────────────────────────────────────────────────────
@@ -167,17 +181,17 @@ func generate() ([]byte, error) {
 func main() {
 	var outPath string
 	var check bool
-	flag.StringVar(&outPath, "out", "", "path to write ci.json (default: .github/workflows/ci.json in repo root)")
-	flag.BoolVar(&check, "check", false, "check that ci.json is up to date instead of writing it")
+	flag.StringVar(&outPath, "out", "", "path to write ci.yml (default: .github/workflows/ci.yml in repo root)")
+	flag.BoolVar(&check, "check", false, "check that ci.yml is up to date instead of writing it")
 	flag.Parse()
 
 	if outPath == "" {
-		outPath = filepath.Join(repoRoot(), ".github", "workflows", "ci.json")
+		outPath = filepath.Join(repoRoot(), ".github", "workflows", "ci.yml")
 	}
 
 	content, err := generate()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ci: marshal error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ci: %v\n", err)
 		os.Exit(1)
 	}
 

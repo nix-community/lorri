@@ -14,6 +14,7 @@ let
       // getBins pkgs.bats [ "bats" ]
       // getBins pkgs.coreutils [ "test" "echo" "cat" "mkdir" "mv" "touch" ]
       // getBins pkgs.go [ "go" ]
+      // getBins pkgs.yj [ "yj" ]
       ;
 
   inherit (import ./sandbox.nix { inherit pkgs writeExecline; })
@@ -40,10 +41,10 @@ let
 
     ci-script = offlineCheck.test {
       name = "lint-ci-script";
-      description = "check ci.json is up to date";
+      description = "check ci.yml is up to date";
       test = { ok, err }:
         writeExecline "ci-script" {}
-          (pathPrependBins [ pkgs.go ]
+          (pathPrependBins [ pkgs.go pkgs.yj ]
           ++ [
             "cd" LORRI_ROOT
             "ifelse" [ bins.go "run" "./cmd/ci" "--check" ]
