@@ -1,0 +1,2 @@
+Subdirectories of this folder should not be imported since they are
+internal to buildGo.nix and incompatible with readTree.

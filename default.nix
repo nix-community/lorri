@@ -17,68 +17,84 @@ let
       }
     ).rootCrate.build;
 
-in
-cargoLorri.override {
-  crateOverrides = pkgs.defaultCrateOverrides // {
-    lorri = attrs: {
-      name = "lorri";
+  # Go rewrite of lorri. Exposed via rustLorri.passthru.go.
+  # nix-build -A passthru.go
+  goLorri = import ./go/default.nix { inherit pkgs; };
 
-      src = pkgs.nix-gitignore.gitignoreSource  [ ".git" "target" "/*.nix" ] ./.;
+  rustLorri = cargoLorri.override {
+    crateOverrides = pkgs.defaultCrateOverrides // {
+      lorri = attrs: {
+        name = "lorri";
 
-      # add man and doc outputs to put our documentation into
-      outputs = cargoLorri.outputs ++ [ "man" "doc" ];
+        src = pkgs.nix-gitignore.gitignoreSource  [ ".git" "target" "/*.nix" ] ./.;
 
-      RUN_TIME_CLOSURE = pkgs.callPackage ./nix/runtime.nix {};
-      NIX_PATH = "nixpkgs=${./nix/bogus-nixpkgs}";
+        # add man and doc outputs to put our documentation into
+        outputs = cargoLorri.outputs ++ [ "man" "doc" ];
 
-      # required by human-panic, because the nix generator doesn’t
-      # set the cargo environment variables correctly
-      # (TODO: does crate2nix do it? carnix didn’t.)
-      # see https://doc.rust-lang.org/cargo/reference/environment-variables.html
-      homepage = "https://github.com/nix-community/lorri";
+        RUN_TIME_CLOSURE = pkgs.callPackage ./nix/runtime.nix {};
+        NIX_PATH = "nixpkgs=${./nix/bogus-nixpkgs}";
 
-      preConfigure = ''
-        . ${./nix/pre-check.sh}
+        # required by human-panic, because the nix generator doesn't
+        # set the cargo environment variables correctly
+        # (TODO: does crate2nix do it? carnix didn't.)
+        # see https://doc.rust-lang.org/cargo/reference/environment-variables.html
+        homepage = "https://github.com/nix-community/lorri";
 
-        # Do an immediate, light-weight test to ensure logged-evaluation
-        # is valid, prior to doing expensive compilations.
-        nix-build --show-trace ./src/logged-evaluation.nix \
-          --arg src ./tests/integration/basic/shell.nix \
-          --arg runTimeClosure "$RUN_TIME_CLOSURE" \
-          --no-out-link
-      '';
+        preConfigure = ''
+          . ${./nix/pre-check.sh}
 
-      buildInputs = [
-        pkgs.nix # required for the preConfigure test
-        pkgs.rustPackages.rustfmt
-      ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
-        pkgs.darwin.Security
-        pkgs.darwin.apple_sdk.frameworks.CoreServices
-        pkgs.libiconv
-      ];
-      nativeBuildInputs = [ pkgs.installShellFiles ];
+          # Do an immediate, light-weight test to ensure logged-evaluation
+          # is valid, prior to doing expensive compilations.
+          nix-build --show-trace ./src/logged-evaluation.nix \
+            --arg src ./tests/integration/basic/shell.nix \
+            --arg runTimeClosure "$RUN_TIME_CLOSURE" \
+            --no-out-link
+        '';
 
-      postInstall = ''
-        # copy the docs to the $man and $doc outputs
-        ${pkgs.scdoc}/bin/scdoc < lorri.scd > lorri.1
-        install -Dm644 lorri.1 $man/share/man/man1/lorri.1
-        install -Dm644 -t $doc/share/doc/lorri/ \
-          README.md \
-          CONTRIBUTING.md \
-          LICENSE \
-          MAINTAINERS.md
-        cp -r contrib/ $doc/share/doc/lorri/contrib
+        buildInputs = [
+          pkgs.nix # required for the preConfigure test
+          pkgs.rustPackages.rustfmt
+        ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+          pkgs.darwin.Security
+          pkgs.darwin.apple_sdk.frameworks.CoreServices
+          pkgs.libiconv
+        ];
+        nativeBuildInputs = [ pkgs.installShellFiles ];
 
-        # install shell completions via the internal command
-        mkdir out-completions
-        cd out-completions
-        $out/bin/lorri internal write-shell-completion-scripts
-        echo installing shell completions for ./*
+        postInstall = ''
+          # copy the docs to the $man and $doc outputs
+          ${pkgs.scdoc}/bin/scdoc < lorri.scd > lorri.1
+          install -Dm644 lorri.1 $man/share/man/man1/lorri.1
+          install -Dm644 -t $doc/share/doc/lorri/ \
+            README.md \
+            CONTRIBUTING.md \
+            LICENSE \
+            MAINTAINERS.md
+          cp -r contrib/ $doc/share/doc/lorri/contrib
 
-        # || true because installShellCompletion is buggy as hell and I don’t care
-        # (also it only supports bash/zsh/fish and not e.g. elvish, even though clap_completion does)
-        installShellCompletion ./* || true
-      '';
+          # install shell completions via the internal command
+          mkdir out-completions
+          cd out-completions
+          # work around /homeless-shelter not being writable on darwin nix builds
+          export HOME=$(pwd)
+          $out/bin/lorri internal write-shell-completion-scripts
+          echo installing shell completions for ./*
+
+          # || true because installShellCompletion is buggy as hell and I don't care
+          # (also it only supports bash/zsh/fish and not e.g. elvish, even though clap_completion does)
+          installShellCompletion ./* || true
+        '';
+
+        passthru = {
+          # The Go rewrite, accessible via:
+          #   nix-build -A passthru.go
+          go = goLorri;
+        };
+      };
     };
   };
-}
+
+in
+# nix-build → Rust lorri (default, unchanged)
+# nix-build -A passthru.go → Go lorri
+rustLorri
