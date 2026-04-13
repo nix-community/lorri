@@ -95,9 +95,13 @@ func goTestSteps() []step {
 	)
 }
 
+func pinNixPath() string {
+	return "NIX_PATH=\"nixpkgs=$(nix-build ./nix/nixpkgs-stable.nix --no-out-link)\""
+}
+
 func stableSteps() []step {
 	return append(commonSteps,
-		step{Name: "Build", Run: "nix-build\n"},
+		step{Name: "Build", Run: pinNixPath() + " nix-build\n"},
 		step{Name: "Install", Run: "nix-env -i ./result\n"},
 	)
 }
@@ -106,7 +110,7 @@ func overlaySteps() []step {
 	return append(commonSteps,
 		step{
 			Name: "Build w/ overlay (stable)",
-			Run:  "nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json\n",
+			Run:  pinNixPath() + " nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json\n",
 		},
 	)
 }

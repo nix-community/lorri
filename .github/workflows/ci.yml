@@ -42,7 +42,7 @@ jobs:
           name: nix-community
       - name: Build
         run: |
-          nix-build
+          NIX_PATH="nixpkgs=$(nix-build ./nix/nixpkgs-stable.nix --no-out-link)" nix-build
       - name: Install
         run: |
           nix-env -i ./result
@@ -61,7 +61,7 @@ jobs:
           name: nix-community
       - name: Build w/ overlay (stable)
         run: |
-          nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
+          NIX_PATH="nixpkgs=$(nix-build ./nix/nixpkgs-stable.nix --no-out-link)" nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
   j11-go-test-macos-latest:
     name: Go tests (macos-latest)
     runs-on: macos-latest
@@ -94,7 +94,7 @@ jobs:
           name: nix-community
       - name: Build
         run: |
-          nix-build
+          NIX_PATH="nixpkgs=$(nix-build ./nix/nixpkgs-stable.nix --no-out-link)" nix-build
       - name: Install
         run: |
           nix-env -i ./result
@@ -113,4 +113,4 @@ jobs:
           name: nix-community
       - name: Build w/ overlay (stable)
         run: |
-          nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
+          NIX_PATH="nixpkgs=$(nix-build ./nix/nixpkgs-stable.nix --no-out-link)" nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
