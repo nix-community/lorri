@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -99,38 +100,25 @@ func listGCRoots(paths *Paths) ([]GCRootInfo, error) {
 
 	// Sort most-recently-built last (mirrors ListRootsSort::MoreRecentLast).
 	// Entries with no timestamp sort first.
-	sortGCRootInfos(infos)
-	return infos, nil
-}
-
-func sortGCRootInfos(infos []GCRootInfo) {
-	// Simple insertion sort — lists are short.
-	for i := 1; i < len(infos); i++ {
-		for j := i; j > 0; j-- {
-			if gcRootInfoLess(infos[j-1], infos[j]) {
-				break
-			}
-			infos[j-1], infos[j] = infos[j], infos[j-1]
+	sort.Slice(infos, func(i, j int) bool {
+		a, b := infos[i], infos[j]
+		// nil timestamp sorts first (oldest).
+		if a.Timestamp == nil && b.Timestamp == nil {
+			return a.NixFile < b.NixFile
 		}
-	}
-}
-
-func gcRootInfoLess(a, b GCRootInfo) bool {
-	// nil timestamp sorts first (oldest).
-	if a.Timestamp == nil && b.Timestamp == nil {
+		if a.Timestamp == nil {
+			return true
+		}
+		if b.Timestamp == nil {
+			return false
+		}
+		// More recent = larger time = sorts last.
+		if !a.Timestamp.Equal(*b.Timestamp) {
+			return a.Timestamp.Before(*b.Timestamp)
+		}
 		return a.NixFile < b.NixFile
-	}
-	if a.Timestamp == nil {
-		return true
-	}
-	if b.Timestamp == nil {
-		return false
-	}
-	// More recent = larger time = sorts last.
-	if !a.Timestamp.Equal(*b.Timestamp) {
-		return a.Timestamp.Before(*b.Timestamp)
-	}
-	return a.NixFile < b.NixFile
+	})
+	return infos, nil
 }
 
 // opGCInfo lists GC roots, optionally as JSON.

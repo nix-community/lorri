@@ -11,7 +11,6 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
-	"strings"
 )
 
 // lorriVersion is set at build time via -ldflags "-X main.lorriVersion=<ver>".
@@ -173,14 +172,4 @@ func exitEnvironment(msg string, cause error) *ExitError {
 // exitMissing wraps err as a missing-executable error (exit 127).
 func exitMissing(msg string, cause error) *ExitError {
 	return &ExitError{Code: ExitCodeMissing, Msg: msg, Cause: cause}
-}
-
-// isMissingExec returns true if err represents an "executable not found" error
-// (exec.ErrNotFound or a PATH-search failure), suitable for exitMissing.
-func isMissingExec(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(err.Error(), "executable file not found") ||
-		strings.Contains(err.Error(), "no such file or directory")
 }

@@ -9,13 +9,11 @@ package main
 // Stdout is the shell script; all logging goes to stderr.
 
 import (
-	"crypto/md5" //nolint:gosec // MD5 used for path-keying, not cryptographic security
 	_ "embed"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 )
 
@@ -26,7 +24,7 @@ import (
 var envrcBash string
 
 // minDirenvVersion is the minimum direnv version lorri requires.
-const minDirenvMajor, minDirenvMinor, minDirenvPatch = 2, 19, 2
+var minDirenvVersion = direnvVersion{2, 19, 2}
 
 // direnvVersion is a parsed semantic version triple.
 type direnvVersion struct {
@@ -35,30 +33,11 @@ type direnvVersion struct {
 
 // parseDirenvVersion parses "major.minor.patch", e.g. "2.19.2".
 func parseDirenvVersion(s string) (direnvVersion, error) {
-	parts := strings.Split(strings.TrimSpace(s), ".")
-	if len(parts) != 3 {
-		return direnvVersion{}, fmt.Errorf("expected major.minor.patch, got %q", s)
+	var v direnvVersion
+	if _, err := fmt.Sscanf(strings.TrimSpace(s), "%d.%d.%d", &v.major, &v.minor, &v.patch); err != nil {
+		return direnvVersion{}, fmt.Errorf("expected major.minor.patch, got %q: %w", s, err)
 	}
-	parse := func(p string) (int, error) {
-		n, err := strconv.Atoi(p)
-		if err != nil {
-			return 0, fmt.Errorf("not an integer: %q", p)
-		}
-		return n, nil
-	}
-	major, err := parse(parts[0])
-	if err != nil {
-		return direnvVersion{}, err
-	}
-	minor, err := parse(parts[1])
-	if err != nil {
-		return direnvVersion{}, err
-	}
-	patch, err := parse(parts[2])
-	if err != nil {
-		return direnvVersion{}, err
-	}
-	return direnvVersion{major, minor, patch}, nil
+	return v, nil
 }
 
 func (v direnvVersion) String() string {
@@ -91,42 +70,13 @@ func checkDirenvVersion() error {
 		return fmt.Errorf("could not figure out the current `direnv` version (parse error): %w", err)
 	}
 
-	min := direnvVersion{minDirenvMajor, minDirenvMinor, minDirenvPatch}
-	if ver.lt(min) {
+	if ver.lt(minDirenvVersion) {
 		return fmt.Errorf(
 			"`direnv` is version %s, but >= %s is required for lorri to function",
-			ver, min,
+			ver, minDirenvVersion,
 		)
 	}
 	return nil
-}
-
-// gcRootPathForProject computes the shell GC root path for a project.
-// Mirrors project.rs Project::new_internal + Project::shell_gc_root:
-//
-//	hash = md5(nixFilePath bytes)
-//	path = <gcRootDir>/<hexhash>/gc_root/shell_gc_root
-func gcRootPathForProject(gcRootDir AbsPath, projectFile ProjectFile) AbsPath {
-	nixFilePath := nixFilePathForProject(projectFile)
-	//nolint:gosec // MD5 for path-keying only
-	hash := md5.Sum([]byte(nixFilePath))
-	hexHash := fmt.Sprintf("%x", hash)
-	return gcRootDir.Join(hexHash, "gc_root", "shell_gc_root")
-}
-
-// nixFilePathForProject returns the nix file path string used for hashing.
-// Mirrors ProjectFile::as_absolute_path() → as_nix_file() in Rust:
-//
-//	ShellNix(path)         → path
-//	FlakeNix{context, ...} → context/flake.nix
-func nixFilePathForProject(projectFile ProjectFile) string {
-	if projectFile.ShellNix != nil {
-		return projectFile.ShellNix.path
-	}
-	if projectFile.FlakeNix != nil {
-		return AbsPath(projectFile.FlakeNix.Context).Join("flake.nix").String()
-	}
-	panic("ProjectFile has neither ShellNix nor FlakeNix set")
 }
 
 // opDirenv implements `lorri direnv`.
@@ -172,10 +122,4 @@ func opDirenv(out io.Writer, paths *Paths, projectFile ProjectFile) error {
 	}
 
 	return nil
-}
-
-// fileExists reports whether path exists (as any filesystem object).
-func fileExists(path string) bool {
-	_, err := os.Lstat(path)
-	return err == nil
 }

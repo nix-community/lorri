@@ -44,7 +44,7 @@ func TestEnvrcBashSetsPath(t *testing.T) {
 	}
 
 	// Build the environment — this is the same call opShell makes internally.
-	result, err := InstantiateAndBuild(nixFile, cas, EmptyNixOptions(), rtc)
+	result, err := InstantiateAndBuild(nixFile, cas, NixOptions{}, rtc)
 	if err != nil {
 		t.Fatalf("InstantiateAndBuild: %v", err)
 	}

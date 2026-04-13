@@ -58,7 +58,7 @@ derivation {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	daemon := NewDaemon(EmptyNixOptions())
+	daemon := NewDaemon(NixOptions{})
 	daemonErr := make(chan error, 1)
 	go func() {
 		daemonErr <- daemon.ServeContext(ctx, paths, rtc)

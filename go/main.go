@@ -11,16 +11,26 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 )
 
-// stringSliceFlag implements flag.Value for a repeatable flag that accumulates
-// into a []string. Mirrors Rust's Vec<PathBuf> for --shell-file.
-type stringSliceFlag []string
+// runtimeClosure is baked in at link time by go/default.nix via:
+//
+//	x_defs."main.runtimeClosure" = "${rtc}"
+//
+// This mirrors how build.rs bakes RUN_TIME_CLOSURE into the Rust binary.
+// In development (lorri nix-shell), runtimeClosure is "" and the env var
+// RUN_TIME_CLOSURE is used as a fallback instead.
+var runtimeClosure = ""
 
-func (s *stringSliceFlag) String() string     { return strings.Join(*s, ", ") }
-func (s *stringSliceFlag) Set(v string) error { *s = append(*s, v); return nil }
+// requireRTC returns the lorri runtime closure store path.
+// Prefers the link-time constant; falls back to $RUN_TIME_CLOSURE.
+func requireRTC() string {
+	if runtimeClosure != "" {
+		return runtimeClosure
+	}
+	return os.Getenv("RUN_TIME_CLOSURE")
+}
 
 func main() {
 	// Ignore SIGPIPE so that writes to a closed socket/pipe return an error
@@ -88,7 +98,7 @@ func runDaemon(args []string) error {
 		return err
 	}
 
-	opts := EmptyNixOptions()
+	opts := NixOptions{}
 	if *extraNixOptsJSON != "" {
 		var parsed struct {
 			Builders     []string `json:"builders"`
@@ -179,14 +189,17 @@ func runGCRm(args []string, jsonOut bool) error {
 	olderThan := fs.String("older-than", "", "delete roots older than this duration (e.g. 30d, 2m, 1y)")
 	dryRun := fs.Bool("dry-run", false, "only print what would be deleted")
 	// --shell-file can be given multiple times, matching Rust's Vec<PathBuf>.
-	var shellFiles stringSliceFlag
-	fs.Var(&shellFiles, "shell-file", "also delete root for this shell file (repeatable)")
+	var shellFiles []string
+	fs.Func("shell-file", "also delete root for this shell file (repeatable)", func(v string) error {
+		shellFiles = append(shellFiles, v)
+		return nil
+	})
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
 	opts := GCRmOptions{
-		ShellFiles: []string(shellFiles),
+		ShellFiles: shellFiles,
 		All:        *allFlag,
 		DryRun:     *dryRun,
 		JSON:       jsonOut,

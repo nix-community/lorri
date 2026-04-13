@@ -262,7 +262,7 @@ func runDirenvExport(t *testing.T, fixtureName string, ambientEnv map[string]str
 		t.Fatalf("NewCAS: %v", err)
 	}
 
-	result, err := InstantiateAndBuild(nixFile, cas, EmptyNixOptions(), rtc)
+	result, err := InstantiateAndBuild(nixFile, cas, NixOptions{}, rtc)
 	if err != nil {
 		t.Fatalf("InstantiateAndBuild(%s): %v", fixtureName, err)
 	}
@@ -610,7 +610,7 @@ derivation {
 	if err != nil {
 		t.Fatalf("NewCAS: %v", err)
 	}
-	result, err := InstantiateAndBuild(nixFile, cas, EmptyNixOptions(), rtc)
+	result, err := InstantiateAndBuild(nixFile, cas, NixOptions{}, rtc)
 	if err != nil {
 		t.Fatalf("InstantiateAndBuild: %v", err)
 	}
@@ -716,7 +716,7 @@ derivation {
 	if err := os.Rename(backupFile, nixFile); err != nil {
 		t.Fatalf("rename back: %v", err)
 	}
-	result2, err := InstantiateAndBuild(nixFile, cas, EmptyNixOptions(), rtc)
+	result2, err := InstantiateAndBuild(nixFile, cas, NixOptions{}, rtc)
 	if err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
