@@ -25,10 +25,9 @@ jobs:
           name: nix-community
       - name: Run CI tests
         run: |
-          NIX_PATH="nixpkgs=$(nix-build ./nix/nixpkgs-stable.nix --no-out-link)" \
-            nix run nixpkgs#go -- run ./cmd/ci test
-  j02-nix-build_stable-ubuntu-latest:
-    name: nix-build [nixos stable] (ubuntu-latest)
+          nix develop --command go run ./cmd/ci test
+  j02-nix-build-ubuntu-latest:
+    name: nix build (ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -42,26 +41,7 @@ jobs:
           name: nix-community
       - name: Build
         run: |
-          NIX_PATH="nixpkgs=$(nix-build ./nix/nixpkgs-stable.nix --no-out-link)" nix-build
-      - name: Install
-        run: |
-          nix-env -i ./result
-  j03-overlay-ubuntu-latest:
-    name: Overlay builds (ubuntu-latest)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Nix
-        uses: cachix/install-nix-action@v26
-      - name: Cachix
-        uses: cachix/cachix-action@v14
-        with:
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          name: nix-community
-      - name: Build w/ overlay (stable)
-        run: |
-          NIX_PATH="nixpkgs=$(nix-build ./nix/nixpkgs-stable.nix --no-out-link)" nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
+          nix build
   j11-go-test-macos-latest:
     name: Go tests (macos-latest)
     runs-on: macos-latest
@@ -77,10 +57,9 @@ jobs:
           name: nix-community
       - name: Run CI tests
         run: |
-          NIX_PATH="nixpkgs=$(nix-build ./nix/nixpkgs-stable.nix --no-out-link)" \
-            nix run nixpkgs#go -- run ./cmd/ci test
-  j12-nix-build_stable-macos-latest:
-    name: nix-build [nixos stable] (macos-latest)
+          nix develop --command go run ./cmd/ci test
+  j12-nix-build-macos-latest:
+    name: nix build (macos-latest)
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -94,23 +73,4 @@ jobs:
           name: nix-community
       - name: Build
         run: |
-          NIX_PATH="nixpkgs=$(nix-build ./nix/nixpkgs-stable.nix --no-out-link)" nix-build
-      - name: Install
-        run: |
-          nix-env -i ./result
-  j13-overlay-macos-latest:
-    name: Overlay builds (macos-latest)
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Nix
-        uses: cachix/install-nix-action@v26
-      - name: Cachix
-        uses: cachix/cachix-action@v14
-        with:
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          name: nix-community
-      - name: Build w/ overlay (stable)
-        run: |
-          NIX_PATH="nixpkgs=$(nix-build ./nix/nixpkgs-stable.nix --no-out-link)" nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
+          nix build

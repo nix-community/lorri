@@ -89,29 +89,14 @@ func goTestSteps() []step {
 	return append(commonSteps,
 		step{
 			Name: "Run CI tests",
-			Run: "NIX_PATH=\"nixpkgs=$(nix-build ./nix/nixpkgs-stable.nix --no-out-link)\" \\\n" +
-				"  nix run nixpkgs#go -- run ./cmd/ci test\n",
+			Run:  "nix develop --command go run ./cmd/ci test\n",
 		},
 	)
-}
-
-func pinNixPath() string {
-	return "NIX_PATH=\"nixpkgs=$(nix-build ./nix/nixpkgs-stable.nix --no-out-link)\""
 }
 
 func stableSteps() []step {
 	return append(commonSteps,
-		step{Name: "Build", Run: pinNixPath() + " nix-build\n"},
-		step{Name: "Install", Run: "nix-env -i ./result\n"},
-	)
-}
-
-func overlaySteps() []step {
-	return append(commonSteps,
-		step{
-			Name: "Build w/ overlay (stable)",
-			Run:  pinNixPath() + " nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json\n",
-		},
+		step{Name: "Build", Run: "nix build\n"},
 	)
 }
 
@@ -134,30 +119,20 @@ func config() workflow {
 				RunsOn: "ubuntu-latest",
 				Steps:  goTestSteps(),
 			},
-			"j02-nix-build_stable-ubuntu-latest": {
-				Name:   "nix-build [nixos stable] (ubuntu-latest)",
+			"j02-nix-build-ubuntu-latest": {
+				Name:   "nix build (ubuntu-latest)",
 				RunsOn: "ubuntu-latest",
 				Steps:  stableSteps(),
-			},
-			"j03-overlay-ubuntu-latest": {
-				Name:   "Overlay builds (ubuntu-latest)",
-				RunsOn: "ubuntu-latest",
-				Steps:  overlaySteps(),
 			},
 			"j11-go-test-macos-latest": {
 				Name:   "Go tests (macos-latest)",
 				RunsOn: "macos-latest",
 				Steps:  goTestSteps(),
 			},
-			"j12-nix-build_stable-macos-latest": {
-				Name:   "nix-build [nixos stable] (macos-latest)",
+			"j12-nix-build-macos-latest": {
+				Name:   "nix build (macos-latest)",
 				RunsOn: "macos-latest",
 				Steps:  stableSteps(),
-			},
-			"j13-overlay-macos-latest": {
-				Name:   "Overlay builds (macos-latest)",
-				RunsOn: "macos-latest",
-				Steps:  overlaySteps(),
 			},
 		},
 	}
