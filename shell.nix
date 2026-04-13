@@ -46,6 +46,8 @@ let
   buildInputs = [
     # please use rustup to install rust, setting it up via nix is a bother
     pkgs.rustup
+    # Go toolchain for the Go rewrite (go build ./go/..., go test ./go/...)
+    pkgs.go
     pkgs.git
     pkgs.direnv
     pkgs.crate2nix
