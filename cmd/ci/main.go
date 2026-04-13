@@ -1,32 +1,38 @@
-// cmd/ci generates .github/workflows/ci.yml.
+// cmd/ci manages CI for lorri.
 //
-// It builds the workflow config as Go structs, marshals to JSON via
-// encoding/json, then converts to YAML by piping through `yj -jy`.
-// yj must be on PATH (available in the lorri nix-shell).
+// Subcommands:
 //
-// Usage:
+//	go run ./cmd/ci generate    # write .github/workflows/ci.yml
+//	go run ./cmd/ci check       # exit non-zero if ci.yml is stale
+//	go run ./cmd/ci test        # run the test suite in a clean environment
 //
-//	go run ./cmd/ci                         # writes ci.yml in place
-//	go run ./cmd/ci --check                 # exits non-zero if ci.yml is stale
-//	go run ./cmd/ci --out /path/to/ci.yml   # write to a specific path
+// The generate/check subcommands marshal the workflow config to JSON via
+// encoding/json and convert it to YAML by piping through `yj -jy` (available
+// in the lorri nix-shell, or via `nix run nixpkgs#yj`).
+//
+// The test subcommand resolves hermetic tool paths from the pinned nixpkgs
+// (via NIX_PATH), clears the process environment, rebuilds it from those
+// paths, then runs:
+//
+//	go test ./...
+//	go run ./cmd/ci check
 package main
 
 import (
 	"bytes"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
-// repoRoot returns the root of the repository by walking up from this
-// source file's location. This works correctly with "go run ./cmd/ci".
+// repoRoot returns the repository root derived from this source file's
+// location — works correctly with "go run ./cmd/ci".
 func repoRoot() string {
 	_, file, _, _ := runtime.Caller(0)
-	// file is .../cmd/ci/main.go — go up two levels
 	return filepath.Join(filepath.Dir(file), "..", "..")
 }
 
@@ -82,14 +88,10 @@ var commonSteps = []step{stepCheckout, stepNix, stepCachix}
 func goTestSteps() []step {
 	return append(commonSteps,
 		step{
-			Name: "Build CI tests",
-			Run: "nix-build \\\n" +
-				"  --out-link ./ci-tests \\\n" +
-				"  --arg isDevelopmentShell false \\\n" +
-				"  -A ci.testsuite \\\n" +
-				"  shell.nix\n",
+			Name: "Run CI tests",
+			Run: "NIX_PATH=\"nixpkgs=$(nix-build ./nix/nixpkgs-stable.nix --no-out-link)\" \\\n" +
+				"  nix run nixpkgs#go -- run ./cmd/ci test\n",
 		},
-		step{Name: "Run CI tests", Run: "./ci-tests\n"},
 	)
 }
 
@@ -159,14 +161,11 @@ func config() workflow {
 
 // ── generate ─────────────────────────────────────────────────────────────────
 
-// generate marshals the workflow config to JSON then converts it to YAML
-// by piping through `yj -jy`.
 func generate() ([]byte, error) {
 	jsonBytes, err := json.Marshal(config())
 	if err != nil {
 		return nil, fmt.Errorf("marshal: %w", err)
 	}
-
 	cmd := exec.Command("yj", "-jy")
 	cmd.Stdin = bytes.NewReader(jsonBytes)
 	out, err := cmd.Output()
@@ -176,41 +175,161 @@ func generate() ([]byte, error) {
 	return out, nil
 }
 
+// ── test subcommand ───────────────────────────────────────────────────────────
+
+// resolveToolEnv calls nix-instantiate --eval to build a PATH string and
+// RUN_TIME_CLOSURE from the pinned nixpkgs (via NIX_PATH).
+// Returns (path, rtc, error).
+func resolveToolEnv(root string) (string, string, error) {
+	expr := `with import <nixpkgs> {};
+let
+  bins = lib.makeBinPath (map lib.getBin [ go nix direnv git bash yj ]);
+  rtc  = "${callPackage ./nix/runtime.nix {}}";
+in "${bins}:::${rtc}"`
+	cmd := exec.Command("nix-instantiate", "--eval", "--json", "--read-write-mode", "-E", expr)
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		return "", "", fmt.Errorf("nix-instantiate: %w\nstderr: %s", err, out)
+	}
+	// Output is a JSON string — unmarshal to strip quotes and escapes.
+	var result string
+	if err := json.Unmarshal(out, &result); err != nil {
+		return "", "", fmt.Errorf("parse nix-instantiate output: %w\noutput: %s", err, out)
+	}
+	// Split on the sentinel ":::" we used to separate PATH from rtc.
+	parts := strings.SplitN(result, ":::", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("unexpected nix-instantiate output: %q", result)
+	}
+	return parts[0], parts[1], nil
+}
+
+// runCheck runs cmd in root with the given environment, streaming output.
+// Returns an error if the command exits non-zero.
+func runCheck(root string, env []string, name string, argv ...string) error {
+	fmt.Fprintf(os.Stderr, "ci: running %s\n", name)
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Dir = root
+	cmd.Env = env
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	return nil
+}
+
+func runTests() error {
+	root := repoRoot()
+
+	// Save go binary path before we clear the environment.
+	gobin, err := exec.LookPath("go")
+	if err != nil {
+		return fmt.Errorf("go not found on PATH: %w", err)
+	}
+
+	// Save the variables we want to preserve across the env clear.
+	preserve := []string{"USER", "HOME", "TERM", "NIX_PATH", "TMPDIR", "TMP", "TEMP"}
+	saved := make(map[string]string, len(preserve))
+	for _, k := range preserve {
+		saved[k] = os.Getenv(k)
+	}
+
+	fmt.Fprintln(os.Stderr, "ci: resolving tool paths from pinned nixpkgs...")
+	toolPath, rtc, err := resolveToolEnv(root)
+	if err != nil {
+		return err
+	}
+
+	// Build a clean environment.
+	os.Clearenv()
+
+	env := []string{
+		"LORRI_NO_INSTALL_PANIC_HANDLER=absolutely",
+		"RUN_TIME_CLOSURE=" + rtc,
+		"LORRI_ROOT=" + root,
+		"PATH=" + toolPath,
+	}
+	// Restore preserved vars.
+	for _, k := range preserve {
+		if v := saved[k]; v != "" {
+			env = append(env, k+"="+v)
+		}
+	}
+
+	var failed []string
+
+	if err := runCheck(root, env, "ci check", gobin, "run", "./cmd/ci", "check"); err != nil {
+		fmt.Fprintf(os.Stderr, "ci: FAIL: %v\n", err)
+		failed = append(failed, "ci check")
+	}
+
+	if err := runCheck(root, env, "go test ./...", gobin, "test", "./..."); err != nil {
+		fmt.Fprintf(os.Stderr, "ci: FAIL: %v\n", err)
+		failed = append(failed, "go test")
+	}
+
+	if len(failed) > 0 {
+		return fmt.Errorf("checks failed: %s", strings.Join(failed, ", "))
+	}
+	fmt.Fprintln(os.Stderr, "ci: all checks passed")
+	return nil
+}
+
 // ── main ─────────────────────────────────────────────────────────────────────
 
+func usage() {
+	fmt.Fprintf(os.Stderr, "usage: go run ./cmd/ci <generate|check|test>\n")
+	os.Exit(2)
+}
+
 func main() {
-	var outPath string
-	var check bool
-	flag.StringVar(&outPath, "out", "", "path to write ci.yml (default: .github/workflows/ci.yml in repo root)")
-	flag.BoolVar(&check, "check", false, "check that ci.yml is up to date instead of writing it")
-	flag.Parse()
-
-	if outPath == "" {
-		outPath = filepath.Join(repoRoot(), ".github", "workflows", "ci.yml")
+	if len(os.Args) < 2 {
+		usage()
 	}
 
-	content, err := generate()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ci: %v\n", err)
-		os.Exit(1)
-	}
+	switch os.Args[1] {
+	case "test":
+		if err := runTests(); err != nil {
+			fmt.Fprintf(os.Stderr, "ci: %v\n", err)
+			os.Exit(1)
+		}
 
-	if check {
+	case "generate":
+		outPath := filepath.Join(repoRoot(), ".github", "workflows", "ci.yml")
+		if len(os.Args) > 2 {
+			outPath = os.Args[2]
+		}
+		content, err := generate()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ci: %v\n", err)
+			os.Exit(1)
+		}
+		if err := os.WriteFile(outPath, content, 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "ci: could not write %s: %v\n", outPath, err)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "ci: wrote %s\n", outPath)
+
+	case "check":
+		outPath := filepath.Join(repoRoot(), ".github", "workflows", "ci.yml")
+		content, err := generate()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ci: %v\n", err)
+			os.Exit(1)
+		}
 		existing, err := os.ReadFile(outPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ci: could not read %s: %v\n", outPath, err)
 			os.Exit(1)
 		}
 		if !bytes.Equal(existing, content) {
-			fmt.Fprintf(os.Stderr, "ci: %s is stale — run `go run ./cmd/ci` to regenerate\n", outPath)
+			fmt.Fprintf(os.Stderr, "ci: %s is stale — run `go run ./cmd/ci generate` to regenerate\n", outPath)
 			os.Exit(1)
 		}
-		return
-	}
 
-	if err := os.WriteFile(outPath, content, 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "ci: could not write %s: %v\n", outPath, err)
-		os.Exit(1)
+	default:
+		usage()
 	}
-	fmt.Fprintf(os.Stderr, "ci: wrote %s\n", outPath)
 }

@@ -11,22 +11,7 @@
 }:
 
 let
-  ci = import ./nix/ci {
-    inherit
-      pkgs
-      LORRI_ROOT
-      RUN_TIME_CLOSURE
-      ;
-  };
   lib = import ./nix/lib { inherit pkgs; };
-
-  # Lorri-specific
-
-  # The root directory of this project
-  LORRI_ROOT = toString ./.;
-  # Needed by the lorri build to access some tools used during
-  # the build of lorri's environment derivations.
-  RUN_TIME_CLOSURE = pkgs.callPackage ./nix/runtime.nix {};
 
   buildInputs = [
     pkgs.go
@@ -47,25 +32,14 @@ let
   ];
 
 in
-pkgs.mkShell (
-  {
-    name = "lorri";
-    inherit buildInputs;
+pkgs.mkShell {
+  name = "lorri";
+  inherit buildInputs;
 
-    inherit RUN_TIME_CLOSURE;
+  shellHook = ''
+    echo "You opened a nix-shell for lorri; this is fine, but we strongly encourage the use of direnv(1) and lorri(1) to develop lorri ;)" 1>&2
+  '';
 
-    # Executed when entering `nix-shell`
-    shellHook = ''
-      echo "You opened a nix-shell for lorri; this is fine, but we strongly encourage the use of direnv(1) and lorri(1) to develop lorri ;)" 1>&2
-    '';
-
-    passthru = {
-      inherit
-        ci
-        ;
-    };
-
-    preferLocalBuild = true;
-    allowSubstitutes = false;
-  }
-)
+  preferLocalBuild = true;
+  allowSubstitutes = false;
+}
