@@ -14,13 +14,6 @@ jobs:
         with:
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           name: nix-community
-      - name: Add rustc to PATH
-        run: |
-          set -euo pipefail
-          rustc_path="$(nix-build -A rustc nix/nixpkgs-stable.nix)/bin"
-          echo "$rustc_path" >> "$GITHUB_PATH"
-      - name: print PATH
-        run: printenv PATH
       - name: Build simple checks
         run: |
           nix-build \
@@ -31,8 +24,8 @@ jobs:
       - name: Run simple checks
         run: |
           ./simple-tests
-  j02-rust-ubuntu-latest:
-    name: Rust and CI tests (ubuntu-latest)
+  j02-go-test-ubuntu-latest:
+    name: Go tests (ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -44,15 +37,6 @@ jobs:
         with:
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           name: nix-community
-      - name: Add rustc to PATH
-        run: |
-          set -euo pipefail
-          rustc_path="$(nix-build -A rustc nix/nixpkgs-stable.nix)/bin"
-          echo "$rustc_path" >> "$GITHUB_PATH"
-      - name: print PATH
-        run: printenv PATH
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2.7.3
       - name: Build CI tests
         run: |
           nix-build \
@@ -95,8 +79,8 @@ jobs:
           name: nix-community
       - name: Build w/ overlay (stable)
         run: nix-build ./nix/overlay.nix -A lorri --arg pkgs ./nix/nixpkgs-stable.json
-  j12-rust-macos-latest:
-    name: Rust and CI tests (macos-latest)
+  j12-go-test-macos-latest:
+    name: Go tests (macos-latest)
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -108,15 +92,6 @@ jobs:
         with:
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           name: nix-community
-      - name: Add rustc to PATH
-        run: |
-          set -euo pipefail
-          rustc_path="$(nix-build -A rustc nix/nixpkgs-stable.nix)/bin"
-          echo "$rustc_path" >> "$GITHUB_PATH"
-      - name: print PATH
-        run: printenv PATH
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2.7.3
       - name: Build CI tests
         run: |
           nix-build \

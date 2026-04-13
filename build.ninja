@@ -8,7 +8,7 @@ rule show-ninja-deps
 
 build show-ninja-deps: show-ninja-deps | build.ninja
 
-# run all check as would be run on CI
+# run all checks as would be run on CI
 rule run-ci-checks
   command = execlineb -c "nix-run { $in -A ci.testsuite }"
 
@@ -19,12 +19,4 @@ build run-ci-checks : run-ci-checks ./shell.nix
 rule build-ci-files
   command = eval $$(nix-build $in -A writeConfig)
 
-build .github/workflows/ci.yml : build-ci-files ./.github/workflows/ci.nix | ./Cargo.nix
-
-# update Cargo.nix from Cargo.toml
-rule update-cargo-nix
-  command = crate2nix generate --cargo-toml $in --output $out
-
-build update-cargo-nix : phony ./Cargo.nix
-
-build ./Cargo.nix : update-cargo-nix ./Cargo.toml | ./Cargo.lock ./nix/nixpkgs-stable.json
+build .github/workflows/ci.yml : build-ci-files ./.github/workflows/ci.nix

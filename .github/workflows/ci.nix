@@ -18,23 +18,6 @@ let
       authToken = "\${{ secrets.CACHIX_AUTH_TOKEN }}";
     };
   };
-  # required to set up rust-cache
-  add-rustc-to-path = {
-    name = "Add rustc to PATH";
-    run = ''
-      set -euo pipefail
-      rustc_path="$(nix-build -A rustc nix/nixpkgs-stable.nix)/bin"
-      echo "$rustc_path" >> "$GITHUB_PATH"
-    '';
-  };
-  print-path = {
-    name = "print PATH";
-    run = "printenv PATH";
-  };
-  rust-cache = {
-    name = "Rust Cache";
-    uses = "Swatinem/rust-cache@v2.7.3";
-  };
 
   githubRunners = {
     ubuntu = "ubuntu-latest";
@@ -51,8 +34,6 @@ let
           (checkout {})
           setup-nix
           setup-cachix
-          add-rustc-to-path
-          print-path
           {
             name = "Build simple checks";
             run = ''
@@ -73,18 +54,15 @@ let
       };
     };
 
-    rust = { sort, runs-on }: {
-      name = "j${sort}-rust-${runs-on}";
+    go-test = { sort, runs-on }: {
+      name = "j${sort}-go-test-${runs-on}";
       value = {
-        name = "Rust and CI tests (${runs-on})";
+        name = "Go tests (${runs-on})";
         inherit runs-on;
         steps = [
           (checkout {})
           setup-nix
           setup-cachix
-          add-rustc-to-path
-          print-path
-          rust-cache
           {
             name = "Build CI tests";
             run = ''
@@ -156,8 +134,8 @@ let
     jobs = builtins.listToAttrs
     [
       (builds.simple-checks { sort = "01"; runs-on = githubRunners.ubuntu; })
-      (builds.rust { sort = "02"; runs-on = githubRunners.ubuntu; })
-      (builds.rust { sort = "12"; runs-on = githubRunners.macos; })
+      (builds.go-test { sort = "02"; runs-on = githubRunners.ubuntu; })
+      (builds.go-test { sort = "12"; runs-on = githubRunners.macos; })
       (builds.stable { sort = "03"; runs-on = githubRunners.ubuntu; })
       (builds.stable { sort = "13"; runs-on = githubRunners.macos; })
       (builds.overlay { sort = "04"; runs-on = githubRunners.ubuntu; })
