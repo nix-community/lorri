@@ -29,13 +29,14 @@ and [ROADMAP.md](ROADMAP.md) for an overview of planned improvements that need f
 
 ## Demo
 
-This screencast shows lorri and direnv working together to reload the
-development environment as `shell.nix` is updated:
+This screencast shows lorri and direnv working together: initialising a
+project, starting the daemon, watching a live rebuild as `shell.nix` changes,
+and the `lorri prompt` indicator:
 
 <p align="center">
-  <a href="https://www.tweag.io/posts/2019-03-28-introducing-lorri.html">
-    <img width="600" src="./assets/2019-04-01-lorri-demo.gif?raw=true" alt="lorri screencast" />
-  </a>
+  <video width="900" autoplay loop muted playsinline>
+    <source src="./assets/lorri-demo.webm" type="video/webm" />
+  </video>
 </p>
 
 ## Setup on NixOS or with `home-manager` on Linux
