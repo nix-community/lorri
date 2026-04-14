@@ -20,9 +20,6 @@ buildGo.program {
     ./panic.go
     ./communicate.go
     ./socket.go
-    ./ops_ping.go
-    ./ops_stream_events.go
-    ./ops_direnv.go
     ./envrc.bash
     ./nix_options.go
     ./path_reduction.go
@@ -32,12 +29,8 @@ buildGo.program {
     ./build_loop.go
     ./lorri_db.go
     ./daemon.go
-    ./ops_init.go
     ./trivial-shell.nix
     ./default-envrc
-    ./ops_info.go
-    ./ops_gc.go
-    ./ops_prompt.go
   ];
 
   deps = [
