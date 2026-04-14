@@ -17,12 +17,8 @@ buildGo.program {
     ./main.go
     ./abspath.go
     ./paths.go
-    ./panic.go
     ./communicate.go
-    ./socket.go
     ./envrc.bash
-    ./nix_options.go
-    ./path_reduction.go
     ./logged-evaluation.nix
     ./builder.go
     ./watch.go
