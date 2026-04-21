@@ -129,13 +129,19 @@ func (f *watchFilter) addPaths(paths []WatchPathBuf) error {
 			}
 			// Also watch the parent directory so that rename-into-place
 			// (Vim-style atomic writes) fire an event on the parent dir.
-			// Mirrors the parent-watching logic in Filter::extend.
+			// The parent is registered with the OS watcher but NOT added to
+			// currentWatched: rename events report the target file's full path
+			// (e.g. parent/shell.nix), which matches the file directly in
+			// currentWatched. Adding the parent to currentWatched would cause
+			// any sibling file written in the same directory (e.g. a cast
+			// recorder writing demo.cast next to shell.nix) to spuriously
+			// trigger rebuilds.
+			// Mirrors the Rust Filter::extend: parent is watched via
+			// filesystem_watcher but never inserted into current_watched.
 			if parent := filepath.Dir(canon); parent != canon {
-				if _, ok := f.currentWatched[parent]; !ok {
-					if err := f.watcher.Add(parent); err == nil {
-						f.currentWatched[parent] = struct{}{}
-					}
-				}
+				// Ignore the error: if we can't watch the parent we still
+				// watch the file itself, which is sufficient for most cases.
+				_ = f.watcher.Add(parent)
 			}
 			f.mu.Unlock()
 		}
