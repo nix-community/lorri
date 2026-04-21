@@ -201,12 +201,9 @@ func TestWatchSpecificFile(t *testing.T) {
 
 // TestWatchRenameOverVim mirrors rename_over_vim (Linux only).
 // Vim-style atomic write: write to a temp file, rename it over the target.
-// The watcher should fire for the target (foo) after the rename.
-//
-// Note: because we also watch the parent directory of foo (for rename
-// detection), writes to sibling files (bar) in the same directory also
-// produce events — this is expected behaviour.  The key assertion is that
-// renaming bar→foo fires a foo event.
+// The watcher should fire for the target (foo) after the rename, but must
+// NOT fire for writes to sibling files (bar) — those are unrelated files
+// in the same directory and should not trigger rebuilds.
 func TestWatchRenameOverVim(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("rename-over test is Linux-only")
@@ -224,13 +221,11 @@ func TestWatchRenameOverVim(t *testing.T) {
 			t.Fatalf("AddPaths: %v", err)
 		}
 
-		// Write bar (sibling of foo) and drain any events it produces,
-		// then assert that renaming bar→foo fires a foo event.
+		// Write bar (sibling of foo): must NOT produce an event.
 		writeFile(t, barPath, "1")
-		// Drain any bar events from the debounce window.
-		time.Sleep(watchDebounce + 50*time.Millisecond)
-		drainEvents(w)
+		assertNoEvent(t, w, watchDebounce+50*time.Millisecond)
 
+		// Rename bar→foo: must fire a foo event.
 		if err := os.Rename(barPath, fooPath); err != nil {
 			t.Fatalf("rename: %v", err)
 		}
@@ -241,8 +236,7 @@ func TestWatchRenameOverVim(t *testing.T) {
 
 		// Second round.
 		writeFile(t, barPath, "2")
-		time.Sleep(watchDebounce + 50*time.Millisecond)
-		drainEvents(w)
+		assertNoEvent(t, w, watchDebounce+50*time.Millisecond)
 
 		if err := os.Rename(barPath, fooPath); err != nil {
 			t.Fatalf("rename: %v", err)
@@ -250,6 +244,40 @@ func TestWatchRenameOverVim(t *testing.T) {
 		found, seen = waitForFile(t, w, "foo", watcherTimeout)
 		if !found {
 			t.Errorf("expected event for foo after second rename; saw: %v", seen)
+		}
+	})
+}
+
+// TestWatchSiblingFileNoSpuriousEvent is a regression test for the spin-loop
+// bug: a file in the same directory as a watched file must not trigger events.
+//
+// Previously, addPaths added parent directories to currentWatched so that
+// pathMatch would fire for any file written alongside a watched file (e.g. a
+// cast recorder writing demo.cast next to shell.nix, or lorri.sqlite-wal
+// being written in the same directory as logged-evaluation.nix).
+func TestWatchSiblingFileNoSpuriousEvent(t *testing.T) {
+	w := mkWatchForTest(t)
+	defer w.Close()
+
+	withTestDir(t, func(dir string) {
+		fooPath := filepath.Join(dir, "foo")
+		siblingPath := filepath.Join(dir, "sibling")
+		touchFile(t, fooPath)
+
+		if err := w.AddPaths([]WatchPathBuf{{Recursive: false, Path: fooPath}}); err != nil {
+			t.Fatalf("AddPaths: %v", err)
+		}
+		time.Sleep(watcherSettle)
+
+		// Writing a sibling file must NOT produce an event.
+		writeFile(t, siblingPath, "unrelated content")
+		assertNoEvent(t, w, watchDebounce+100*time.Millisecond, "sibling")
+
+		// Writing the watched file itself must still produce an event.
+		writeFile(t, fooPath, "changed")
+		found, seen := waitForFile(t, w, "foo", watcherTimeout)
+		if !found {
+			t.Errorf("expected event for foo; saw: %v", seen)
 		}
 	})
 }

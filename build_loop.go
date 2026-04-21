@@ -313,7 +313,7 @@ func (bl *BuildLoop) Forever(txEvents chan<- LoopHandlerEvent, rxPing <-chan str
 			if !ok {
 				return
 			}
-			log.Printf("files changed: %s (%d paths)", bl.cfg.NixFile, len(changed))
+			log.Printf("files changed: %s %v", bl.cfg.NixFile, changed)
 			sendEvent(Event{
 				Started: &EventStarted{
 					NixFile: bl.cfg.NixFile,
