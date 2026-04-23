@@ -138,7 +138,7 @@ let
     cp -R "$goroot/src" "$goroot/pkg" .
 
     chmod -R +w .
-    GODEBUG=installgoroot=all GOROOT=$NIX_BUILD_TOP go install -v --trimpath std
+    GODEBUG=installgoroot=all GOROOT=$NIX_BUILD_TOP CGO_ENABLED=0 go install -v --trimpath std
 
     mkdir $out
     cp -r pkg/*_*/* $out
