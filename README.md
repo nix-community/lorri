@@ -29,16 +29,14 @@ and [ROADMAP.md](ROADMAP.md) for an overview of planned improvements that need f
 
 ## Demo
 
-This screencast shows lorri and direnv working together: initialising a
+[This screencast](https://asciinema.softwaregardening.org/a/722aa775a10816dd) shows lorri and direnv working together: initialising a
 project, starting the daemon, watching a live rebuild as `shell.nix` changes,
 and the `lorri prompt` indicator:
 
-<p align="center">
-  <video width="900" autoplay loop muted playsinline>
-    <source src="./assets/lorri-demo.webm" type="video/webm" />
-  </video>
-</p>
-
+<a target="_blank" href="https://asciinema.softwaregardening.org/a/722aa775a10816dd" align="center">
+  <img src="https://asciinema.softwaregardening.org/a/722aa775a10816dd/preview.png?type=preview&time=2s" />
+</a>
+  
 ## Setup on NixOS or with `home-manager` on Linux
 
 If you are using [NixOS][nixos] or [`home-manager`][home-manager] on Linux and
