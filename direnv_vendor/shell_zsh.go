@@ -1,0 +1,60 @@
+package direnv_vendor
+
+// ZSH is a singleton instance of ZSH_T
+type zsh struct{}
+
+// Zsh adds support for the venerable Z shell.
+var Zsh Shell = zsh{}
+
+const zshHook = `
+_lorri_hook() {
+  vars="$("{{.SelfPath}}" export zsh)"
+  trap -- '' SIGINT
+  eval "$vars"
+  trap - SIGINT
+}
+typeset -ag precmd_functions
+if (( ! ${precmd_functions[(I)_lorri_hook]} )); then
+  precmd_functions=(_lorri_hook $precmd_functions)
+fi
+typeset -ag chpwd_functions
+if (( ! ${chpwd_functions[(I)_lorri_hook]} )); then
+  chpwd_functions=(_lorri_hook $chpwd_functions)
+fi
+`
+
+func (sh zsh) Hook() (string, error) {
+	return zshHook, nil
+}
+
+func (sh zsh) Export(e ShellExport) (string, error) {
+	var out string
+	for key, value := range e {
+		if value == nil {
+			out += sh.unset(key)
+		} else {
+			out += sh.export(key, *value)
+		}
+	}
+	return out, nil
+}
+
+func (sh zsh) Dump(env Env) (string, error) {
+	var out string
+	for key, value := range env {
+		out += sh.export(key, value)
+	}
+	return out, nil
+}
+
+func (sh zsh) export(key, value string) string {
+	return "export " + sh.escape(key) + "=" + sh.escape(value) + ";"
+}
+
+func (sh zsh) unset(key string) string {
+	return "unset " + sh.escape(key) + ";"
+}
+
+func (sh zsh) escape(str string) string {
+	return BashEscape(str)
+}

@@ -260,6 +260,7 @@ func InstantiateAndBuild(
 	loggedEvalFile AbsPath,
 	opts NixOptions,
 	runTimeClosure string,
+	lorriBin string,
 ) (*RunResult, error) {
 	loggedEvalPath := loggedEvalFile
 
@@ -284,6 +285,12 @@ func InstantiateAndBuild(
 		"--add-root", filepath.Join(gcRootDir, "result"),
 		"--indirect",
 		"--argstr", "runTimeClosure", runTimeClosure,
+		// Pass the lorri binary as a Nix path expression (not a string) so
+		// that Nix copies it into the store when it is outside the store
+		// (dev builds), and uses it as-is when it is already a store path
+		// (installed builds). The binary is a static Go executable with no
+		// shared-library dependencies, so copying the single file suffices.
+		"--arg", "lorriBin", lorriBin,
 		"--argstr", "src", nixFile,
 		"--", loggedEvalPath.String(),
 	)

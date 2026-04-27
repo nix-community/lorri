@@ -1,4 +1,4 @@
-{ src, runTimeClosure }:
+{ src, runTimeClosure, lorriBin }:
 let
   runtimeCfg = import runTimeClosure;
 
@@ -58,7 +58,7 @@ let
       name = "lorri-keep-env-hack-${drv.name}";
 
       origExtraClosure = drv.extraClosure or [];
-      extraClosure = runtimeCfg.closure;
+      extraClosure = runtimeCfg.closure ++ [ lorriBin ];
 
       origBuilder = drv.builder;
       builder = runtimeCfg.builder;
@@ -68,6 +68,12 @@ let
 
       origPATH = drv.PATH or "";
       PATH = runtimeCfg.path;
+
+      # Absolute path to the lorri binary inside the Nix store. Passed
+      # explicitly so the builder script can call it directly without
+      # relying on PATH (the binary is a single file in the store, not
+      # a bin/ directory).
+      lorriBin = lorriBin;
 
       # The derivation we're examining may be multi-output. However,
       # this builder only produces the «out» output. Not specifying a
@@ -84,8 +90,8 @@ let
         if declare -f addToSearchPathWithCustomDelimiter > /dev/null 2>&1 ; then
           # 1. Fetch the function body's definition using `head` and `tail`
           # 2. Define our own version of the function, which
-          # 3. adds to the `varmap-v1` file the arguments, and
-          # 4. calls the original function's body
+          # 3. records the variable name and delimiter in $TMPDIR/lorri-varmap,
+          # 4. calls the original function's body to perform the actual append.
           #
           # For example on how the `head | tail` bits work:
           #
@@ -120,10 +126,10 @@ let
                 already_present=1
                 break
               fi
-            done < $out/varmap-v1
+            done < $TMPDIR/lorri-varmap
 
             if [ $already_present -eq 0 ]; then
-              printf 'append\0%s\0%s\0' "$varname" "$delimiter" >> $out/varmap-v1
+              printf 'append\0%s\0%s\0' "$varname" "$delimiter" >> $TMPDIR/lorri-varmap
             fi
 
             eval "$lorri_addToSearchPathWithCustomDelimiter"
@@ -139,7 +145,7 @@ let
         (
           builtins.toFile "lorri-keep-env-hack" ''
             mkdir -p "$out"
-            touch "$out/varmap-v1"
+            touch "$TMPDIR/lorri-varmap"
 
             # Export IN_NIX_SHELL to trick various Nix tooling to export
             # shell-friendly variables
@@ -158,7 +164,7 @@ let
              runHook shellHook;
             fi;
 
-            export > $out/bash-export
+            $lorriBin internal generate-env_ "$TMPDIR/lorri-varmap"
           ''
         )
       ];

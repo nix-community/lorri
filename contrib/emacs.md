@@ -1,8 +1,20 @@
+## Editor integration for lorri
+
+**Note**: lorri now has a native shell hook that manages the shell environment
+without direnv. Any editor launched from a shell with the lorri hook active
+(via `eval "$(lorri hook bash)"` or equivalent) will inherit the correct
+environment automatically. For per-buffer environment switching inside Emacs,
+[`envrc.el`](https://github.com/purcell/envrc) can be used alongside the lorri
+hook. The `emacs-direnv` setup described below is no longer required, but still
+works if you prefer it.
+
+---
+
 ## Set up `direnv` in Emacs with `direnv-mode`
 
-`lorri` uses `direnv`, because `direnv` has dozens of integrations for
-editors, shells and the like . Basically everywhere you want to change
-an environment on the fly, you can use `direnv`.
+`direnv` has dozens of integrations for editors, shells and the like.
+Basically everywhere you want to change an environment on the fly, you can
+use `direnv`.
 
 In particular, there is integration for the Emacs editor,
 [`emacs-direnv`](https://github.com/wbolster/emacs-direnv).
@@ -17,11 +29,16 @@ Note: There are direnv plugins for _many_ editors. Just a few,
 [vim](https://github.com/direnv/direnv.vim),
 [Atom](https://atom.io/packages/000-project-shell-env).
 
-
 Once you have it installed, hit `M-x` and enter `direnv-mode`.
 This activates direnv integration for every buffer.
 
-Use the the Emacs file browser to navigate to `lorri/example` and open
+Make sure your `.envrc` uses the lorri direnv adapter:
+
+```bash
+eval "$(lorri export direnv-adapter)"
+```
+
+Use the the Emacs file browser to navigate to your project and open
 `shell.nix`. If everything went fine, you should see the same list
 of environment variables in your Emacs status line that you previously
 saw in your shell.

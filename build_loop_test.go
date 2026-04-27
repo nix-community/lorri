@@ -50,6 +50,7 @@ derivation {
 		LoggedEvalFile: loggedEvalFile,
 		Opts:           NixOptions{},
 		RunTimeClosure: rtc,
+		LorriBin:       lorriBinForTest(t),
 		GCRootDir:      gcRootDir,
 	}
 
