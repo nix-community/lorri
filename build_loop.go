@@ -199,6 +199,9 @@ type BuildLoopConfig struct {
 	Opts NixOptions
 	// RunTimeClosure is the Nix store path for the lorri runtime closure.
 	RunTimeClosure string
+	// LorriBin is the path to the lorri binary, passed to nix-instantiate as
+	// --arg lorriBin so the sandbox can call `lorri internal generate-env_`.
+	LorriBin string
 	// GCRootDir is the directory under which per-project GC root dirs live.
 	// (~/.cache/lorri/gc_roots/)
 	GCRootDir AbsPath
@@ -383,7 +386,7 @@ func runBuild(cfg BuildLoopConfig, ch chan<- buildResult) {
 	var res buildResult
 
 	if cfg.ProjectFile.ShellNix != nil {
-		r, err := InstantiateAndBuild(cfg.NixFile, cfg.LoggedEvalFile, cfg.Opts, cfg.RunTimeClosure)
+		r, err := InstantiateAndBuild(cfg.NixFile, cfg.LoggedEvalFile, cfg.Opts, cfg.RunTimeClosure, cfg.LorriBin)
 		res = buildResult{result: r, err: err}
 	} else if cfg.ProjectFile.FlakeNix != nil {
 		r, err := BuildFlake(*cfg.ProjectFile.FlakeNix)

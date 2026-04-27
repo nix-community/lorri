@@ -56,7 +56,7 @@ derivation {
 	daemon := NewDaemon(NixOptions{})
 	daemonErr := make(chan error, 1)
 	go func() {
-		daemonErr <- daemon.ServeContext(ctx, paths, rtc)
+		daemonErr <- daemon.ServeContext(ctx, paths, rtc, lorriBinForTest(t))
 	}()
 
 	// Wait for the socket to appear.

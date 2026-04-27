@@ -13,28 +13,45 @@ let
   # Root of the repository; used by integration tests to locate fixtures.
   LORRI_ROOT = toString ./.;
 
-in
-pkgs.mkShell {
-  name = "lorri";
+  # Common env vars shared by all dev shells.
+  # Must be 0 so the test binary is statically linked and can be copied
+  # into the Nix build sandbox by logged-evaluation.nix.
+  # Go's std/net uses CGO for DNS by default; 0 switches to the pure-Go
+  # resolver.
+  commonEnv = {
+    inherit RUN_TIME_CLOSURE LORRI_ROOT;
+    NIX_PATH    = "nixpkgs=${pkgs.path}";
+    CGO_ENABLED = "0";
+  };
 
-  packages = [
-    pkgs.go
-    pkgs.git
-    pkgs.direnv
-    pkgs.nix-prefetch-git
-    pkgs.nixpkgs-fmt
-    pkgs.yj
-    pkgs.graphviz
-    pkgs.zathura
-    pkgs.nix
+  # Packages needed to run go test ./... including all shell integration tests.
+  ciPackages = with pkgs; [
+    go nix direnv git bash yj
+    zsh fish elvish tcsh nushell
   ];
 
-  inherit RUN_TIME_CLOSURE LORRI_ROOT;
+  ci = pkgs.mkShell ({
+    name = "lorri-ci";
+    packages = ciPackages;
+  } // commonEnv);
+
+in
+pkgs.mkShell ({
+  name = "lorri";
+
+  packages = ciPackages ++ (with pkgs; [
+    nix-prefetch-git
+    nixpkgs-fmt
+    graphviz
+    zathura
+  ]);
 
   shellHook = ''
-    echo "You opened a nix-shell for lorri; this is fine, but we strongly encourage the use of direnv(1) and lorri(1) to develop lorri ;)" 1>&2
+    echo "You opened a nix-shell for lorri; this is fine, but we strongly encourage the use of and lorri(1) to develop lorri ;)" 1>&2
   '';
 
   preferLocalBuild = true;
   allowSubstitutes = false;
-}
+
+  passthru = { inherit ci; };
+} // commonEnv)

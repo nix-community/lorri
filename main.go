@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	direnvpkg "github.com/nix-community/lorri/direnv_vendor"
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
 )
@@ -43,6 +44,17 @@ func requireRTC() string {
 		return runtimeClosure
 	}
 	return os.Getenv("RUN_TIME_CLOSURE")
+}
+
+// requireLorriBin returns the path to the lorri binary.
+// Uses os.Executable() which resolves correctly whether lorri is in the Nix
+// store (installed) or outside it (dev build). When outside the store, Nix
+// will copy it in automatically via --arg lorriBin <path>.
+// Because lorri is a static Go binary with no shared-library dependencies,
+// copying the single file into the store is sufficient for the sandbox to
+// execute it.
+func requireLorriBin() (string, error) {
+	return os.Executable()
 }
 
 func main() {
@@ -81,6 +93,10 @@ func run(args []string) error {
 		return runDaemon(args[1:])
 	case "direnv":
 		return runDirenv(args[1:])
+	case "hook":
+		return runHook(args[1:])
+	case "export":
+		return runExport(args[1:])
 	case "gc":
 		return runGC(args[1:])
 	case "info":
@@ -182,11 +198,15 @@ func runDaemon(args []string) error {
 	if err != nil {
 		return err
 	}
+	lorriBin, err := requireLorriBin()
+	if err != nil {
+		return exitEnvironment("could not determine lorri binary path", err)
+	}
 	paths, err := mustInitPaths()
 	if err != nil {
 		return err
 	}
-	return NewDaemon(opts).ServeContext(context.Background(), paths, rtc)
+	return NewDaemon(opts).ServeContext(context.Background(), paths, rtc, lorriBin)
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +379,20 @@ func runPromptDefault(args []string) error {
 // internal subcommands
 // ---------------------------------------------------------------------------
 
+func runHook(args []string) error {
+	if len(args) != 1 {
+		return exitUserError("usage: lorri hook <shell>", nil)
+	}
+	return opHook(args[0])
+}
+
+func runExport(args []string) error {
+	if len(args) != 1 {
+		return exitUserError("usage: lorri export <shell>", nil)
+	}
+	return opExport(args[0])
+}
+
 func runInternal(args []string) error {
 	if len(args) == 0 {
 		fmt.Fprint(os.Stderr, `usage: lorri internal <subcommand>
@@ -371,6 +405,8 @@ subcommands:
                    starts watching if not already, keeps it alive if so
   stream-events_   stream build events from the daemon as JSON lines;
                    intended for scripts (no stability guarantee yet)
+  generate-env_    write $out/env.json from the current Nix build environment;
+                   called by the keep-env-hack builder in logged-evaluation.nix
 `)
 		return exitUserError("no internal subcommand given", nil)
 	}
@@ -379,9 +415,22 @@ subcommands:
 		return runPing(args[1:])
 	case "stream-events_":
 		return runStreamEvents(args[1:])
+	case "generate-env_":
+		return runGenerateEnv(args[1:])
 	default:
 		return exitUserError(fmt.Sprintf("unknown internal subcommand %q", args[0]), nil)
 	}
+}
+
+func runGenerateEnv(args []string) error {
+	fs := flag.NewFlagSet("lorri internal generate-env_", flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		return exitUserError("bad flags", err)
+	}
+	if fs.NArg() != 1 {
+		return exitUserError("generate-env_: expected exactly one argument: path to varmap file", nil)
+	}
+	return opGenerateEnv(fs.Arg(0))
 }
 
 func runPing(args []string) error {
@@ -531,14 +580,58 @@ func opPingWithRebuild(paths *Paths, projectFile ProjectFile, rebuild Rebuild) e
 }
 
 // ---------------------------------------------------------------------------
-// direnv
+// hook
 // ---------------------------------------------------------------------------
 
-// envrcBash is the bash helper sourced by direnv to load the Nix environment.
-// Embedded at compile time from envrc.bash (identical to src/ops/direnv/envrc.bash).
-//
-//go:embed envrc.bash
-var envrcBash string
+// opHook is the implementation of `lorri hook <shell>`.
+// Emits a shell hook snippet that installs a prompt hook calling
+// `lorri export <shell>` on every prompt, replacing the direnv hook.
+// Shell support is provided by direnv_vendor, vendored from
+// https://github.com/direnv/direnv (MIT licence).
+func opHook(shell string) error {
+	self, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("hook: could not determine lorri binary path: %w", err)
+	}
+
+	sh, ok := direnvpkg.Shells[shell]
+	if !ok {
+		names := make([]string, 0, len(direnvpkg.Shells))
+		for k := range direnvpkg.Shells {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		return exitUserError(fmt.Sprintf(
+			"hook: unsupported shell %q (supported: %s)",
+			shell, strings.Join(names, ", "),
+		), nil)
+	}
+
+	hookStr, err := sh.Hook()
+	if err != nil {
+		return fmt.Errorf("hook: %w", err)
+	}
+
+	out, err := direnvpkg.RenderHook(hookStr, self)
+	if err != nil {
+		return fmt.Errorf("hook: render: %w", err)
+	}
+
+	fmt.Print(out)
+	return nil
+}
+
+// pidAlive returns true if the process with the given PID is still running.
+// Uses kill(pid, 0): returns nil if alive, EPERM if alive but unpermitted,
+// ESRCH if dead.
+func pidAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || err == syscall.EPERM
+}
+
+// ---------------------------------------------------------------------------
+// direnv
+// ---------------------------------------------------------------------------
 
 // minDirenvVersion is the minimum direnv version lorri requires.
 var minDirenvVersion = direnvVersion{2, 19, 2}
@@ -596,44 +689,85 @@ func checkDirenvVersion() error {
 	return nil
 }
 
+// direnvMigrationNotice is printed to stderr whenever `lorri direnv` is called.
+// It tells users about the native shell hook that replaces the direnv integration.
+const direnvMigrationNotice = `lorri: notice: lorri now has a native shell hook that replaces the direnv
+  integration. To migrate:
+    1. Add to your shell rc file:
+         bash: eval "$(lorri hook bash)"   (~/.bashrc)
+         zsh:  eval "$(lorri hook zsh)"    (~/.zshrc)
+         fish: lorri hook fish | source    (~/.config/fish/config.fish)
+    2. Remove your .envrc (or run ` + "`lorri init`" + ` for setup instructions).
+  See https://github.com/nix-community/lorri for details.`
+
 // opDirenv implements `lorri direnv`.
 // Writes the direnv shell script to out; all status messages go to stderr.
 // Accepting an explicit io.Writer for the script output (instead of writing
 // directly to os.Stdout) makes the function testable without mutating the
 // global os.Stdout.
+//
+// Three cases based on GC root state:
+//
+//  1. No GC root: print "not yet evaluated", ping daemon, emit watch_file only.
+//  2. Old GC root (bash-export, no env.json): print migration message, force
+//     rebuild, emit watch_file only — do not load stale environment.
+//  3. New GC root (env.json): emit export/unset commands derived from env.json.
+//
+// In all cases the migration notice is printed.
 func opDirenv(out io.Writer, paths *Paths, projectFile ProjectFile) error {
 	if err := checkDirenvVersion(); err != nil {
 		return err
 	}
 
 	gcRootPath := gcRootPathForProject(paths.GCRootDir, projectFile)
-	cachedExists := fileExists(string(gcRootPath))
+	socketPath := string(paths.DaemonSocketFile)
 
-	// Ping the daemon — best-effort, failure is not fatal.
-	// Uses OnlyIfNotYetWatching (unlike `internal ping_` which always rebuilds).
-	pingErr := opPingWithRebuild(paths, projectFile, RebuildOnlyIfNotYetWatching)
-	pingSent := pingErr == nil
+	// Resolve the GC root symlink to the store path (empty if not built yet).
+	storePath, _ := os.Readlink(string(gcRootPath))
 
-	// Log status to stderr (stdout is reserved for the shell script).
+	hasEnvJSON := storePath != "" && fileExists(filepath.Join(storePath, "env.json"))
+	hasBashExport := storePath != "" && fileExists(filepath.Join(storePath, "bash-export"))
+
+	// Always print the migration notice.
+	fmt.Fprintln(os.Stderr, direnvMigrationNotice)
+
 	switch {
-	case pingSent && !cachedExists:
+	case storePath == "":
+		// Case 1: never built.
 		fmt.Fprintln(os.Stderr, "lorri: has not completed an evaluation for this project yet")
-	case !pingSent && cachedExists:
-		fmt.Fprintln(os.Stderr, "lorri: daemon is not running, loading a cached environment")
-	case !pingSent && !cachedExists:
-		fmt.Fprintln(os.Stderr, "lorri: daemon is not running and this project has not yet been evaluated, please run `lorri daemon`")
+		_ = opPingWithRebuild(paths, projectFile, RebuildAlways)
+		// Emit only watch_file so direnv re-evaluates when the build lands.
+		fmt.Fprintf(out, "watch_file %q\n", socketPath)
+
+	case hasBashExport && !hasEnvJSON:
+		// Case 2: old-style GC root — needs a rebuild to produce env.json.
+		fmt.Fprintln(os.Stderr, "lorri: environment not yet migrated — a rebuild is required")
+		_ = opPingWithRebuild(paths, projectFile, RebuildAlways)
+		fmt.Fprintf(out, "watch_file %q\nwatch_file %q\n", socketPath, string(gcRootPath))
+
+	case hasEnvJSON:
+		// Case 3: new-style GC root — load via env.json.
+		lorriEnv, err := readEnvJSON(filepath.Join(storePath, "env.json"))
+		if err != nil {
+			return fmt.Errorf("direnv: %w", err)
+		}
+		ambient := ambientEnv()
+		export := make(direnvpkg.ShellExport)
+		for _, change := range lorriEnv.Env {
+			applyChange(change, ambient, export)
+		}
+		shellScript, err := direnvpkg.Shells["bash"].Export(export)
+		if err != nil {
+			return fmt.Errorf("direnv: render export: %w", err)
+		}
+		pingErr := opPingWithRebuild(paths, projectFile, RebuildOnlyIfNotYetWatching)
+		if pingErr != nil {
+			fmt.Fprintln(os.Stderr, "lorri: daemon is not running, loading a cached environment")
+		}
+		fmt.Fprintf(out, "watch_file %q\nwatch_file %q\n%s\n",
+			socketPath, string(gcRootPath), shellScript)
 	}
 
-	// Write the shell script to out.
-	// Format mirrors the Rust writeln! with r#"..."# (note leading newline).
-	fmt.Fprintf(out,
-		"\nEVALUATION_ROOT=%q\n\nwatch_file %q\nwatch_file \"$EVALUATION_ROOT\"\n\n%s\n",
-		string(gcRootPath),
-		string(paths.DaemonSocketFile),
-		envrcBash,
-	)
-
-	// Warn if not being called from within direnv's envrc evaluation.
 	if os.Getenv("DIRENV_IN_ENVRC") != "1" {
 		fmt.Fprintln(os.Stderr, "lorri: `lorri direnv` should be executed by direnv from within an `.envrc` file. Run `lorri init` to get started.")
 	}
@@ -769,20 +903,34 @@ func streamLive(socketPath SocketPath, sig <-chan os.Signal) error {
 //go:embed trivial-shell.nix
 var trivialShellNix string
 
-//go:embed default-envrc
-var defaultEnvrc string
-
-// opInit writes shell.nix and .envrc to the current directory,
-// skipping each file if it already exists.
+// opInit writes shell.nix to the current directory (if missing) and prints
+// instructions for installing the native shell hook.
 func opInit() error {
 	if err := createIfMissing("./shell.nix", trivialShellNix,
 		"Make sure shell.nix is of a form that works with nix-shell."); err != nil {
 		return err
 	}
-	if err := createIfMissing("./.envrc", defaultEnvrc,
-		`Please add 'eval "$(lorri direnv)"' to .envrc to set up lorri support.`); err != nil {
-		return err
+
+	// Detect the user's current shell from $SHELL for a tailored suggestion.
+	currentShell := filepath.Base(os.Getenv("SHELL"))
+
+	fmt.Fprintf(os.Stderr, "lorri: to complete setup, add the lorri hook to your shell rc file:\n\n")
+	switch currentShell {
+	case "zsh":
+		fmt.Fprintln(os.Stderr, `  zsh (~/.zshrc):`)
+		fmt.Fprintln(os.Stderr, `    eval "$(lorri hook zsh)"`)
+	case "fish":
+		fmt.Fprintln(os.Stderr, `  fish (~/.config/fish/config.fish):`)
+		fmt.Fprintln(os.Stderr, `    lorri hook fish | source`)
+	default:
+		// Default to bash instructions.
+		fmt.Fprintln(os.Stderr, `  bash (~/.bashrc):`)
+		fmt.Fprintln(os.Stderr, `    eval "$(lorri hook bash)"`)
+		if currentShell != "bash" && currentShell != "" {
+			fmt.Fprintf(os.Stderr, "\n  (for other shells, run: lorri hook <shell>)\n")
+		}
 	}
+	fmt.Fprintln(os.Stderr, "\nThen open a new shell and cd into your project directory.")
 	fmt.Fprintln(os.Stderr, "lorri: done")
 	return nil
 }

@@ -403,9 +403,8 @@ func TestOpDirenvOutputShape(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "EVALUATION_ROOT=") {
-		t.Errorf("output missing EVALUATION_ROOT=:\n%s", out)
-	}
+	// Case 1 (no GC root yet): opDirenv emits only a watch_file line for the
+	// daemon socket so direnv re-evaluates once a build completes.
 	if !strings.Contains(out, "watch_file") {
 		t.Errorf("output missing watch_file:\n%s", out)
 	}
@@ -413,10 +412,127 @@ func TestOpDirenvOutputShape(t *testing.T) {
 	if !strings.Contains(out, dir+"/daemon.socket") {
 		t.Errorf("output missing daemon socket path:\n%s", out)
 	}
-	// Embedded envrc.bash content should appear.
-	if !strings.Contains(out, "EVALUATION_ROOT") {
-		t.Errorf("embedded envrc.bash content missing:\n%s", out)
+}
+
+// callOpDirenv calls opDirenv and returns its stdout output and captured
+// stderr. Skips the test if direnv is not available.
+func callOpDirenv(t *testing.T, paths *Paths, projectFile ProjectFile) (out, stderr string) {
+	t.Helper()
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
 	}
+	os.Stderr = w
+
+	var buf bytes.Buffer
+	opErr := opDirenv(&buf, paths, projectFile)
+
+	w.Close()
+	os.Stderr = oldStderr
+	var stderrBuf bytes.Buffer
+	stderrBuf.ReadFrom(r) //nolint:errcheck
+
+	if opErr != nil {
+		if strings.Contains(opErr.Error(), "direnv") {
+			t.Skipf("direnv not available: %v", opErr)
+		}
+		t.Fatalf("opDirenv: %v", opErr)
+	}
+	return buf.String(), stderrBuf.String()
+}
+
+// TestOpDirenvMigration tests the full migration arc from an old-style Rust
+// lorri direnv GC root to the new env.json-based one.
+//
+// Phase 1 — old-style GC root (bash-export, no env.json):
+//   - stdout watches both socket and GC root (so direnv re-evals after rebuild)
+//   - stdout has no export statements (stale bash-export must not be loaded)
+//   - stderr mentions "not yet migrated"
+//
+// Phase 2 — rebuild completes, env.json appears in the same store path:
+//   - stdout contains export statements derived from env.json
+//   - stdout watches both socket and GC root
+//   - MARKER is exported with the correct value
+func TestOpDirenvMigration(t *testing.T) {
+	dir := t.TempDir()
+	paths := &Paths{
+		GCRootDir:        mustAbsPath(dir + "/gc_roots"),
+		DaemonSocketFile: mustAbsPath(dir + "/daemon.socket"),
+		SQLiteDB:         mustAbsPath(dir + "/lorri.sqlite"),
+	}
+	nixFile := mustAbsPath(dir + "/shell.nix")
+	if err := os.WriteFile(string(nixFile), []byte("{}"), 0o644); err != nil {
+		t.Fatalf("write shell.nix: %v", err)
+	}
+	projectFile := NewShellNixProjectFile(nixFile)
+
+	// Synthesise an old-style GC root: a store-path directory containing
+	// bash-export but not env.json — exactly what the Rust lorri produced.
+	fakeStorePath := dir + "/fake-store-path"
+	if err := os.MkdirAll(fakeStorePath, 0o755); err != nil {
+		t.Fatalf("mkdir fake store path: %v", err)
+	}
+	if err := os.WriteFile(fakeStorePath+"/bash-export", []byte("export MARKER=present\n"), 0o644); err != nil {
+		t.Fatalf("write bash-export: %v", err)
+	}
+
+	// Point the GC root symlink at the fake store path.
+	gcRootPath := gcRootPathForProject(paths.GCRootDir, projectFile)
+	if err := os.MkdirAll(string(gcRootPath.Dir()), 0o755); err != nil {
+		t.Fatalf("mkdir gc root parent: %v", err)
+	}
+	if err := os.Symlink(fakeStorePath, gcRootPath.String()); err != nil {
+		t.Fatalf("symlink gc root: %v", err)
+	}
+
+	// ── Phase 1: old-style root ───────────────────────────────────────────
+	t.Run("old-style root", func(t *testing.T) {
+		out, stderr := callOpDirenv(t, paths, projectFile)
+
+		// Must watch both the socket and the GC root.
+		if !strings.Contains(out, dir+"/daemon.socket") {
+			t.Errorf("output missing daemon socket watch_file:\n%s", out)
+		}
+		if !strings.Contains(out, gcRootPath.String()) {
+			t.Errorf("output missing gc root watch_file:\n%s", out)
+		}
+		// Must NOT emit any export statements.
+		if strings.Contains(out, "export ") {
+			t.Errorf("output should not contain export statements during migration:\n%s", out)
+		}
+		// Stderr must mention migration.
+		if !strings.Contains(stderr, "not yet migrated") {
+			t.Errorf("stderr missing migration message:\n%s", stderr)
+		}
+	})
+
+	// ── Phase 2: rebuild completes, env.json lands ────────────────────────
+	// Simulate the daemon completing a rebuild by writing env.json into the
+	// same store path the GC root already points at.
+	envJSON := `{"version":1,"env":[{"op":"set","name":"MARKER","value":"present"}]}`
+	if err := os.WriteFile(fakeStorePath+"/env.json", []byte(envJSON), 0o644); err != nil {
+		t.Fatalf("write env.json: %v", err)
+	}
+
+	t.Run("after rebuild", func(t *testing.T) {
+		out, _ := callOpDirenv(t, paths, projectFile)
+
+		// Must watch both socket and GC root.
+		if !strings.Contains(out, dir+"/daemon.socket") {
+			t.Errorf("output missing daemon socket watch_file:\n%s", out)
+		}
+		if !strings.Contains(out, gcRootPath.String()) {
+			t.Errorf("output missing gc root watch_file:\n%s", out)
+		}
+		// Must export MARKER with the value from env.json.
+		if !strings.Contains(out, "MARKER") {
+			t.Errorf("output missing MARKER export:\n%s", out)
+		}
+		if !strings.Contains(out, "present") {
+			t.Errorf("output missing MARKER value 'present':\n%s", out)
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------

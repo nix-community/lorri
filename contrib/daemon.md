@@ -21,10 +21,10 @@ Here we'll set up a [systemd] socket and service file manually.
 <details>
 <summary>What's the purpose of the systemd socket? How does systemd know when
 to start the daemon "on demand"?</summary>
-<p>lorri clients, like the `direnv` integration, talk to the daemon via a Unix
-socket at a well-known location. [`lorri.socket`] tells systemd to start the
-systemd service defined in [`lorri.service`] the first time a client attempts
-to connect to this socket.</p>
+<p>lorri clients, like the shell hook (`lorri export`), talk to the daemon via
+a Unix socket at a well-known location. [`lorri.socket`] tells systemd to
+start the systemd service defined in [`lorri.service`] the first time a
+client attempts to connect to this socket.</p>
 </details>
 
 If your `lorri` binary is not in `~/.nix-profile/bin/lorri`, please change the

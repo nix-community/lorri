@@ -47,7 +47,7 @@ func NewDaemon(opts NixOptions) *Daemon {
 // ServeContext binds the Unix socket and runs the daemon until ctx is cancelled
 // or a signal is received.
 // Mirrors daemon.rs Daemon::serve().
-func (d *Daemon) ServeContext(ctx context.Context, paths *Paths, rtc string) error {
+func (d *Daemon) ServeContext(ctx context.Context, paths *Paths, rtc string, lorriBin string) error {
 	// Open SQLite database.
 	db, err := OpenLorriDB(paths.SQLiteDB.String())
 	if err != nil {
@@ -74,7 +74,7 @@ func (d *Daemon) ServeContext(ctx context.Context, paths *Paths, rtc string) err
 	handlerDone := make(chan struct{})
 	go func() {
 		defer close(handlerDone)
-		d.buildInstructionHandler(ctx, activityCh, hubCh, db, paths, rtc)
+		d.buildInstructionHandler(ctx, activityCh, hubCh, db, paths, rtc, lorriBin)
 	}()
 
 	// Wrap ctx with signal cancellation.
@@ -217,6 +217,7 @@ func (d *Daemon) buildInstructionHandler(
 	db *LorriDB,
 	paths *Paths,
 	rtc string,
+	lorriBin string,
 ) {
 	// nixFile path → ping channel for the running BuildLoop.
 	handlerPings := make(map[string]chan<- struct{})
@@ -266,6 +267,7 @@ func (d *Daemon) buildInstructionHandler(
 				LoggedEvalFile: paths.LoggedEvalFile,
 				Opts:           d.extraNixOpts,
 				RunTimeClosure: rtc,
+				LorriBin:       lorriBin,
 				GCRootDir:      paths.GCRootDir,
 			}
 			bl, err := NewBuildLoop(cfg)
