@@ -112,11 +112,18 @@ func writeFileIfChanged(path, content string, perm os.FileMode) error {
 }
 
 // lorriCacheDir returns the lorri-specific cache directory.
-// Uses os.UserCacheDir() + "/lorri".
+// Respects XDG_CACHE_HOME if set (all platforms), otherwise falls back to
+// os.UserCacheDir() + "/lorri".
 func lorriCacheDir() (string, error) {
-	base, err := os.UserCacheDir()
-	if err != nil {
-		return "", err
+	var base string
+	if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" {
+		base = xdg
+	} else {
+		var err error
+		base, err = os.UserCacheDir()
+		if err != nil {
+			return "", err
+		}
 	}
 	dir := filepath.Join(base, "lorri")
 	// canonicalize if possible (mirrors Rust's canonicalize attempt)
