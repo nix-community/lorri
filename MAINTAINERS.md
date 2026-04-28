@@ -64,6 +64,13 @@ To cut a new release:
 3. Check whether any subcommands, flags, or shell-name arguments have changed
    and update the completion scripts in `contrib/` accordingly.
 4. With the changelog in mind, check that the [manpage](./lorri.scd) is up-to-date.
+   Verify the scdoc syntax is valid by running:
+
+   ```
+   scdoc < lorri.scd > /dev/null
+   ```
+
+   (`scdoc` is available in the dev shell via `nix develop`.)
 5. Create a PR with these changes and merge it. Note the hash of the merge
    commit.
 6. Tag the merge commit using `git tag --sign <version> <merge commit hash>`.

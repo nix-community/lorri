@@ -44,6 +44,7 @@ pkgs.mkShell ({
     nixpkgs-fmt
     graphviz
     zathura
+    scdoc
   ]);
 
   shellHook = ''

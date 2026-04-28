@@ -58,18 +58,15 @@ let
     ];
   };
 in
-# Wrap the binary together with shell completion files.
-# bash, zsh, fish, and elvish use standard XDG/vendor paths that their
-# respective package managers or shell frameworks pick up automatically.
-# tcsh, Murex, and PowerShell have no cross-distro standard, so we use
-# a lorri-specific share path; users source/import from their rc file:
-#   tcsh:  source ~/.nix-profile/share/tcsh-completion/completions/lorri.tcsh
-#   murex: source ~/.nix-profile/share/murex/completions/lorri.mx
-#   pwsh:  . ~/.nix-profile/share/powershell/completions/lorri.ps1
+# Wrap the binary together with shell completion files and the man page.
 pkgs.symlinkJoin {
   name = "lorri";
   paths = [ lorriBin ];
+  nativeBuildInputs = [ pkgs.scdoc ];
   postBuild = ''
+    scdoc < ${./lorri.scd} > lorri.1
+    install -Dm644 lorri.1 $out/share/man/man1/lorri.1
+
     install -Dm644 ${./contrib/lorri.bash} \
       $out/share/bash-completion/completions/lorri
     install -Dm644 ${./contrib/lorri.zsh} \
