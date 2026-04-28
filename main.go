@@ -589,10 +589,10 @@ func opPingWithRebuild(paths *Paths, projectFile ProjectFile, rebuild Rebuild) e
 // Shell support is provided by direnv_vendor, vendored from
 // https://github.com/direnv/direnv (MIT licence).
 func opHook(shell string) error {
-	self, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("hook: could not determine lorri binary path: %w", err)
-	}
+	// Use the bare command name so the generated hook invokes lorri from
+	// PATH rather than hard-coding the absolute path of the running binary
+	// (which would be a Nix store path when installed via Nix).
+	const self = "lorri"
 
 	sh, ok := direnvpkg.Shells[shell]
 	if !ok {
