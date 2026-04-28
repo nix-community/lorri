@@ -1,0 +1,175 @@
+# Murex completion for lorri
+# Source this from your Murex profile (~/.murex_profile or ~/.config/murex/profile):
+#   source ~/.nix-profile/share/murex/completions/lorri.mx
+#
+# Murex supports descriptions via FlagsDesc and DynamicDesc, shown in ListView.
+
+autocomplete set lorri %[
+    {
+        ListView: true
+        FlagsDesc: {
+            daemon:   "Start the multi-project build daemon"
+            direnv:   "Emit direnv shell script (for use inside .envrc)"
+            gc:       "Garbage-collect lorri GC roots"
+            info:     "Show project and daemon status"
+            init:     "Write bootstrap shell.nix to the current directory"
+            prompt:   "Generate a lorri status marker for your shell prompt"
+            hook:     "Print the shell hook to eval in your rc file"
+            export:   "Print shell export commands (called by the hook on each prompt)"
+            internal: "Unstable plumbing commands for scripts and integrations"
+            help:     "Show help"
+        }
+        FlagValues: {
+            daemon: [{
+                ListView: true
+                FlagsDesc: {
+                    "--extra-nix-options": "JSON with optional builders and substituters arrays"
+                }
+            }]
+
+            direnv: [{
+                ListView: true
+                FlagsDesc: {
+                    "--shell-file": "Path to shell.nix (or similar)"
+                    "--context":    "Directory to resolve a flake from"
+                    "--flake":      "Flake installable descriptor (e.g. .#)"
+                }
+                FlagValues: {
+                    "--shell-file": [{ IncFiles: true }]
+                    "--context":    [{ IncDirs: true }]
+                }
+            }]
+
+            gc: [{
+                ListView: true
+                FlagsDesc: {
+                    info: "List GC roots and whether their projects still exist"
+                    rm:   "Remove GC roots for gone or selected projects"
+                    "--json": "Machine-readable JSON output"
+                }
+                FlagValues: {
+                    info: [{
+                        ListView: true
+                        FlagsDesc: { "--json": "Machine-readable JSON output" }
+                    }]
+                    rm: [{
+                        ListView: true
+                        FlagsDesc: {
+                            "--all":        "Delete roots of all projects"
+                            "--older-than": "Delete roots older than this duration (e.g. 30d, 2m, 1y)"
+                            "--dry-run":    "Only print what would be deleted"
+                            "--shell-file": "Delete root for this shell file (repeatable)"
+                            "--json":       "Machine-readable JSON output"
+                        }
+                        FlagValues: {
+                            "--shell-file": [{ IncFiles: true }]
+                            "--older-than": [{ AllowAny: true }]
+                        }
+                    }]
+                }
+            }]
+
+            info: [{
+                ListView: true
+                FlagsDesc: {
+                    "--shell-file": "Path to shell.nix (required if no flake)"
+                    "--context":    "Directory to resolve a flake from"
+                    "--flake":      "Flake installable descriptor"
+                }
+                FlagValues: {
+                    "--shell-file": [{ IncFiles: true }]
+                    "--context":    [{ IncDirs: true }]
+                }
+            }]
+
+            init: [{}]
+
+            prompt: [{
+                ListView: true
+                FlagsDesc: {
+                    default: "Print 'ℓ' if the cwd is inside a lorri-watched project"
+                }
+                FlagValues: {
+                    default: [{
+                        ListView: true
+                        FlagsDesc: {
+                            "--include-leading-space": "Include a leading space before the prompt symbol"
+                        }
+                    }]
+                }
+            }]
+
+            hook: [{
+                ListView: true
+                FlagsDesc: {
+                    bash:   "Bourne-again shell"
+                    zsh:    "Z shell"
+                    fish:   "Friendly interactive shell"
+                    elvish: "Elvish shell"
+                    tcsh:   "TENEX C shell"
+                    murex:  "Murex shell"
+                    pwsh:   "PowerShell 7+"
+                }
+            }]
+
+            export: [{
+                ListView: true
+                FlagsDesc: {
+                    bash:    "Bourne-again shell"
+                    zsh:     "Z shell"
+                    fish:    "Friendly interactive shell"
+                    elvish:  "Elvish shell"
+                    tcsh:    "TENEX C shell"
+                    murex:   "Murex shell"
+                    pwsh:    "PowerShell 7+"
+                    vim:     "Vim (export only, no hook)"
+                    json:    "JSON output (export only, no hook)"
+                    systemd: "systemd EnvironmentFile format (export only, no hook)"
+                }
+            }]
+
+            internal: [{
+                ListView: true
+                FlagsDesc: {
+                    "ping_":          "Tell the daemon to watch the current project"
+                    "stream-events_": "Stream build events from the daemon as JSON lines"
+                    "generate-env_":  "Write \$out/env.json from the current Nix build environment"
+                }
+                FlagValues: {
+                    "ping_": [{
+                        ListView: true
+                        FlagsDesc: {
+                            "--shell-file": "Path to shell.nix (or similar)"
+                            "--context":    "Directory to resolve a flake from"
+                            "--flake":      "Flake installable descriptor (e.g. .#)"
+                        }
+                        FlagValues: {
+                            "--shell-file": [{ IncFiles: true }]
+                            "--context":    [{ IncDirs: true }]
+                        }
+                    }]
+                    "stream-events_": [{
+                        ListView: true
+                        FlagsDesc: {
+                            "--kind": "Event kind to stream (live, snapshot, all)"
+                        }
+                        FlagValues: {
+                            "--kind": [{
+                                ListView: true
+                                FlagsDesc: {
+                                    live:     "Live events only"
+                                    snapshot: "Snapshot of current state"
+                                    all:      "Both snapshot and live events"
+                                }
+                            }]
+                        }
+                    }]
+                    "generate-env_": [{
+                        IncFiles: true
+                        AllowAny: true
+                    }]
+                }
+            }]
+        }
+    }
+]

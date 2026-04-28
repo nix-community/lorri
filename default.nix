@@ -26,34 +26,63 @@ let
       ./direnv_vendor/log.go
     ];
   };
+
+  lorriBin = buildGo.program {
+    name = "lorri";
+
+    # Bake the runtime closure store path into the binary at link time.
+    x_defs."main.runtimeClosure" = "${rtc}";
+
+    srcs = [
+      ./main.go
+      ./abspath.go
+      ./paths.go
+      ./communicate.go
+      ./logged-evaluation.nix
+      ./builder.go
+      ./watch.go
+      ./build_loop.go
+      ./lorri_db.go
+      ./daemon.go
+      ./trivial-shell.nix
+      ./envjson.go
+      ./export.go
+    ];
+
+    deps = [
+      direnvVendor
+      goDeps.fsnotify
+      goDeps.golang-x-sys-unix
+      goDeps.zombiezen-go-sqlite
+      goDeps.zombiezen-go-sqlite.sqlitex
+    ];
+  };
 in
-buildGo.program {
+# Wrap the binary together with shell completion files.
+# bash, zsh, fish, and elvish use standard XDG/vendor paths that their
+# respective package managers or shell frameworks pick up automatically.
+# tcsh, Murex, and PowerShell have no cross-distro standard, so we use
+# a lorri-specific share path; users source/import from their rc file:
+#   tcsh:  source ~/.nix-profile/share/tcsh-completion/completions/lorri.tcsh
+#   murex: source ~/.nix-profile/share/murex/completions/lorri.mx
+#   pwsh:  . ~/.nix-profile/share/powershell/completions/lorri.ps1
+pkgs.symlinkJoin {
   name = "lorri";
-
-  # Bake the runtime closure store path into the binary at link time.
-  x_defs."main.runtimeClosure" = "${rtc}";
-
-  srcs = [
-    ./main.go
-    ./abspath.go
-    ./paths.go
-    ./communicate.go
-    ./logged-evaluation.nix
-    ./builder.go
-    ./watch.go
-    ./build_loop.go
-    ./lorri_db.go
-    ./daemon.go
-    ./trivial-shell.nix
-    ./envjson.go
-    ./export.go
-  ];
-
-  deps = [
-    direnvVendor
-    goDeps.fsnotify
-    goDeps.golang-x-sys-unix
-    goDeps.zombiezen-go-sqlite
-    goDeps.zombiezen-go-sqlite.sqlitex
-  ];
+  paths = [ lorriBin ];
+  postBuild = ''
+    install -Dm644 ${./contrib/lorri.bash} \
+      $out/share/bash-completion/completions/lorri
+    install -Dm644 ${./contrib/lorri.zsh} \
+      $out/share/zsh/site-functions/_lorri
+    install -Dm644 ${./contrib/lorri.fish} \
+      $out/share/fish/vendor_completions.d/lorri.fish
+    install -Dm644 ${./contrib/lorri.elv} \
+      $out/share/elvish/completions/lorri.elv
+    install -Dm644 ${./contrib/lorri.tcsh} \
+      $out/share/tcsh-completion/completions/lorri.tcsh
+    install -Dm644 ${./contrib/lorri.mx} \
+      $out/share/murex/completions/lorri.mx
+    install -Dm644 ${./contrib/lorri.ps1} \
+      $out/share/powershell/completions/lorri.ps1
+  '';
 }
