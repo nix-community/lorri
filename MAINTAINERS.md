@@ -58,12 +58,9 @@ does not in itself necessitate a major release.
 
 To cut a new release:
 
-1. Determine if this is a [minor or major release](#versioning-scheme) and
-   change the `version` field in `Cargo.toml` accordingly.
-2. Build the project to update `Cargo.lock`, then run `ninja all` to
-   update `Cargo.nix`.
-3. Go through all commits since the last release and cross-check against the
-   release notes in `release.nix`. Add missing changes.
+1. Determine if this is a [minor or major release](#versioning-scheme).
+2. Go through all commits since the last release and cross-check against the
+   release notes in `CHANGELOG.md`. Add missing changes.
 4. With the changelog in mind, check that the [manpage](./lorri.scd) is up-to-date.
 5. Create a PR with these changes and merge it. Note the hash of the merge
    commit.
