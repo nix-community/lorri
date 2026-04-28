@@ -61,6 +61,8 @@ To cut a new release:
 1. Determine if this is a [minor or major release](#versioning-scheme).
 2. Go through all commits since the last release and cross-check against the
    release notes in `CHANGELOG.md`. Add missing changes.
+3. Check whether any subcommands, flags, or shell-name arguments have changed
+   and update the completion scripts in `contrib/` accordingly.
 4. With the changelog in mind, check that the [manpage](./lorri.scd) is up-to-date.
 5. Create a PR with these changes and merge it. Note the hash of the merge
    commit.
@@ -70,9 +72,8 @@ To cut a new release:
    `v1.0.0`).
 7. Push the tag using `git push origin <version>`.
 8. Go to https://github.com/nix-community/lorri/releases/new and use the pushed
-   Tag to create a new release.
-   Copy the new changelog entries since the last release into the release
-   notes.
+   tag to create a new release. Copy the new changelog entries since the last
+   release into the release notes.
 
 ## Publishing a release on [nixpkgs][]
 
@@ -108,23 +109,10 @@ To update the lorri version in [nixpkgs][]:
    We only backport to latest stable, since NixOS has a policy of only
    supporting one stable version at a time.
 
-   Q: why do we support an older `rusttc` then?
-
-   A: Users often work with repositories that use an older nixpkgs pin,
-   which might still be from before latest stable. If they add lorri
-   as an overlay to their repository, it won’t work if we drop support
-   for older rustc’s too early.
-
 ## Updating dependencies
 
-Run `./nix/update-nixpkgs.sh` from the root directory of this
-repository. This updates `nixpkgs.json` to the latest commit of the
-stable nixos version that is set in `./nix/update-nixpkgs.sh`.
-
-Afterwards, don’t forget to run `nix-shell` and `nix-build` to test
-whether everything still builds.
-
-Run `ninja all` to update Cargo's dependency list.
+Run `go get -u ./... && go mod tidy` to update Go dependencies, then
+run `nix build` to verify everything still builds.
 
 [nixos-stable-pr]: https://github.com/NixOS/nixpkgs/pull/77432
 [nixos-unstable-pr]: https://github.com/NixOS/nixpkgs/pull/77380
