@@ -7,26 +7,21 @@ lorri — nix-shell replacement for project development
 # SYNOPSIS
 
 *lorri daemon* [*--extra-nix-options* _json_]++
-*lorri direnv* [*--shell-file* _shell.nix_]++
-*lorri info* *--shell-file* _shell.nix_++
+*lorri direnv* [*--shell-file* _shell.nix_] [*--flake* _installable_] [*--context* _dir_] _(deprecated)_++
+*lorri export* _shell_++
+*lorri gc* [*--json*] *info*++
+*lorri gc* [*--json*] *rm* [*--all*] [*--older-than* _duration_] [*--dry-run*] [*--shell-file* _shell.nix_]++
+*lorri hook* _shell_++
+*lorri info* {*--shell-file* _shell.nix_ | *--flake* _installable_} [*--context* _dir_]++
 *lorri init*++
-*lorri shell* [*--cached*] [*--shell-file* _shell.nix_]
+*lorri prompt default* [*--include-leading-space*]
 
 # DESCRIPTION
 
 *lorri* is a nix-shell replacement for project development.
-*lorri* is based around fast _direnv_(1) integration for robust
-CLI and editor integration.
-
-*lorri* is about experimenting with and improving the
-developer's experience with Nix. A particular focus is managing
-your project's external dependencies, editor integration,
-and quick feedback.
-
-*lorri* provides a daemon that automatically builds project
-environment whenever their nix files change, and the
-_direnv_(1) integration instantly loads the project environment,
-in your shell and in your editor.
+It provides a daemon that automatically rebuilds your project
+environment whenever its nix files change, and a shell hook
+that instantly loads the updated environment on each prompt.
 
 *lorri* supports Linux and macOS.
 
@@ -51,53 +46,66 @@ on the project page: https://github.com/nix-community/lorri/.
 	See ‘lorri daemon --help’ for a description of the supported
 	options.
 
-*lorri direnv* [*--shell-file* _shell.nix_]
+*lorri direnv* [*--shell-file* _shell.nix_] [*--flake* _installable_] [*--context* _dir_]
 
-	Print a piece of _direnv_(1) bash code, intended to be sourced
-	in the _.envrc_ of your project. Source it by adding
+	Deprecated. Print a _direnv_(1) snippet for use in your project's
+	_.envrc_. Kept for backwards compatibility; new projects should use
+	*lorri hook* instead. A migration notice is printed to stderr on
+	each invocation.
+
+*lorri export* _shell_
+
+	Print shell export commands reflecting the current lorri
+	environment. This is called automatically by the hook installed
+	via *lorri hook* on each prompt; you do not normally need to run
+	it directly. Supported shells are the same as for *lorri hook*,
+	plus _vim_, _json_, and _systemd_.
+
+*lorri gc* [*--json*] *info*
+
+	List all GC roots lorri has created and whether their project
+	directories still exist. Pass *--json* for machine-readable output.
+
+*lorri gc* [*--json*] *rm* [*--all*] [*--older-than* _duration_] [*--dry-run*] [*--shell-file* _shell.nix_]
+
+	Remove GC roots. By default only roots whose project directory
+	no longer exists are removed. Use *--all* to remove every root,
+	*--older-than* to remove roots older than a duration (e.g. _30d_,
+	_2m_, _1y_), or *--shell-file* (repeatable) to target specific
+	projects. *--dry-run* prints what would be removed without acting.
+
+*lorri hook* _shell_
+
+	Print a shell hook snippet to eval in your shell's rc file so
+	that lorri updates your environment on each prompt. Supported
+	shells: _bash_, _zsh_, _fish_, _elvish_, _tcsh_, _murex_, _pwsh_.
 
 	```
-	eval "$(lorri direnv)"
+	# bash (~/.bashrc):
+	eval "$(lorri hook bash)"
+
+	# zsh (~/.zshrc):
+	eval "$(lorri hook zsh)"
+
+	# fish (~/.config/fish/config.fish):
+	lorri hook fish | source
 	```
 
-	to your project’s _.envrc_.
-	It will then cause *direnv* to reload your environment whenever
-	*lorri* finishes a rebuild.
+*lorri info* {*--shell-file* _shell.nix_ | *--flake* _installable_} [*--context* _dir_]
 
-	_shell.nix_ is the file built and watched by *lorri*.
-	Use the *--shell-file* flag to overwrite the file name:
-
-	```
-	eval "$(lorri direnv --shell-file foo.nix)"
-	```
-
-	The path is relative to the location of your _.envrc_.
-
-*lorri info* *--shell-file* _shell.nix_
-
-	Show project information for the given shell file.
+	Show project and daemon status for the given project. Either
+	*--shell-file* or *--flake* is required.
 
 *lorri init*
 
-	Bootstrap a *lorri* project. The following files are created
-	if they do not exist yet:
+	Bootstrap a *lorri* project. Creates _shell.nix_ and _.envrc_
+	in the current directory if they do not already exist.
 
-	- _shell.nix_: Minimal nix shell file
-	- _.envrc_: A direnv config with the ‘lorri direnv’ call.
+*lorri prompt default* [*--include-leading-space*]
 
-*lorri shell* [*--cached*] [*--shell-file* _shell.nix_]
-
-	Open a project shell. This is essentially a beefed-up
-	_nix-shell_(1), with the following improvements:
-
-	- It will use your interactive shell instead of _bash_(1)
-	  (_bash_(1), _fish_(1) and _zsh_(1) are supported currently).
-	- If given the *--cached* flag, it will use the environment
-	  that *lorri* built most recently. This means the project shell
-	  starts up instantly, similar to ‘lorri direnv’.
-
-	*--shell-file* opens a shell file for the given _shell.nix_
-	instead of the one in the current directory.
+	Print _ℓ_ if the current directory is inside a lorri-watched
+	project, for use in shell prompt strings. Pass
+	*--include-leading-space* to prepend a space.
 
 # RELATED WORK
 
