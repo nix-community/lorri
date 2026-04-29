@@ -49,14 +49,15 @@ set edit:completion:arg-completer[lorri] = {|@args|
     var n = (count $args)
 
     # args[0] = "lorri", args[1] = subcommand (or ""), args[2] = ...
-    if (== $n 2) {
+        if (== $n 2) {
         # Completing the subcommand name
         -candidates [
             [&stem=daemon    &desc='Start the multi-project build daemon']
             [&stem=direnv    &desc='Emit direnv shell script (for use inside .envrc)']
             [&stem=gc        &desc='Garbage-collect lorri GC roots']
             [&stem=info      &desc='Show project and daemon status']
-            [&stem=init      &desc='Write bootstrap shell.nix to the current directory']
+            [&stem=watch     &desc='Register the current project with lorri and start watching it']
+            [&stem=unwatch   &desc='Stop watching the current project']
             [&stem=prompt    &desc='Generate a lorri status marker for your shell prompt']
             [&stem=hook      &desc='Print the shell hook to eval in your rc file']
             [&stem=export    &desc='Print shell export commands (called by the hook on each prompt)']
@@ -97,6 +98,9 @@ set edit:completion:arg-completer[lorri] = {|@args|
                 [&stem=default  &desc="Print 'ℓ' if the cwd is inside a lorri-watched project"]
             ]
         } elif (eq $subcmd hook) {
+            -flag-candidates [
+                [&flag=--how  &desc='Print setup instructions for all supported shells']
+            ]
             -candidates $hook-shells
         } elif (eq $subcmd export) {
             -candidates $export-shells

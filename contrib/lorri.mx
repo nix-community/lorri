@@ -12,7 +12,8 @@ autocomplete set lorri %[
             direnv:   "Emit direnv shell script (for use inside .envrc)"
             gc:       "Garbage-collect lorri GC roots"
             info:     "Show project and daemon status"
-            init:     "Write bootstrap shell.nix to the current directory"
+            watch:    "Register the current project with lorri and start watching it"
+            unwatch:  "Stop watching the current project"
             prompt:   "Generate a lorri status marker for your shell prompt"
             hook:     "Print the shell hook to eval in your rc file"
             export:   "Print shell export commands (called by the hook on each prompt)"
@@ -82,7 +83,8 @@ autocomplete set lorri %[
                 }
             }]
 
-            init: [{}]
+            watch:   [{}]
+            unwatch: [{}]
 
             prompt: [{
                 ListView: true
@@ -102,13 +104,14 @@ autocomplete set lorri %[
             hook: [{
                 ListView: true
                 FlagsDesc: {
-                    bash:   "Bourne-again shell"
-                    zsh:    "Z shell"
-                    fish:   "Friendly interactive shell"
-                    elvish: "Elvish shell"
-                    tcsh:   "TENEX C shell"
-                    murex:  "Murex shell"
-                    pwsh:   "PowerShell 7+"
+                    "--how": "Print setup instructions for all supported shells"
+                    bash:    "Bourne-again shell"
+                    zsh:     "Z shell"
+                    fish:    "Friendly interactive shell"
+                    elvish:  "Elvish shell"
+                    tcsh:    "TENEX C shell"
+                    murex:   "Murex shell"
+                    pwsh:    "PowerShell 7+"
                 }
             }]
 

@@ -13,7 +13,8 @@ _lorri() {
         'direnv:emit direnv shell script (for use inside .envrc)'
         'gc:garbage-collect lorri GC roots'
         'info:show project and daemon status'
-        'init:write bootstrap shell.nix to the current directory'
+        'watch:register the current project with lorri and start watching it'
+        'unwatch:stop watching the current project'
         'prompt:generate a lorri status marker for your shell prompt'
         'hook:print the shell hook to eval in your shell rc file'
         'export:print shell export commands (called by the hook on each prompt)'
@@ -111,7 +112,7 @@ _lorri() {
                         '--flake[flake installable descriptor]:flake'
                     ;;
 
-                init)
+                watch|unwatch)
                     # No flags or arguments
                     ;;
 
@@ -141,7 +142,9 @@ _lorri() {
                     ;;
 
                 hook)
-                    _arguments '1:shell:->shell_name'
+                    _arguments \
+                        '--how[print setup instructions for all supported shells]' \
+                        '1:shell:->shell_name'
                     case $state in
                         shell_name) _describe 'shell' hook_shells ;;
                     esac

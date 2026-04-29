@@ -11,7 +11,7 @@ complete -c lorri -f
 
 function __lorri_no_subcommand
     not __fish_seen_subcommand_from \
-        daemon direnv gc info init prompt hook export internal help
+        daemon direnv gc info watch unwatch prompt hook export internal help
 end
 
 function __lorri_seen_gc
@@ -54,7 +54,8 @@ complete -c lorri -n __lorri_no_subcommand -a daemon    -d 'Start the multi-proj
 complete -c lorri -n __lorri_no_subcommand -a direnv    -d 'Emit direnv shell script (for use inside .envrc)'
 complete -c lorri -n __lorri_no_subcommand -a gc        -d 'Garbage-collect lorri GC roots'
 complete -c lorri -n __lorri_no_subcommand -a info      -d 'Show project and daemon status'
-complete -c lorri -n __lorri_no_subcommand -a init      -d 'Write bootstrap shell.nix to the current directory'
+complete -c lorri -n __lorri_no_subcommand -a watch     -d 'Register the current project with lorri and start watching it'
+complete -c lorri -n __lorri_no_subcommand -a unwatch   -d 'Stop watching the current project'
 complete -c lorri -n __lorri_no_subcommand -a prompt    -d 'Generate a lorri status marker for your shell prompt'
 complete -c lorri -n __lorri_no_subcommand -a hook      -d 'Print the shell hook to eval in your rc file'
 complete -c lorri -n __lorri_no_subcommand -a export    -d 'Print shell export commands (called by the hook on each prompt)'
@@ -121,8 +122,11 @@ complete -c lorri -n '__fish_seen_subcommand_from prompt; and __fish_seen_subcom
     -l include-leading-space -d 'Include a leading space before the prompt symbol'
 
 # ---------------------------------------------------------------------------
-# hook  — shell name as positional argument
+# hook  — --how flag or shell name as positional argument
 # ---------------------------------------------------------------------------
+
+complete -c lorri -n '__fish_seen_subcommand_from hook' \
+    -l how -d 'Print setup instructions for all supported shells'
 
 complete -c lorri -n '__fish_seen_subcommand_from hook' -a bash    -d 'Bourne-again shell'
 complete -c lorri -n '__fish_seen_subcommand_from hook' -a zsh     -d 'Z shell'

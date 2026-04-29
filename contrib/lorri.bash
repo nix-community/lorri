@@ -9,7 +9,7 @@ _lorri() {
     _init_completion || return
 
     # All top-level subcommands
-    local subcommands='daemon direnv gc info init prompt hook export internal help'
+    local subcommands='daemon direnv gc info watch unwatch prompt hook export internal help'
 
     # Shell names that have a working Hook() implementation
     local hook_shells='bash zsh fish elvish tcsh murex pwsh'
@@ -76,7 +76,7 @@ _lorri() {
             COMPREPLY=( $(compgen -W '--shell-file --context --flake' -- "$cur") )
             ;;
 
-        init)
+        watch|unwatch)
             # No flags or arguments
             ;;
 
@@ -92,8 +92,9 @@ _lorri() {
             ;;
 
         hook)
-            # Argument is a shell name
-            if [[ -z $subcmd2 ]]; then
+            if [[ $cur == --* ]]; then
+                COMPREPLY=( $(compgen -W '--how' -- "$cur") )
+            elif [[ -z $subcmd2 ]]; then
                 COMPREPLY=( $(compgen -W "$hook_shells" -- "$cur") )
             fi
             ;;
@@ -130,6 +131,7 @@ _lorri() {
         help)
             COMPREPLY=( $(compgen -W "$subcommands" -- "$cur") )
             ;;
+
     esac
 }
 
