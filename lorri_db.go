@@ -9,6 +9,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"time"
 
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
@@ -78,6 +80,61 @@ func OpenLorriDB(path string) (*LorriDB, error) {
 		return nil, fmt.Errorf("OpenLorriDB: create shell session schema: %w", err)
 	}
 	return &LorriDB{conn: conn}, nil
+}
+
+// OpenLorriDBReadOnly opens the SQLite database at path in read-only mode.
+// The schema is not created — use this only when the DB is known to exist.
+// Read-only mode avoids blocking writers (e.g. the daemon) and is safe to
+// call from prompt hooks and other high-frequency codepaths.
+func OpenLorriDBReadOnly(path string) (*LorriDB, error) {
+	conn, err := sqlite.OpenConn(path, sqlite.OpenReadOnly)
+	if err != nil {
+		return nil, fmt.Errorf("OpenLorriDBReadOnly: open %s: %w", path, err)
+	}
+	return &LorriDB{conn: conn}, nil
+}
+
+// FindRegisteredProjectForDir walks up from dir through its ancestors and
+// returns the first DBProject registered in the lorri database whose nix_file
+// lives directly in that directory. Returns nil, nil if nothing is found.
+//
+// Unlike findNixFile / resolveProjectFile (which look at the filesystem),
+// this function only considers projects lorri already knows about. It handles
+// both shell.nix and flake projects.
+//
+// Each ancestor level issues a single targeted SQL query rather than scanning
+// all rows, so the cost is O(depth) queries of O(1) each.
+func (db *LorriDB) FindRegisteredProjectForDir(dir string) (*DBProject, error) {
+	for d := filepath.Clean(dir); ; d = filepath.Dir(d) {
+		var found *DBProject
+		err := sqlitex.Execute(db.conn,
+			`SELECT nix_file, is_flake, flake_installable FROM gc_roots
+			 WHERE :path || '/' = rtrim(nix_file, replace(nix_file, '/', ''))
+			 LIMIT 1`,
+			&sqlitex.ExecOptions{
+				Named: map[string]any{":path": d},
+				ResultFunc: func(stmt *sqlite.Stmt) error {
+					found = &DBProject{
+						NixFile:          stmt.ColumnText(0),
+						IsFlake:          stmt.ColumnInt(1) != 0,
+						FlakeInstallable: stmt.ColumnText(2),
+					}
+					return nil
+				},
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+		if found != nil {
+			return found, nil
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			break
+		}
+	}
+	return nil, nil
 }
 
 // Close closes the underlying SQLite connection.
@@ -218,6 +275,28 @@ func (db *LorriDB) GetShellSession(sessionID string) (*ShellSession, error) {
 	return s, err
 }
 
+// SaveSessionAndEnvPrev creates (or updates) the shell session row and stores
+// the pre-lorri env var values
+func (db *LorriDB) SaveSessionAndEnvPrev(sessionID, project, envHash string, prev map[string]*string) (retErr error) {
+	endTx := sqlitex.Save(db.conn)
+	defer endTx(&retErr)
+
+	shellPID := os.Getppid()
+	if err := db.CreateShellSession(ShellSession{
+		SessionID: sessionID,
+		ShellPID:  shellPID,
+		Project:   project,
+		EnvHash:   envHash,
+		CreatedAt: time.Now().Unix(),
+	}); err != nil {
+		// Session may already exist (e.g. re-entering same project). Update instead.
+		if err := db.UpdateShellSession(sessionID, project, envHash); err != nil {
+			return err
+		}
+	}
+	return db.SetEnvPrev(sessionID, prev)
+}
+
 // SetEnvPrev stores the pre-lorri values for all vars touched in this session.
 // Replaces any existing rows for this session.
 func (db *LorriDB) SetEnvPrev(sessionID string, prev map[string]*string) (retErr error) {
@@ -280,8 +359,11 @@ func (db *LorriDB) GetEnvPrev(sessionID string) (map[string]*string, error) {
 	return prev, err
 }
 
-// DeleteShellSession removes the session and all its env_prev rows.
-func (db *LorriDB) DeleteShellSession(sessionID string) error {
+// DeleteShellSession removes the session and all its env_prev rows atomically.
+func (db *LorriDB) DeleteShellSession(sessionID string) (retErr error) {
+	endTx := sqlitex.Save(db.conn)
+	defer endTx(&retErr)
+
 	if err := sqlitex.Execute(db.conn,
 		`DELETE FROM lorri_shell_env_prev WHERE session_id = :session_id`,
 		&sqlitex.ExecOptions{Named: map[string]any{":session_id": sessionID}},
@@ -295,7 +377,7 @@ func (db *LorriDB) DeleteShellSession(sessionID string) error {
 }
 
 // sweepStaleSessions deletes sessions whose shell_pid is no longer alive.
-func (db *LorriDB) sweepStaleSessions() error {
+func (db *LorriDB) sweepStaleSessions() (retErr error) {
 	// Collect all session IDs and their PIDs.
 	type row struct {
 		id  string
@@ -317,9 +399,15 @@ func (db *LorriDB) sweepStaleSessions() error {
 	if err != nil {
 		return err
 	}
+
+	endTx := sqlitex.Save(db.conn)
+	defer endTx(&retErr)
+
 	for _, r := range rows {
 		if !pidAlive(r.pid) {
-			_ = db.DeleteShellSession(r.id)
+			if err := db.DeleteShellSession(r.id); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

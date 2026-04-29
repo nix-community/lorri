@@ -44,7 +44,6 @@ let
       ./build_loop.go
       ./lorri_db.go
       ./daemon.go
-      ./trivial-shell.nix
       ./envjson.go
       ./export.go
     ];
