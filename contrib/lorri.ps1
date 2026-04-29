@@ -54,7 +54,8 @@ Register-ArgumentCompleter -Native -CommandName lorri -ScriptBlock {
             CandFilter 'direnv'    'Emit direnv shell script (for use inside .envrc)'
             CandFilter 'gc'        'Garbage-collect lorri GC roots'
             CandFilter 'info'      'Show project and daemon status'
-            CandFilter 'init'      'Write bootstrap shell.nix to the current directory'
+            CandFilter 'watch'     'Register the current project with lorri and start watching it'
+            CandFilter 'unwatch'   'Stop watching the current project'
             CandFilter 'prompt'    'Generate a lorri status marker for your shell prompt'
             CandFilter 'hook'      'Print the shell hook to eval in your rc file'
             CandFilter 'export'    'Print shell export commands (called by the hook on each prompt)'
@@ -99,7 +100,11 @@ Register-ArgumentCompleter -Native -CommandName lorri -ScriptBlock {
             CandFilter '--flake'       'Flake installable descriptor'
         }
 
-        'init' {
+        'watch' {
+            # No flags or arguments
+        }
+
+        'unwatch' {
             # No flags or arguments
         }
 
@@ -112,6 +117,7 @@ Register-ArgumentCompleter -Native -CommandName lorri -ScriptBlock {
         }
 
         'hook' {
+            CandFilter '--how'   'Print setup instructions for all supported shells'
             if ($null -eq $subcmd2) {
                 CandFilter 'bash'    'Bourne-again shell'
                 CandFilter 'zsh'     'Z shell'
@@ -171,7 +177,8 @@ Register-ArgumentCompleter -Native -CommandName lorri -ScriptBlock {
             CandFilter 'direnv'    'Emit direnv shell script (for use inside .envrc)'
             CandFilter 'gc'        'Garbage-collect lorri GC roots'
             CandFilter 'info'      'Show project and daemon status'
-            CandFilter 'init'      'Write bootstrap shell.nix to the current directory'
+            CandFilter 'watch'     'Register the current project with lorri and start watching it'
+            CandFilter 'unwatch'   'Stop watching the current project'
             CandFilter 'prompt'    'Generate a lorri status marker for your shell prompt'
             CandFilter 'hook'      'Print the shell hook to eval in your rc file'
             CandFilter 'export'    'Print shell export commands (called by the hook on each prompt)'

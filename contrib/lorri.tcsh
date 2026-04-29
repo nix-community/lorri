@@ -8,7 +8,7 @@
 # rather than merges on repeated calls for the same command.
 
 complete lorri \
-    'p/1/(daemon direnv gc info init prompt hook export internal help)/' \
+    'p/1/(daemon direnv gc info watch unwatch prompt hook export internal help)/' \
     'n/gc/(info rm)/' \
     'n/prompt/(default)/' \
     'n/internal/(ping_ stream-events_ generate-env_)/' \
