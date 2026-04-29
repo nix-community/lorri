@@ -67,10 +67,11 @@ platforms](#setup-on-other-platforms).
    lorri hook fish | source
    ```
 
-3. **Initialise your project.** Run `lorri init` in your project directory to
-   create a `shell.nix` if one doesn't exist yet, and follow the printed
-   instructions. Then open a new shell and `cd` into your project directory —
-   lorri will start building the environment automatically.
+3. **Watch your project.** Run `lorri watch` in your project directory. If
+   you don't have a `shell.nix` or `flake.nix` yet, lorri will suggest how
+   to create one with `nix flake init`. Then open a new shell and `cd` into
+   your project directory — lorri will start building the environment
+   automatically.
 
 ## Setup on other platforms
 
@@ -109,10 +110,11 @@ the following instructions will help you get started with lorri.
    lorri hook fish | source
    ```
 
-4. **Initialise your project.** Run `lorri init` in your project directory to
-   create a `shell.nix` if one doesn't exist yet, and follow the printed
-   instructions. Then open a new shell and `cd` into your project directory —
-   lorri will start building the environment automatically.
+4. **Watch your project.** Run `lorri watch` in your project directory. If
+   you don't have a `shell.nix` or `flake.nix` yet, lorri will suggest how
+   to create one with `nix flake init`. Then open a new shell and `cd` into
+   your project directory — lorri will start building the environment
+   automatically.
 
 ## Usage
 
@@ -123,6 +125,14 @@ applied automatically on the next prompt.
 The cached environment is loaded even when the daemon is not running. However,
 the daemon must be running for the environment to be updated when `shell.nix`
 changes.
+
+### Managing projects
+
+lorri only loads environments for projects it knows about. Run `lorri watch` to
+register a project — it will auto-detect your `shell.nix` or `flake.nix`, and
+suggest `nix flake init` if neither exists. To stop managing a project, run
+`lorri unwatch` — this removes its GC root and stops the daemon from rebuilding
+it.
 
 ## Migrating from direnv
 

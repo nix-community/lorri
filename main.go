@@ -24,8 +24,6 @@ import (
 	"time"
 
 	direnvpkg "github.com/nix-community/lorri/direnv_vendor"
-	"zombiezen.com/go/sqlite"
-	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 // runtimeClosure is baked in at link time by go/default.nix via:
@@ -101,11 +99,10 @@ func run(args []string) error {
 		return runGC(args[1:])
 	case "info":
 		return runInfo(args[1:])
-	case "init":
-		if err := opInit(); err != nil {
-			return exitTemporary("lorri init failed", err)
-		}
-		return nil
+	case "watch":
+		return runWatch(args[1:])
+	case "unwatch":
+		return runUnwatch(args[1:])
 	case "prompt":
 		return runPrompt(args[1:])
 	case "internal":
@@ -380,10 +377,52 @@ func runPromptDefault(args []string) error {
 // ---------------------------------------------------------------------------
 
 func runHook(args []string) error {
-	if len(args) != 1 {
-		return exitUserError("usage: lorri hook <shell>", nil)
+	fs := flag.NewFlagSet("lorri hook", flag.ContinueOnError)
+	how := fs.Bool("how", false, "print shell hook setup instructions for all supported shells")
+	if err := fs.Parse(args); err != nil {
+		return exitUserError("bad flags", err)
 	}
-	return opHook(args[0])
+	if *how {
+		return opHookHow()
+	}
+	if fs.NArg() != 1 {
+		return exitUserError("usage: lorri hook [--how] <shell>", nil)
+	}
+	return opHook(fs.Arg(0))
+}
+
+// opHookHow prints setup instructions for all supported shells to stderr.
+func opHookHow() error {
+	fmt.Fprint(os.Stderr, `To finish setting up lorri on your machine, add the lorri hook to your shell rc file and open a new shell.
+
+  bash (~/.bashrc):
+    eval "$(lorri hook bash)"
+
+  zsh (~/.zshrc):
+    eval "$(lorri hook zsh)"
+
+  fish (~/.config/fish/config.fish):
+    lorri hook fish | source
+
+  elvish (~/.config/elvish/rc.elv):
+    eval (lorri hook elvish | slurp)
+
+  tcsh (~/.tcshrc):
+    eval `+"`"+`lorri hook tcsh`+"`"+`
+
+  murex (~/.murex_profile):
+    lorri hook murex | source
+
+  pwsh ($PROFILE):
+    Invoke-Expression (& lorri hook pwsh)
+
+The hook runs 'lorri export <shell>' on every prompt. It checks whether
+the current directory belongs to a lorri-watched project (registered via
+'lorri watch' or 'lorri init') and applies any environment changes from
+the daemon's last successful build, reverting them when you leave the
+project directory.
+`)
+	return nil
 }
 
 func runExport(args []string) error {
@@ -538,7 +577,8 @@ subcommands:
   direnv    emit shell script for direnv to eval via 'eval "$(lorri direnv)"'
   gc        remove lorri GC roots for projects whose nix file is gone
   info      show project and daemon status information
-  init      write bootstrap files to the current directory to start a new project
+  watch     register a project with lorri and start watching it
+  unwatch   stop watching a project and remove its GC roots
   prompt    generate a lorri status marker for inclusion in your shell prompt
   internal  plumbing commands (unstable)
 `)
@@ -618,7 +658,25 @@ func opHook(shell string) error {
 	}
 
 	fmt.Print(out)
+	fmt.Print(lorriShellMarker(shell))
 	return nil
+}
+
+// lorriShellMarker returns a shell snippet that sets LORRI_SHELL to the given
+// shell name. This is used by lorri watch/init to detect whether the hook has
+// been installed in the current shell.
+func lorriShellMarker(shell string) string {
+	switch shell {
+	case "fish":
+		return "\nset -gx LORRI_SHELL " + shell + "\n"
+	case "elvish":
+		return "\nset-env LORRI_SHELL " + shell + "\n"
+	case "pwsh":
+		return "\n${env:LORRI_SHELL}='" + shell + "';\n"
+	default:
+		// bash, zsh, tcsh, murex and any future POSIX-like shells
+		return "\nexport LORRI_SHELL=" + shell + "\n"
+	}
 }
 
 // pidAlive returns true if the process with the given PID is still running.
@@ -896,58 +954,140 @@ func streamLive(socketPath SocketPath, sig <-chan os.Signal) error {
 	}
 }
 
+
+
 // ---------------------------------------------------------------------------
-// init
+// watch / unwatch
 // ---------------------------------------------------------------------------
 
-//go:embed trivial-shell.nix
-var trivialShellNix string
-
-// opInit writes shell.nix to the current directory (if missing) and prints
-// instructions for installing the native shell hook.
-func opInit() error {
-	if err := createIfMissing("./shell.nix", trivialShellNix,
-		"Make sure shell.nix is of a form that works with nix-shell."); err != nil {
-		return err
+// opWatch registers a project in the lorri database and pings the daemon to
+// begin watching it. If a project in the current directory is already
+// registered it prints a message and returns without error.
+func opWatch(paths *Paths, projectFile ProjectFile) error {
+	db, err := OpenLorriDB(paths.SQLiteDB.String())
+	if err != nil {
+		return fmt.Errorf("watch: open db: %w", err)
 	}
+	defer db.Close()
 
-	// Detect the user's current shell from $SHELL for a tailored suggestion.
-	currentShell := filepath.Base(os.Getenv("SHELL"))
-
-	fmt.Fprintf(os.Stderr, "lorri: to complete setup, add the lorri hook to your shell rc file:\n\n")
-	switch currentShell {
-	case "zsh":
-		fmt.Fprintln(os.Stderr, `  zsh (~/.zshrc):`)
-		fmt.Fprintln(os.Stderr, `    eval "$(lorri hook zsh)"`)
-	case "fish":
-		fmt.Fprintln(os.Stderr, `  fish (~/.config/fish/config.fish):`)
-		fmt.Fprintln(os.Stderr, `    lorri hook fish | source`)
-	default:
-		// Default to bash instructions.
-		fmt.Fprintln(os.Stderr, `  bash (~/.bashrc):`)
-		fmt.Fprintln(os.Stderr, `    eval "$(lorri hook bash)"`)
-		if currentShell != "bash" && currentShell != "" {
-			fmt.Fprintf(os.Stderr, "\n  (for other shells, run: lorri hook <shell>)\n")
+	// Check the DB first — report what's actually registered, not what's on disk.
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("watch: getwd: %w", err)
+	}
+	if existing, err := db.FindRegisteredProjectForDir(cwd); err != nil {
+		return fmt.Errorf("watch: %w", err)
+	} else if existing != nil {
+		fmt.Fprintf(os.Stderr, "lorri: already watching %s\n", existing.NixFile)
+		if os.Getenv("LORRI_SHELL") == "" {
+			fmt.Fprintf(os.Stderr, "lorri: warning: no shell hook detected; run 'lorri hook --how' for shell setup instructions\n")
 		}
-	}
-	fmt.Fprintln(os.Stderr, "\nThen open a new shell and cd into your project directory.")
-	fmt.Fprintln(os.Stderr, "lorri: done")
-	return nil
-}
-
-// createIfMissing writes contents to path only if the file does not already
-// exist. Mirrors ops.rs create_if_missing().
-func createIfMissing(path, contents, msg string) error {
-	if _, err := os.Stat(path); err == nil {
-		fmt.Fprintf(os.Stderr, "lorri: file already exists, skipping: %s — %s\n", path, msg)
 		return nil
 	}
-	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
-		return fmt.Errorf("could not write %s: %w", path, err)
+
+	nixFile := nixFilePathForProject(projectFile)
+	isFlake := projectFile.FlakeNix != nil
+	installable := ""
+	if isFlake {
+		installable = projectFile.FlakeNix.Installable
 	}
-	fmt.Fprintf(os.Stderr, "lorri: wrote file: %s\n", path)
+
+	if err := db.UpsertProject(nixFile, isFlake, installable); err != nil {
+		return fmt.Errorf("watch: register project: %w", err)
+	}
+
+	if err := opPingWithRebuild(paths, projectFile, RebuildAlways); err != nil {
+		fmt.Fprintf(os.Stderr, "lorri: warning: daemon not running; start it with 'lorri daemon'\n")
+	}
+
+	fmt.Fprintf(os.Stderr, "lorri: watching %s\n", nixFile)
+	if os.Getenv("LORRI_SHELL") == "" {
+		fmt.Fprintf(os.Stderr, "lorri: warning: no shell hook detected; run 'lorri hook --how' for shell setup instructions\n")
+	}
 	return nil
 }
+
+// opUnwatch removes a project from the lorri database, deletes its GC root,
+// and removes any active shell sessions so the next prompt reverts the env.
+func opUnwatch(paths *Paths) error {
+	db, err := OpenLorriDB(paths.SQLiteDB.String())
+	if err != nil {
+		return fmt.Errorf("unwatch: open db: %w", err)
+	}
+	defer db.Close()
+
+	// Look up what's actually registered for this directory — don't trust
+	// the disk-resolved projectFile, which may differ from what's in the DB.
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("unwatch: getwd: %w", err)
+	}
+	existing, err := db.FindRegisteredProjectForDir(cwd)
+	if err != nil {
+		return fmt.Errorf("unwatch: %w", err)
+	}
+	if existing == nil {
+		fmt.Fprintf(os.Stderr, "lorri: no watched project in current directory\n")
+		return nil
+	}
+
+	// Reconstruct the ProjectFile from the DB row for GC root path computation.
+	var pf ProjectFile
+	if existing.IsFlake {
+		pf = NewFlakeProjectFile(mustAbsPath(filepath.Dir(existing.NixFile)), existing.FlakeInstallable)
+	} else {
+		pf = NewShellNixProjectFile(mustAbsPath(existing.NixFile))
+	}
+
+	// Remove the GC root directory.
+	gcRoot := gcRootPathForProject(paths.GCRootDir, pf)
+	gcDir := gcRoot.Dir().Dir() // <hash>/gc_root/shell_gc_root → <hash>/
+	if err := os.RemoveAll(gcDir.String()); err != nil {
+		return fmt.Errorf("unwatch: remove gc root: %w", err)
+	}
+
+	// Remove the project row.
+	if err := db.DeleteProject(existing.NixFile); err != nil {
+		return fmt.Errorf("unwatch: delete project: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "lorri: unwatched %s\n", existing.NixFile)
+	return nil
+}
+
+func runWatch(args []string) error {
+	if len(args) > 0 {
+		return exitUserError("lorri watch takes no arguments", nil)
+	}
+	paths, err := mustInitPaths()
+	if err != nil {
+		return err
+	}
+	projectFile, err := mustResolveProjectFile("", ".", "")
+	if err != nil {
+		fmt.Fprint(os.Stderr, `lorri: no shell.nix or flake.nix found in current directory
+lorri: to create one, run:
+lorri:   nix flake init                       (minimal flake)
+lorri:   nix flake init -t templates#devShell (with a devShell template)
+lorri: then run 'lorri watch' again
+`)
+		return err
+	}
+	return opWatch(paths, projectFile)
+}
+
+func runUnwatch(args []string) error {
+	if len(args) > 0 {
+		return exitUserError("lorri unwatch takes no arguments", nil)
+	}
+	paths, err := mustInitPaths()
+	if err != nil {
+		return err
+	}
+	return opUnwatch(paths)
+}
+
+
 
 // ---------------------------------------------------------------------------
 // info
@@ -1365,15 +1505,15 @@ func opPrompt(includeLeadingSpace bool, paths *Paths) error {
 	}
 
 	// Open DB read-only so we don't block the daemon.
-	conn, err := sqlite.OpenConn(paths.SQLiteDB.String(), sqlite.OpenReadOnly)
+	db, err := OpenLorriDBReadOnly(paths.SQLiteDB.String())
 	if err != nil {
 		// DB doesn't exist yet (no projects watched); print nothing.
 		return nil
 	}
-	defer conn.Close()
+	defer db.Close()
 
-	_, found := isSubdirOfKnownProject(conn, cwd)
-	if !found {
+	found, err := db.FindRegisteredProjectForDir(cwd)
+	if err != nil || found == nil {
 		return nil
 	}
 
@@ -1385,42 +1525,7 @@ func opPrompt(includeLeadingSpace bool, paths *Paths) error {
 	return nil
 }
 
-// isSubdirOfKnownProject checks whether path (or any of its ancestors) is
-// directly the parent directory of a registered nix_file.
-// Returns (nixFile, true) if found, ("", false) otherwise.
-// Mirrors is_subdir_of_known_project() using the same SQL logic.
-func isSubdirOfKnownProject(conn *sqlite.Conn, path string) (string, bool) {
-	// Walk upward through ancestors of path.
-	for dir := filepath.Clean(path); ; dir = filepath.Dir(dir) {
-		// The SQL check from Rust:
-		//   WHERE :path || '/' = rtrim(nix_file, replace(nix_file, '/', ''))
-		// This checks that the directory of nix_file equals :path.
-		// We replicate this logic in Go: check if nix_file's Dir() == dir.
-		var found string
-		err := sqlitex.Execute(conn,
-			`SELECT nix_file FROM gc_roots
-			 WHERE :path || '/' = rtrim(nix_file, replace(nix_file, '/', ''))
-			 LIMIT 1`,
-			&sqlitex.ExecOptions{
-				Named: map[string]any{":path": dir},
-				ResultFunc: func(stmt *sqlite.Stmt) error {
-					found = stmt.ColumnText(0)
-					return nil
-				},
-			},
-		)
-		if err == nil && found != "" {
-			return found, true
-		}
 
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			// Reached the filesystem root.
-			break
-		}
-	}
-	return "", false
-}
 
 // lorriVersion is set at build time via -ldflags "-X main.lorriVersion=<ver>".
 // Falls back to the module pseudo-version from the build info.

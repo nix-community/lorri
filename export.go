@@ -59,10 +59,11 @@ func opExport(shellName string) error {
 	}
 	defer db.Close()
 
-	// Resolve or generate the session ID.
+	// Resolve or generate the session ID. A fresh ID is generated if no
+	// project is currently loaded (LORRI_SESSION_ID unset); if one is set
+	// it is reused so the revert state remains consistent across prompts.
 	sessionID := os.Getenv("LORRI_SESSION_ID")
-	isNewSession := sessionID == ""
-	if isNewSession {
+	if sessionID == "" {
 		id, err := newSessionID()
 		if err != nil {
 			return fmt.Errorf("export: generate session id: %w", err)
@@ -78,9 +79,13 @@ func opExport(shellName string) error {
 	}
 
 	// Find lorri project for the current directory.
-	foundProject, err := findProjectForDir(db, cwd)
+	foundDBProject, err := db.FindRegisteredProjectForDir(cwd)
 	if err != nil {
 		return fmt.Errorf("export: find project: %w", err)
+	}
+	foundProject := ""
+	if foundDBProject != nil {
+		foundProject = foundDBProject.NixFile
 	}
 
 	export := make(direnv.ShellExport)
@@ -88,37 +93,25 @@ func opExport(shellName string) error {
 	switch {
 	case foundProject == "" && currentProject == "":
 		// Not in a lorri project, never were. Nothing to do.
-		if isNewSession {
-			export.Add("LORRI_SESSION_ID", sessionID)
-		}
 
 	case foundProject == "" && currentProject != "":
 		// Left the project. Revert environment.
 		if err := revertEnv(db, sessionID, export); err != nil {
 			fmt.Fprintf(os.Stderr, "lorri: warning: %v\n", err)
 		}
+		export.Remove("LORRI_SESSION_ID")
 		export.Remove("LORRI_PROJECT")
 		export.Remove("LORRI_ENV_HASH")
 
 	case foundProject != "" && currentProject == "":
 		// Entered a new project.
-		if !isNewSession {
-			// Validate session still exists in DB.
-			if _, dbErr := db.GetShellSession(sessionID); dbErr != nil || sessionID == "" {
-				fmt.Fprintf(os.Stderr,
-					"lorri: warning: session state lost (session_id=%s) — environment may not revert cleanly\n",
-					sessionID)
-			}
-		}
 		envHash, err := applyProject(db, sessionID, foundProject, paths, export)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "lorri: has not completed an evaluation for this project yet")
 			_ = opPingWithRebuild(paths, NewShellNixProjectFile(mustAbsPath(foundProject)), RebuildAlways)
 			break
 		}
-		if isNewSession {
-			export.Add("LORRI_SESSION_ID", sessionID)
-		}
+		export.Add("LORRI_SESSION_ID", sessionID)
 		export.Add("LORRI_PROJECT", foundProject)
 		export.Add("LORRI_ENV_HASH", envHash)
 
@@ -131,9 +124,6 @@ func opExport(shellName string) error {
 		}
 		if newHash == currentHash {
 			// No change.
-			if isNewSession {
-				export.Add("LORRI_SESSION_ID", sessionID)
-			}
 			break
 		}
 		// New build landed: revert old env, apply new.
@@ -145,9 +135,7 @@ func opExport(shellName string) error {
 			_ = opPingWithRebuild(paths, NewShellNixProjectFile(mustAbsPath(foundProject)), RebuildAlways)
 			break
 		}
-		if isNewSession {
-			export.Add("LORRI_SESSION_ID", sessionID)
-		}
+		export.Add("LORRI_SESSION_ID", sessionID)
 		export.Add("LORRI_PROJECT", foundProject)
 		export.Add("LORRI_ENV_HASH", newHash)
 
@@ -162,9 +150,7 @@ func opExport(shellName string) error {
 			_ = opPingWithRebuild(paths, NewShellNixProjectFile(mustAbsPath(foundProject)), RebuildAlways)
 			break
 		}
-		if isNewSession {
-			export.Add("LORRI_SESSION_ID", sessionID)
-		}
+		export.Add("LORRI_SESSION_ID", sessionID)
 		export.Add("LORRI_PROJECT", foundProject)
 		export.Add("LORRI_ENV_HASH", envHash)
 	}
@@ -190,33 +176,7 @@ func newSessionID() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// findProjectForDir walks up from dir looking for a shell.nix that is
-// registered in the DB. Returns "" if none found.
-func findProjectForDir(db *LorriDB, dir string) (string, error) {
-	projects, err := db.ListProjects()
-	if err != nil {
-		return "", err
-	}
-	// Build a set for O(1) lookup.
-	registered := make(map[string]bool, len(projects))
-	for _, p := range projects {
-		registered[p.NixFile] = true
-	}
 
-	// Walk up from dir.
-	for {
-		candidate := filepath.Join(dir, "shell.nix")
-		if registered[candidate] {
-			return candidate, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return "", nil
-}
 
 // gcRootEnvJSON returns the path to env.json for a given project's GC root.
 func gcRootEnvJSON(project string, paths *Paths) (string, error) {
@@ -304,19 +264,8 @@ func applyProjectFromHash(db *LorriDB, sessionID, project, envJSONPath string, p
 		}
 	}
 
-	// Save session + revert state.
-	shellPID := os.Getppid() // the shell that invoked lorri export
-	if err := db.CreateShellSession(ShellSession{
-		SessionID: sessionID,
-		ShellPID:  shellPID,
-		Project:   project,
-		EnvHash:   hash,
-		CreatedAt: time.Now().Unix(),
-	}); err != nil {
-		// Session may already exist (e.g. re-entering same project). Update instead.
-		_ = db.UpdateShellSession(sessionID, project, hash)
-	}
-	if err := db.SetEnvPrev(sessionID, prev); err != nil {
+	// Save session + revert state atomically.
+	if err := db.SaveSessionAndEnvPrev(sessionID, project, hash, prev); err != nil {
 		return "", fmt.Errorf("save revert state: %w", err)
 	}
 
@@ -469,9 +418,13 @@ func opExportDirenvAdapter() error {
 		return fmt.Errorf("export direnv-adapter: getwd: %w", err)
 	}
 
-	project, err := findProjectForDir(db, cwd)
+	foundDBProj, err := db.FindRegisteredProjectForDir(cwd)
 	if err != nil {
 		return fmt.Errorf("export direnv-adapter: %w", err)
+	}
+	project := ""
+	if foundDBProj != nil {
+		project = foundDBProj.NixFile
 	}
 
 	socketPath := string(paths.DaemonSocketFile)
