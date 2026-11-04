@@ -5,7 +5,7 @@ your `shell.nix` and `flake.nix` and rebuilds the development environment
 in the background, automatically applying changes on your next shell prompt.
 
 When changes are made that would affect a project's development shell, lorri
-builds the new shell in the background and applies the result automaticall.
+builds the new shell in the background and applies the result automatically.
 The result is that development tools are kept in sync with the current
 Nix shell configuration (even e.g. as you switch branches) without blocking
 your use of the terminal.
